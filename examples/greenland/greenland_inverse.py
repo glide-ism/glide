@@ -14,10 +14,10 @@ from glide import IcePhysics
 from glide.io import VTIWriter, write_vti
 from glide.physics import huber_loss, huber_grad, tikhonov_regularization
 from glide.data import (
-    load_bedmachine_greenland,
+    load_bedmachine,
     load_velocity_mosaic,
     load_smb_mar,
-    prepare_greenland_grid,
+    prepare_grid,
     interpolate_to_grid
 )
 from glide.kernels import restrict_vfacet, restrict_hfacet, get_kernels
@@ -28,10 +28,10 @@ from glide.kernels import prolongate_cell_centered
 # Configuration - modify these paths and parameters
 # =============================================================================
 
-GEOMETRY_PATH = "../data/BedMachineGreenland-v5.nc"
-U_OBS_PATH = "../data/greenland_vel_mosaic250_vx_v1.tif"
-V_OBS_PATH = "../data/greenland_vel_mosaic250_vy_v1.tif"
-SMB_PATH = "../data/MARv3.9-yearly-MIROC5-rcp85-ltm1995-2014.nc"
+GEOMETRY_PATH = "./data/BedMachineGreenland-v5.nc"
+U_OBS_PATH = "./data/greenland_vel_mosaic250_vx_v1.tif"
+V_OBS_PATH = "./data/greenland_vel_mosaic250_vy_v1.tif"
+SMB_PATH = "./data/MARv3.9-yearly-MIROC5-rcp85-ltm1995-2014.nc"
 OUTPUT_DIR = "./inverse_output"
 
 SKIP = 6              # Geometry downsampling factor
@@ -51,8 +51,8 @@ N_GLEN = 3.0
 kernels = get_kernels()
 
 print("Loading geometry...")
-geometry = load_bedmachine_greenland(GEOMETRY_PATH, skip=SKIP, thklim=0.1)
-geometry = prepare_greenland_grid(geometry, n_levels=N_LEVELS)
+geometry = load_bedmachine(GEOMETRY_PATH, skip=SKIP, thklim=0.1)
+geometry = prepare_grid(geometry, n_levels=N_LEVELS)
 
 ny, nx = geometry['ny'], geometry['nx']
 dx = geometry['dx']

@@ -46,7 +46,7 @@ class IcePhysics:
     >>> u, v, H = physics.forward(dt=10.0, n_vcycles=3)
     """
 
-    def __init__(self, ny, nx, dx, n_levels=5, n=3.0, eps_reg=1e-5, thklim=0.1):
+    def __init__(self, ny, nx, dx, n_levels=5, n=3.0, eps_reg=1e-5, thklim=0.1, water_drag=1e-3,calving_rate=1.0):
         self.ny = ny
         self.nx = nx
         self.dx = dx
@@ -54,6 +54,8 @@ class IcePhysics:
         self.n = cp.float32(n)
         self.eps_reg = cp.float32(eps_reg)
         self.thklim = cp.float32(thklim)
+        self.water_drag = cp.float32(water_drag)
+        self.calving_rate = cp.float32(calving_rate)
 
         # Load kernels
         self.kernels = get_kernels()
@@ -66,7 +68,8 @@ class IcePhysics:
         self.grid = Grid(
             self.ny, self.nx, self.dx, dt=1.0,
             kernels=self.kernels,
-            n=self.n, eps_reg=self.eps_reg
+            n=self.n, eps_reg=self.eps_reg,
+            water_drag=self.water_drag,calving_rate=self.calving_rate
         )
         self.grids = [self.grid]
 

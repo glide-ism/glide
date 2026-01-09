@@ -64,7 +64,7 @@ def download_file(url, filename, cache_dir=None, force=False):
     return filepath
 
 
-def load_bedmachine_greenland(path, skip=1, thklim=0.1):
+def load_bedmachine(path, skip=1, thklim=0.1):
     """
     Load BedMachine Greenland data.
 
@@ -248,7 +248,7 @@ def interpolate_to_grid(data, x_data, y_data, x_target, y_target):
     return result.astype(np.float32)
 
 
-def prepare_greenland_grid(geometry_data, n_levels=5):
+def prepare_grid(geometry_data, n_levels=5):
     """
     Prepare grid dimensions compatible with multigrid hierarchy.
 

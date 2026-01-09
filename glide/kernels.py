@@ -3,7 +3,35 @@ CUDA kernel loading and multigrid transfer operators.
 """
 
 import cupy as cp
+import numpy as np
 from pathlib import Path
+
+
+def make_physics_params(n=3.0, eps_reg=1e-5, water_drag=0.001, calving_rate=1.0):
+    """
+    Create a PhysicsParams array for passing to CUDA kernels.
+
+    The array layout matches the CUDA PhysicsParams struct:
+    [n, eps_reg, water_drag, calving_rate] as contiguous float32 values.
+
+    Parameters
+    ----------
+    n : float
+        Glen's flow law exponent (default 3.0)
+    eps_reg : float
+        Strain rate regularization (default 1e-5)
+    water_drag : float
+        Drag coefficient for floating ice (default 0.001)
+    calving_rate : float
+        Calving rate for mass loss at margins (default 1.0)
+
+    Returns
+    -------
+    cupy.ndarray
+        Float32 array with physics parameters on GPU, passed as pointer to kernels
+    """
+    params = np.array([n, eps_reg, water_drag, calving_rate], dtype=np.float32)
+    return cp.asarray(params)
 
 
 class Kernels:

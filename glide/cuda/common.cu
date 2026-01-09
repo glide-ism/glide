@@ -226,3 +226,14 @@ __device__ void lu_5x5_solve_pivot(float A[25], const float b[5], float x[5])
         }
     }
 }
+
+// =====================================================================
+// Physics Parameters Struct
+// Passed from Python via cupy structured array with matching dtype
+// =====================================================================
+struct PhysicsParams {
+    float n;            // Glen's flow law exponent
+    float eps_reg;      // Strain rate regularization
+    float water_drag;   // Drag coefficient for floating ice
+    float calving_rate; // Calving rate for mass loss at margins
+};

@@ -19,9 +19,9 @@ void compute_residual(
     const float* __restrict__ beta,
     const float* __restrict__ mask,
     const float* __restrict__ gamma,
-    float n, float eps_reg, 
+    const PhysicsParams* params,
     float dx, float dt,
-    int ny, int nx, int stride, int halo) 
+    int ny, int nx, int stride, int halo)
 {
     const int bny = 16;
     const int bnx = 16;
@@ -33,10 +33,10 @@ void compute_residual(
     int i = blockIdx.y * stride + (threadIdx.y - halo);
 
     __shared__ float eta_local[bny][bnx];
-    
+
     if (i > ny || j > nx) return;
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, B, n, eps_reg, dx, ny, nx);
+    populate_viscosity(eta_local, bi, bj, i, j, u, v, B, params->n, params->eps_reg, dx, ny, nx);
 
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
@@ -56,7 +56,7 @@ void compute_residual(
 	    float rH = H_c/dt - f_H_c;
 
 	    float bed_c = get_cell(bed,i,j,ny,nx);
-	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,1.0f},i, j, ny, nx);
+	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,params->calving_rate},i, j, ny, nx);
 	    rH -= j_calve.res;
 
 	    float H_l = get_cell(H,i,j-1,ny,nx);
@@ -173,7 +173,7 @@ void compute_residual(
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float beta_l = get_cell(beta,i,j-1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauBxJacobian tau_bx = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,0.001f});
+	    TauBxJacobian tau_bx = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag});
 	    ru_l += tau_bx.res;
 	    }
 
@@ -187,7 +187,7 @@ void compute_residual(
 	    }
 	    r_u[i * (nx + 1) + j] = ru_l;
 	}
-	
+
 	if (has_v){
 
 	    float f_v_t = get_hfacet(f_v,i,j,ny,nx);
@@ -197,7 +197,7 @@ void compute_residual(
 	    float eta_t = eta_local[bi - 1][bj];
 	    float H_t  = get_cell(H,i-1,j,ny,nx);
 	    EtaHCellJacobian eta_H_t = get_eta_H_cell_jac({eta_t,H_t});
-	    
+
 	    float u_tl = get_vfacet(u,i-1,j,ny,nx);
 	    float u_tr = get_vfacet(u,i-1,j+1,ny,nx);
 	    float v_tt = get_hfacet(v,i-1,j,ny,nx);
@@ -205,7 +205,7 @@ void compute_residual(
 	    SigmaNormalJacobian sigma_yy_t = get_sigma_yy_jac({u_tl,u_tr,v_tt,v_t,eta_H_t.res},dx_inv,i-1,j,ny,nx);
             rv_t += sigma_yy_t.res * dx_inv;
 	    }
-            
+
 	    {
 	    float eta_c = eta_local[bi][bj];
 	    float H_c = get_cell(H,i,j,ny,nx);
@@ -218,25 +218,25 @@ void compute_residual(
             SigmaNormalJacobian sigma_yy_c = get_sigma_yy_jac({u_l,u_r,v_t,v_b,eta_H_c.res},dx_inv,i,j,ny,nx);
 	    rv_t -= sigma_yy_c.res * dx_inv;
 	    }
-	    
+
 	    {
 	    float eta_tl = eta_local[bi - 1][bj - 1];
 	    float eta_t  = eta_local[bi - 1][bj];
 	    float eta_l  = eta_local[bi][bj - 1];
 	    float eta_c  = eta_local[bi][bj];
-	    
+
 	    float H_tl   = get_cell(H,i-1,j-1,ny,nx);
 	    float H_t    = get_cell(H,i-1,j,ny,nx);
 	    float H_l    = get_cell(H,i,j-1,ny,nx);
 	    float H_c    = get_cell(H,i,j,ny,nx);
-            
+
 	    EtaHVertexJacobian eta_H_tl = get_eta_H_vertex_jac({eta_tl,eta_t,eta_l,eta_c,H_tl,H_t,H_l,H_c});
-	    
+
 	    float u_tl = get_vfacet(u,i-1,j,ny,nx);
 	    float u_l = get_vfacet(u,i,j,ny,nx);
 	    float v_lt = get_hfacet(v,i,j-1,ny,nx);
 	    float v_t = get_hfacet(v,i,j,ny,nx);
-	    
+
 	    SigmaShearJacobian sigma_xy_tl = get_sigma_xy_jac({u_tl,u_l,v_lt,v_t,eta_H_tl.res},dx_inv,i,j,ny,nx);
 
 	    rv_t -= sigma_xy_tl.res * dx_inv;
@@ -272,7 +272,7 @@ void compute_residual(
 	    float beta_t = get_cell(beta,i-1,j,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
 
-	    TauByJacobian tau_by = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,0.001f});
+	    TauByJacobian tau_by = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag});
 	    rv_t += tau_by.res;
 	    }
 
@@ -312,9 +312,9 @@ void compute_jvp(
     const float* __restrict__ beta,
     const float* __restrict__ mask,
     const float* __restrict__ gamma,
-    float n, float eps_reg, 
+    const PhysicsParams* params,
     float dx, float dt,
-    int ny, int nx, int stride, int halo) 
+    int ny, int nx, int stride, int halo)
 {
     const int bny = 16;
     const int bnx = 16;
@@ -326,10 +326,10 @@ void compute_jvp(
     int i = blockIdx.y * stride + (threadIdx.y - halo);
 
     __shared__ DualFloat eta_local[bny][bnx];
-    
+
     if (i > ny || j > nx) return;
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, d_u, d_v, B, n, eps_reg, dx, ny, nx);
+    populate_viscosity(eta_local, bi, bj, i, j, u, v, d_u, d_v, B, params->n, params->eps_reg, dx, ny, nx);
 
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
@@ -346,7 +346,7 @@ void compute_jvp(
 	    float d_rH = H_c.d/dt;
 
 	    float bed_c = get_cell(bed,i,j,ny,nx);
-	    DualFloat calve = get_cell_calving_dual({H_c,bed_c,1.0f},i, j, ny, nx);
+	    DualFloat calve = get_cell_calving_dual({H_c,bed_c,params->calving_rate},i, j, ny, nx);
 	    d_rH -= calve.d;
 
 	    DualFloat H_l = get_cell(H,d_H,i,j-1,ny,nx);
@@ -460,7 +460,7 @@ void compute_jvp(
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float beta_l = get_cell(beta,i,j-1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    DualFloat tau_bx = get_tau_bx_dual({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,0.001f});
+	    DualFloat tau_bx = get_tau_bx_dual({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag});
 	    d_ru_l += tau_bx.d;
 	    }
 
@@ -558,7 +558,7 @@ void compute_jvp(
 	    float beta_t     = get_cell(beta,i-1,j,ny,nx);
 	    float beta_c     = get_cell(beta,i,j,ny,nx);
 
-	    DualFloat tau_by = get_tau_by_dual({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,0.001f});
+	    DualFloat tau_by = get_tau_by_dual({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag});
 	    d_rv_t += tau_by.d;
 	    }
 
@@ -599,9 +599,9 @@ void compute_vjp(
     const float* __restrict__ beta,
     const float* __restrict__ mask,
     const float* __restrict__ gamma,
-    float n, float eps_reg, 
+    const PhysicsParams* params,
     float dx, float dt,
-    int ny, int nx, int stride, int halo) 
+    int ny, int nx, int stride, int halo)
 {
     const int bny = 16;
     const int bnx = 16;
@@ -614,7 +614,7 @@ void compute_vjp(
     int i = blockIdx.y * stride + (threadIdx.y - halo);
 
     // SHARED MEMORY ACCUMULATORS
-    __shared__ float s_adj_u[bny][bnx+1]; 
+    __shared__ float s_adj_u[bny][bnx+1];
     __shared__ float s_adj_v[bny+1][bnx];
     __shared__ float s_adj_H[bny][bnx];
 
@@ -628,8 +628,8 @@ void compute_vjp(
     s_adj_H[bi][bj] = 0.0f;
 
     __shared__ DualFloat eta_local[bny][bnx];
-    
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, lambda_u, lambda_v, B, n, eps_reg, dx, ny, nx);
+
+    populate_viscosity(eta_local, bi, bj, i, j, u, v, lambda_u, lambda_v, B, params->n, params->eps_reg, dx, ny, nx);
 
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
@@ -649,7 +649,7 @@ void compute_vjp(
 	    atomicAdd(&s_adj_H[bi][bj], lambda_H_c/dt);
 
 	    float bed_c = get_cell(bed,i,j,ny,nx);
-	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,1.0f},i, j, ny, nx);
+	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,params->calving_rate},i, j, ny, nx);
 	    atomicAdd(&s_adj_H[bi][bj] , -lambda_H_c*j_calve.d_H);
 
 	    float H_l = get_cell(H,i,j-1,ny,nx);
@@ -811,7 +811,7 @@ void compute_vjp(
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float beta_l = get_cell(beta,i,j-1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauBxJacobian j_tau_bx = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,0.001f});
+	    TauBxJacobian j_tau_bx = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag});
 
 	    atomicAdd(&s_adj_u[bi][bj],lambda_u_l * j_tau_bx.d_u);
 	    }
@@ -952,7 +952,7 @@ void compute_vjp(
 	    float beta_t = get_cell(beta,i-1,j,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
 
-	    TauByJacobian j_tau_by = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,0.001f});
+	    TauByJacobian j_tau_by = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag});
 	    atomicAdd(&s_adj_v[bi][bj],lambda_v_t * j_tau_by.d_v);
 	    }
 

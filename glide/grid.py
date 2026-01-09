@@ -8,6 +8,7 @@ Implements a MAC (marker-and-cell) staggered grid with:
 """
 
 import cupy as cp
+from .kernels import make_physics_params
 
 
 class Grid:
@@ -33,10 +34,14 @@ class Grid:
         Glen's flow law exponent (default 3.0)
     eps_reg : float
         Strain rate regularization (default 1e-5)
+    water_drag : float
+        Drag coefficient for floating ice (default 0.001)
+    calving_rate : float
+        Calving rate for mass loss at margins (default 1.0)
     """
 
     def __init__(self, ny, nx, dx, dt, kernels, parent=None,
-                 n=cp.float32(3.0), eps_reg=cp.float32(1e-5)):
+                 n=3.0, eps_reg=1e-5, water_drag=0.001, calving_rate=1.0):
         self.parent = parent
         self.child = None
         self.kernels = kernels
@@ -53,9 +58,15 @@ class Grid:
         self.nh = ny * nx
         self.n_total = self.nu + self.nv + self.nh
 
-        # Physics parameters
-        self.n = cp.float32(n)
-        self.eps_reg = cp.float32(eps_reg)
+        # Physics parameters (passed to CUDA kernels as struct)
+        self._n = float(n)
+        self._eps_reg = float(eps_reg)
+        self._water_drag = float(water_drag)
+        self._calving_rate = float(calving_rate)
+        self.physics_params = make_physics_params(
+            n=self._n, eps_reg=self._eps_reg,
+            water_drag=self._water_drag, calving_rate=self._calving_rate
+        )
 
         # Allocate state and work arrays
         self._allocate_arrays()
@@ -155,8 +166,10 @@ class Grid:
             self.dx * 2, self.dt,
             self.kernels,
             parent=self,
-            n=self.n,
-            eps_reg=self.eps_reg
+            n=self._n,
+            eps_reg=self._eps_reg,
+            water_drag=self._water_drag,
+            calving_rate=self._calving_rate
         )
         self.child = child
         return child
@@ -180,7 +193,7 @@ class Grid:
                 self.f_u, self.f_v, self.f_H,
                 self.bed, self.B, self.beta,
                 self.mask, self.gamma,
-                self.n, self.eps_reg,
+                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 
@@ -200,7 +213,7 @@ class Grid:
                 self.Z_u, self.Z_v, self.Z_H,
                 self.bed, self.B, self.beta,
                 self.mask, self.gamma,
-                self.n, self.eps_reg,
+                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 
@@ -215,7 +228,7 @@ class Grid:
                 self.d_u, self.d_v, self.d_H,
                 self.bed, self.B, self.beta,
                 self.mask, self.gamma,
-                self.n, self.eps_reg,
+                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 
@@ -231,7 +244,7 @@ class Grid:
                 self.lambda_u, self.lambda_v, self.lambda_H,
                 self.bed, self.B, self.beta,
                 self.mask, self.gamma,
-                self.n, self.eps_reg,
+                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 
@@ -245,7 +258,7 @@ class Grid:
                 self.u, self.v, self.H,
                 self.f_u, self.f_v, self.f_H,
                 self.bed, self.B, self.beta, self.gamma,
-                self.n, self.eps_reg,
+                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo,
                 color, n_inner, omega))
@@ -260,7 +273,7 @@ class Grid:
                 self.u, self.v, self.H,
                 self.f_u, self.f_v, self.f_H,
                 self.bed, self.B, self.beta, self.gamma,
-                self.n, self.eps_reg,
+                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo,
                 color, n_inner, omega))
@@ -278,7 +291,7 @@ class Grid:
                 self.r_adj_u, self.r_adj_v, self.r_adj_H,
                 self.u, self.v, self.H,
                 self.bed, self.B, self.beta, self.gamma,
-                self.n, self.eps_reg,
+                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo,
                 color, omega))
@@ -331,7 +344,7 @@ class Grid:
                 self.lambda_u, self.lambda_v, self.lambda_H,
                 self.bed, self.B, self.beta,
                 self.mask, self.gamma,
-                self.n, self.eps_reg,
+                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 

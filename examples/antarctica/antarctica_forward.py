@@ -12,9 +12,9 @@ import numpy as np
 from glide import IcePhysics
 from glide.io import VTIWriter, write_vti
 from glide.data import (
-    load_bedmachine_greenland,
+    load_bedmachine,
     load_smb_mar,
-    prepare_greenland_grid,
+    prepare_grid,
     interpolate_to_grid
 )
 
@@ -22,13 +22,13 @@ from glide.data import (
 # Configuration - modify these paths and parameters
 # =============================================================================
 
-GEOMETRY_PATH = "../data/BedMachineGreenland-v5.nc"
-SMB_PATH = "../data/MARv3.9-yearly-MIROC5-rcp85-ltm1995-2014.nc"
-BETA_PATH = "./inverse_output/beta_level_0.p"
+GEOMETRY_PATH = "./data/BedMachineAntarctica-v3.nc"
+SMB_PATH = "./data/smb_monthlyS_ANT27_ERA5-3H_RACMO2.3p2_197901_202212.nc"
+#BETA_PATH = "./inverse_output/beta_level_0.p"
 OUTPUT_DIR = "./output"
 
-SKIP = 6           # Geometry downsampling factor
-DT = 10.0          # Time step (years)
+SKIP = 4           # Geometry downsampling factor
+DT = 25.0          # Time step (years)
 N_STEPS = 200      # Number of time steps
 N_LEVELS = 5       # Multigrid levels
 N_VCYCLES = 3      # V-cycles per time step
@@ -43,8 +43,8 @@ N_GLEN = 3.0
 # =============================================================================
 
 print("Loading geometry...")
-geometry = load_bedmachine_greenland(GEOMETRY_PATH, skip=SKIP, thklim=0.1)
-geometry = prepare_greenland_grid(geometry, n_levels=N_LEVELS)
+geometry = load_bedmachine(GEOMETRY_PATH, skip=SKIP, thklim=0.1)
+geometry = prepare_grid(geometry, n_levels=N_LEVELS)
 
 ny, nx = geometry['ny'], geometry['nx']
 dx = geometry['dx']
@@ -53,16 +53,17 @@ x, y = geometry['x'], geometry['y']
 print(f"Grid: {ny} x {nx}, dx = {dx:.1f} m")
 
 print("Loading SMB...")
-smb_data = load_smb_mar(SMB_PATH)
-smb = interpolate_to_grid(
-    smb_data['smb'], smb_data['x'], smb_data['y'],
-    x, y
-)
+#smb_data = load_smb_mar(SMB_PATH)
+smb = cp.zeros((ny,nx),dtype=cp.float32)
+        #interpolate_to_grid(
+    #smb_data['smb'], smb_data['x'], smb_data['y'],
+    #x, y
+#)
 
 print("Loading beta...")
-beta = cp.array(pickle.load(open(BETA_PATH, 'rb')))
+beta = cp.ones((ny,nx),dtype=cp.float32)*0.05#cp.array(pickle.load(open(BETA_PATH, 'rb')))
 
-# Compute B (rate factor)
+# Compute B (rate factor - we measure driving stress in units of head, so the rho g factor gets subsumed into definitions of beta and B!)
 B_scalar = cp.float32(1e-18 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
 B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 
@@ -71,7 +72,7 @@ B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 # =============================================================================
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0)
 physics.set_geometry(geometry['bed'], geometry['thickness'])
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
@@ -82,7 +83,7 @@ grid = physics.grid
 # Set up output
 # =============================================================================
 
-writer = VTIWriter(OUTPUT_DIR, base="greenland", dx=dx)
+writer = VTIWriter(OUTPUT_DIR, base="antarctica", dx=dx)
 write_vti(f"{OUTPUT_DIR}/bed.vti", {'bed': grid.bed}, dx)
 
 # =============================================================================
@@ -111,4 +112,3 @@ for step in range(N_STEPS):
     writer.write_pvd()
 
 print("Done!")
-

@@ -16,7 +16,7 @@ void vanka_smooth(
     const float* __restrict__ B,
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
-    float n, float eps_reg, 
+    const PhysicsParams* params,
     float dx, float dt,
     int ny, int nx, int stride, int halo,
     int color, int n_newton, float omega
@@ -35,7 +35,7 @@ void vanka_smooth(
     
     if (i < 0 || i >= ny || j<0 || j >= nx) return;
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, B, n, eps_reg, dx, ny, nx);
+    populate_viscosity(eta_local, bi, bj, i, j, u, v, B, params->n, params->eps_reg, dx, ny, nx);
 
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
@@ -69,9 +69,9 @@ void vanka_smooth(
 	    J[24] = 1.0f / dt;
 	    r[4] += H_c/dt;// H_prev/dt - smb handled by f_H - (H_c - H_prev_c) / dt - smb_c;
 
-	    
+
 	    float bed_c = get_cell(bed,i,j,ny,nx);
-	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,1.0f},i, j, ny, nx);
+	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,params->calving_rate},i, j, ny, nx);
 	    J[24] -= j_calve.d_H;
 	    r[4] -= j_calve.res;
 
@@ -312,52 +312,52 @@ void vanka_smooth(
 	    
 	    
 	    // Basal shear stress for left momentum
-            {    
+            {
 	    float H_l    = get_cell(H,i,j-1,ny,nx);
 	    float bed_l  = get_cell(bed,i,j-1,ny,nx);
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float beta_l = get_cell(beta,i,j-1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauBxJacobian tau_bx_l = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,0.001f});
+	    TauBxJacobian tau_bx_l = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag});
 	    r[0] += tau_bx_l.res;
             J[0] += tau_bx_l.d_u;
 	    J[4] += tau_bx_l.d_H_r;
 	    }
 
 	    // Basal shear stress for right momentum
-            {    
+            {
 	    float H_r    = get_cell(H,i,j+1,ny,nx);
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float bed_r  = get_cell(bed,i,j+1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
 	    float beta_r = get_cell(beta,i,j+1,ny,nx);
-	    TauBxJacobian tau_bx_r = get_tau_bx_jac({u_r,H_c,H_r,bed_c,bed_r,beta_c,beta_r,0.001f});
+	    TauBxJacobian tau_bx_r = get_tau_bx_jac({u_r,H_c,H_r,bed_c,bed_r,beta_c,beta_r,params->water_drag});
 	    r[1] += tau_bx_r.res;
             J[6] += tau_bx_r.d_u;
 	    J[9] += tau_bx_r.d_H_l;
 	    }
 
 	    // Basal shear stress for top momentum
-            {    
+            {
 	    float H_t    = get_cell(H,i-1,j,ny,nx);
 	    float bed_t  = get_cell(bed,i-1,j,ny,nx);
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float beta_t = get_cell(beta,i-1,j,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauByJacobian tau_by_t = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,0.001f});
+	    TauByJacobian tau_by_t = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag});
 	    r[2]  += tau_by_t.res;
             J[12] += tau_by_t.d_v;
 	    J[14] += tau_by_t.d_H_b;
 	    }
 
 	    // Basal shear stress for bottom momentum
-            {    
+            {
 	    float H_b    = get_cell(H,i+1,j,ny,nx);
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float bed_b  = get_cell(bed,i+1,j,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
 	    float beta_b = get_cell(beta,i+1,j,ny,nx);
-	    TauByJacobian tau_by_b = get_tau_by_jac({v_b,H_c,H_b,bed_c,bed_b,beta_c,beta_b,0.001f});
+	    TauByJacobian tau_by_b = get_tau_by_jac({v_b,H_c,H_b,bed_c,bed_b,beta_c,beta_b,params->water_drag});
 	    r[3]  += tau_by_b.res;
             J[18] += tau_by_b.d_v;
 	    J[19] += tau_by_b.d_H_t;
@@ -461,7 +461,7 @@ void vanka_smooth_adjoint(
     const float* __restrict__ B,
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
-    float n, float eps_reg, 
+    const PhysicsParams* params,
     float dx, float dt,
     int ny, int nx, int stride, int halo,
     int color, float omega
@@ -477,10 +477,10 @@ void vanka_smooth_adjoint(
     int i = blockIdx.y * stride + (threadIdx.y - halo);
 
     __shared__ float eta_local[bny][bnx];
-    
+
     if (i < 0 || i >= ny || j<0 || j >= nx) return;
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, B, n, eps_reg, dx, ny, nx);
+    populate_viscosity(eta_local, bi, bj, i, j, u, v, B, params->n, params->eps_reg, dx, ny, nx);
 
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
@@ -506,11 +506,11 @@ void vanka_smooth_adjoint(
 	// Standard Mass Conservation: dH/dt + div(q) - smb = 0
 	//float H_prev_c = get_cell(H_prev, i, j, ny, nx);
 	//float smb_c    = get_cell(smb, i, j, ny, nx);
-	
+
 	J[24] = 1.0f / dt;
 
         float bed_c = get_cell(bed,i,j,ny,nx);
-	CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,1.0f},i, j, ny, nx);
+	CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,params->calving_rate},i, j, ny, nx);
 	J[24] -= j_calve.d_H;
 
 	// X-Fluxes
@@ -725,49 +725,49 @@ void vanka_smooth_adjoint(
 	
 	
 	// Basal shear stress for left momentum
-	{    
+	{
 	float H_l    = get_cell(H,i,j-1,ny,nx);
 	float bed_l  = get_cell(bed,i,j-1,ny,nx);
 	float bed_c  = get_cell(bed,i,j,ny,nx);
 	float beta_l = get_cell(beta,i,j-1,ny,nx);
 	float beta_c = get_cell(beta,i,j,ny,nx);
-	TauBxJacobian tau_bx_l = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,0.001f});
+	TauBxJacobian tau_bx_l = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag});
 	J[0] += tau_bx_l.d_u;
 	J[4] += tau_bx_l.d_H_r;
 	}
 
 	// Basal shear stress for right momentum
-	{    
+	{
 	float H_r    = get_cell(H,i,j+1,ny,nx);
 	float bed_c  = get_cell(bed,i,j,ny,nx);
 	float bed_r  = get_cell(bed,i,j+1,ny,nx);
 	float beta_c = get_cell(beta,i,j,ny,nx);
 	float beta_r = get_cell(beta,i,j+1,ny,nx);
-	TauBxJacobian tau_bx_r = get_tau_bx_jac({u_r,H_c,H_r,bed_c,bed_r,beta_c,beta_r,0.001f});
+	TauBxJacobian tau_bx_r = get_tau_bx_jac({u_r,H_c,H_r,bed_c,bed_r,beta_c,beta_r,params->water_drag});
 	J[6] += tau_bx_r.d_u;
 	J[9] += tau_bx_r.d_H_l;
 	}
 
 	// Basal shear stress for top momentum
-	{    
+	{
 	float H_t    = get_cell(H,i-1,j,ny,nx);
 	float bed_t  = get_cell(bed,i-1,j,ny,nx);
 	float bed_c  = get_cell(bed,i,j,ny,nx);
 	float beta_t = get_cell(beta,i-1,j,ny,nx);
 	float beta_c = get_cell(beta,i,j,ny,nx);
-	TauByJacobian tau_by_t = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,0.001f});
+	TauByJacobian tau_by_t = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag});
 	J[12] += tau_by_t.d_v;
 	J[14] += tau_by_t.d_H_b;
 	}
 
 	// Basal shear stress for bottom momentum
-	{    
+	{
 	float H_b    = get_cell(H,i+1,j,ny,nx);
 	float bed_c  = get_cell(bed,i,j,ny,nx);
 	float bed_b  = get_cell(bed,i+1,j,ny,nx);
 	float beta_c = get_cell(beta,i,j,ny,nx);
 	float beta_b = get_cell(beta,i+1,j,ny,nx);
-	TauByJacobian tau_by_b = get_tau_by_jac({v_b,H_c,H_b,bed_c,bed_b,beta_c,beta_b,0.001f});
+	TauByJacobian tau_by_b = get_tau_by_jac({v_b,H_c,H_b,bed_c,bed_b,beta_c,beta_b,params->water_drag});
 	J[18] += tau_by_b.d_v;
 	J[19] += tau_by_b.d_H_t;
 	}
@@ -861,7 +861,7 @@ void vanka_smooth_local(
     const float* __restrict__ B,
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
-    float n, float eps_reg, 
+    const PhysicsParams* params,
     float dx, float dt,
     int ny, int nx, int stride, int halo,
     int color, int n_newton, float omega
@@ -890,7 +890,7 @@ void vanka_smooth_local(
     
     __shared__ float eta_local[bny][bnx];
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, B, n, eps_reg, dx, ny, nx);
+    populate_viscosity(eta_local, bi, bj, i, j, u, v, B, params->n, params->eps_reg, dx, ny, nx);
 
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
@@ -921,13 +921,13 @@ void vanka_smooth_local(
 	    // Standard Mass Conservation: dH/dt + div(q) - smb = 0
 	    //float H_prev_c = get_cell(H_prev, i, j, ny, nx);
 	    //float smb_c    = get_cell(smb, i, j, ny, nx);
-	    
+
 	    J[24] = 1.0f / dt;
 	    r[4] += H_c/dt;// H_prev/dt - smb handled by f_H - (H_c - H_prev_c) / dt - smb_c;
 
-	    
+
 	    float bed_c = get_cell(bed,i,j,ny,nx);
-	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,1.0f},i, j, ny, nx);
+	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,params->calving_rate},i, j, ny, nx);
 	    J[24] -= j_calve.d_H;
 	    r[4] -= j_calve.res;
 
@@ -1168,52 +1168,52 @@ void vanka_smooth_local(
 	    
 	    
 	    // Basal shear stress for left momentum
-            {    
+            {
 	    float H_l    = get_cell(H,i,j-1,ny,nx);
 	    float bed_l  = get_cell(bed,i,j-1,ny,nx);
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float beta_l = get_cell(beta,i,j-1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauBxJacobian tau_bx_l = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,0.001f});
+	    TauBxJacobian tau_bx_l = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag});
 	    r[0] += tau_bx_l.res;
             J[0] += tau_bx_l.d_u;
 	    J[4] += tau_bx_l.d_H_r;
 	    }
 
 	    // Basal shear stress for right momentum
-            {    
+            {
 	    float H_r    = get_cell(H,i,j+1,ny,nx);
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float bed_r  = get_cell(bed,i,j+1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
 	    float beta_r = get_cell(beta,i,j+1,ny,nx);
-	    TauBxJacobian tau_bx_r = get_tau_bx_jac({u_r,H_c,H_r,bed_c,bed_r,beta_c,beta_r,0.001f});
+	    TauBxJacobian tau_bx_r = get_tau_bx_jac({u_r,H_c,H_r,bed_c,bed_r,beta_c,beta_r,params->water_drag});
 	    r[1] += tau_bx_r.res;
             J[6] += tau_bx_r.d_u;
 	    J[9] += tau_bx_r.d_H_l;
 	    }
 
 	    // Basal shear stress for top momentum
-            {    
+            {
 	    float H_t    = get_cell(H,i-1,j,ny,nx);
 	    float bed_t  = get_cell(bed,i-1,j,ny,nx);
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float beta_t = get_cell(beta,i-1,j,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauByJacobian tau_by_t = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,0.001f});
+	    TauByJacobian tau_by_t = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag});
 	    r[2]  += tau_by_t.res;
             J[12] += tau_by_t.d_v;
 	    J[14] += tau_by_t.d_H_b;
 	    }
 
 	    // Basal shear stress for bottom momentum
-            {    
+            {
 	    float H_b    = get_cell(H,i+1,j,ny,nx);
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float bed_b  = get_cell(bed,i+1,j,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
 	    float beta_b = get_cell(beta,i+1,j,ny,nx);
-	    TauByJacobian tau_by_b = get_tau_by_jac({v_b,H_c,H_b,bed_c,bed_b,beta_c,beta_b,0.001f});
+	    TauByJacobian tau_by_b = get_tau_by_jac({v_b,H_c,H_b,bed_c,bed_b,beta_c,beta_b,params->water_drag});
 	    r[3]  += tau_by_b.res;
             J[18] += tau_by_b.d_v;
 	    J[19] += tau_by_b.d_H_t;
