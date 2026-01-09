@@ -24,11 +24,11 @@ from glide.data import (
 
 GEOMETRY_PATH = "../data/BedMachineGreenland-v5.nc"
 SMB_PATH = "../data/MARv3.9-yearly-MIROC5-rcp85-ltm1995-2014.nc"
-BETA_PATH = "./inverse_results/log_beta_0900.p"
+BETA_PATH = "./inverse_output/beta_level_0.p"
 OUTPUT_DIR = "./output"
 
 SKIP = 6           # Geometry downsampling factor
-DT = 25.0          # Time step (years)
+DT = 10.0          # Time step (years)
 N_STEPS = 200      # Number of time steps
 N_LEVELS = 5       # Multigrid levels
 N_VCYCLES = 3      # V-cycles per time step
@@ -60,7 +60,7 @@ smb = interpolate_to_grid(
 )
 
 print("Loading beta...")
-beta = cp.ones_like(smb)*0.1#cp.array(pickle.load(open(BETA_PATH, 'rb')))
+beta = cp.array(pickle.load(open(BETA_PATH, 'rb')))
 
 # Compute B (rate factor)
 B_scalar = cp.float32(1e-18 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
@@ -88,7 +88,7 @@ write_vti(f"{OUTPUT_DIR}/bed.vti", {'bed': grid.bed}, dx)
 # =============================================================================
 # Time stepping
 # =============================================================================
-"""
+
 print(f"Running {N_STEPS} time steps of {DT} years...")
 t = 0.0
 
@@ -111,4 +111,4 @@ for step in range(N_STEPS):
     writer.write_pvd()
 
 print("Done!")
-"""
+

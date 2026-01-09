@@ -166,16 +166,35 @@ class IcePhysics:
         # Set up RHS for mass equation
         self.grid.f_H[:, :] = self.grid.H_prev / self.grid.dt + self.grid.smb
 
+        # Compute initial residual for convergence tracking
+        if verbose:
+            rss_H_init = self.grid.compute_residual(return_fischer_burmeister=True)
+            r0 = float(cp.sqrt(
+                cp.linalg.norm(self.grid.r_u)**2 +
+                cp.linalg.norm(self.grid.r_v)**2 +
+                cp.linalg.norm(rss_H_init)**2
+            ))
+            print(f"  Initial: |r| = {r0:.2e}, "
+                  f"|r_u| = {float(cp.linalg.norm(self.grid.r_u)):.2e}, "
+                  f"|r_v| = {float(cp.linalg.norm(self.grid.r_v)):.2e}, "
+                  f"|rss_H| = {float(cp.linalg.norm(rss_H_init)):.2e}")
+
         # Solve
         for i in range(n_vcycles):
             fascd_vcycle(self.grid, self.thklim, finest=True)
 
             if verbose:
                 rss_H = self.grid.compute_residual(return_fischer_burmeister=True)
-                print(f"  V-cycle {i}: "
-                      f"|r_u|={float(cp.linalg.norm(self.grid.r_u)):.2e}, "
-                      f"|r_v|={float(cp.linalg.norm(self.grid.r_v)):.2e}, "
-                      f"|rss_H|={float(cp.linalg.norm(rss_H)):.2e}")
+                r_combined = float(cp.sqrt(
+                    cp.linalg.norm(self.grid.r_u)**2 +
+                    cp.linalg.norm(self.grid.r_v)**2 +
+                    cp.linalg.norm(rss_H)**2
+                ))
+                rel = r_combined / r0 if r0 > 0 else 0.0
+                print(f"  V-cycle {i}: |r|/|r0| = {rel:.2e}, "
+                      f"|r_u| = {float(cp.linalg.norm(self.grid.r_u)):.2e}, "
+                      f"|r_v| = {float(cp.linalg.norm(self.grid.r_v)):.2e}, "
+                      f"|rss_H| = {float(cp.linalg.norm(rss_H)):.2e}")
 
         # Update H_prev for next time step
         self.grid.H_prev[:] = self.grid.H[:]

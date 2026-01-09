@@ -150,6 +150,7 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
 
         # Forward solve
         restrict_parameters_to_hierarchy(current_grid)
+        current_grid.f_H[:,:] = current_grid.H_prev/current_grid.dt + current_grid.smb
         for _ in range(5):
             fascd_vcycle(current_grid, physics.thklim, finest=True)
 
@@ -203,7 +204,7 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
         objective, x0,
         bounds=bounds,
         callback=callback,
-        factr=1e10,
+        factr=1e11,
         m=15
     )
 
