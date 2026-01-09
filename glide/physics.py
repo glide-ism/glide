@@ -7,8 +7,8 @@ computations into a clean interface.
 
 import cupy as cp
 from .grid import Grid
-from .kernels import get_kernels, restrict_vfacet, restrict_hfacet, restrict_cell_centered
-from .solver import fascd_vcycle, adjoint_vcycle, restrict_parameters, restrict_f, restrict_solution
+from .kernels import get_kernels, restrict_cell_centered
+from .solver import fascd_vcycle, adjoint_vcycle, restrict_parameters_to_hierarchy
 
 
 # Physical constants
@@ -89,6 +89,9 @@ class IcePhysics:
         self.grid.H_prev[:] = self.grid.H[:]
         self.grid.gamma.fill(self.thklim)
 
+        # Propagate geometry to child grids
+        self._propagate_geometry_to_hierarchy()
+
     def set_parameters(self, B=None, beta=None, smb=None):
         """
         Set physical parameters.
@@ -115,6 +118,19 @@ class IcePhysics:
 
         if smb is not None:
             self.grid.smb[:] = cp.asarray(smb, dtype=cp.float32)
+
+        # Propagate parameters to child grids
+        restrict_parameters_to_hierarchy(self.grid)
+
+    def _propagate_geometry_to_hierarchy(self):
+        """Propagate geometry (bed, H, H_prev, gamma) to all child grids."""
+        for i in range(len(self.grids) - 1):
+            parent = self.grids[i]
+            child = self.grids[i + 1]
+            restrict_cell_centered(parent.bed, self.kernels, f_coarse=child.bed)
+            restrict_cell_centered(parent.H, self.kernels, f_coarse=child.H)
+            restrict_cell_centered(parent.H_prev, self.kernels, f_coarse=child.H_prev)
+            child.gamma.fill(self.thklim)
 
     def forward(self, dt, n_vcycles=3, verbose=False):
         """

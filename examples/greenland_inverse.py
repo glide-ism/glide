@@ -31,7 +31,7 @@ from glide.kernels import prolongate_cell_centered
 GEOMETRY_PATH = "../data/BedMachineGreenland-v5.nc"
 U_OBS_PATH = "../data/greenland_vel_mosaic250_vx_v1.tif"
 V_OBS_PATH = "../data/greenland_vel_mosaic250_vy_v1.tif"
-SMB_PATH = "../data/MARv3.9-yearly-MIROC5-rcp85-2015-2100.nc"
+SMB_PATH = "../data/MARv3.9-yearly-MIROC5-rcp85-ltm1995-2014.nc"
 OUTPUT_DIR = "./inverse_output"
 
 SKIP = 6              # Geometry downsampling factor
