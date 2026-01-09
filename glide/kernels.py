@@ -16,11 +16,18 @@ class Kernels:
     def __init__(self):
         cuda_dir = Path(__file__).parent / "cuda"
 
-        with open(cuda_dir / "utility_kernels.cu", "r") as f:
+        with open(cuda_dir / "utility.cu", "r") as f:
             self.util = cp.RawModule(code=f.read())
 
-        with open(cuda_dir / "ice_kernels.cu", "r") as f:
-            self.ice = cp.RawModule(code=f.read(), options=("--use_fast_math",))
+        # Concatenate ice kernel files in dependency order
+        ice_files = ['common.cu', 'viscosity.cu', 'stress.cu', 'flux.cu',
+                          'residuals.cu', 'vanka.cu', 'grad.cu']
+        ice_source = '\n'.join(
+            (cuda_dir / f).read_text() for f in ice_files
+             )
+        
+        self.ice = cp.RawModule(code=ice_source, options=("--use_fast_math",))
+
 
 
 # Global kernel instance (lazy-loaded)
