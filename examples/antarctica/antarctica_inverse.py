@@ -16,9 +16,9 @@ from glide.physics import huber_loss, huber_grad, tikhonov_regularization
 from glide.data import (
     load_bedmachine,
     load_velocity_mosaic,
-    load_smb_mar,
+    load_smb_racmo,
     prepare_grid,
-    interpolate_to_grid
+    interpolate_to_grid,load_antarctic_velocity
 )
 from glide.kernels import restrict_vfacet, restrict_hfacet, get_kernels
 from glide.solver import fascd_vcycle, adjoint_vcycle, restrict_parameters_to_hierarchy
@@ -27,17 +27,15 @@ from glide.kernels import prolongate_cell_centered
 # =============================================================================
 # Configuration - modify these paths and parameters
 # =============================================================================
-
-GEOMETRY_PATH = "./data/BedMachineGreenland-v5.nc"
-U_OBS_PATH = "./data/greenland_vel_mosaic250_vx_v1.tif"
-V_OBS_PATH = "./data/greenland_vel_mosaic250_vy_v1.tif"
-SMB_PATH = "./data/MARv3.9-yearly-MIROC5-rcp85-ltm1995-2014.nc"
+GEOMETRY_PATH = "./data/BedMachineAntarctica-v3.nc"
+SMB_PATH = "./data/smbgl_monthlyS_ANT11_RACMO2.4p1_ERA5_197901_202312.nc"
+U_OBS_PATH = "./data/antarctica_ice_velocity_450m_v2.nc"
 OUTPUT_DIR = "./inverse_output"
 
-SKIP = 6              # Geometry downsampling factor
-DT = 10.0             # Time step (years)
+SKIP = 4              # Geometry downsampling factor
+DT = 1.0             # Time step (years)
 N_LEVELS = 5          # Multigrid levels
-REG_WEIGHT = 1e-4     # Tikhonov regularization weight
+REG_WEIGHT = 1e-5     # Tikhonov regularization weight
 
 # Physical constants
 RHO_ICE = 917.0
@@ -51,7 +49,7 @@ N_GLEN = 3.0
 kernels = get_kernels()
 
 print("Loading geometry...")
-geometry = load_bedmachine(GEOMETRY_PATH, skip=SKIP, thklim=0.1)
+geometry = load_bedmachine(GEOMETRY_PATH, skip=SKIP, thklim=0.1,bbox_pad=[1100,1000,1600,1600])
 geometry = prepare_grid(geometry, n_levels=N_LEVELS)
 
 ny, nx = geometry['ny'], geometry['nx']
@@ -61,10 +59,11 @@ x, y = geometry['x'], geometry['y']
 print(f"Grid: {ny} x {nx}, dx = {dx:.1f} m")
 
 print("Loading observed velocities...")
-vel_data = load_velocity_mosaic(U_OBS_PATH, V_OBS_PATH)
+x_vel,y_vel,vx,vy = load_antarctic_velocity(U_OBS_PATH)
 
-u_obs_cell = interpolate_to_grid(vel_data['u'], vel_data['x'], vel_data['y'], x, y)
-v_obs_cell = interpolate_to_grid(vel_data['v'], vel_data['x'], vel_data['y'], x, y)
+u_obs_cell = interpolate_to_grid(vx, x_vel, y_vel, x, y)
+v_obs_cell = interpolate_to_grid(vy, x_vel, y_vel, x, y)
+
 
 # Interpolate to faces
 u_obs = cp.zeros((ny, nx + 1), dtype=cp.float32)
@@ -72,9 +71,7 @@ u_obs[:, 1:-1] = (u_obs_cell[:, 1:] + u_obs_cell[:, :-1]) / 2.0
 v_obs = cp.zeros((ny + 1, nx), dtype=cp.float32)
 v_obs[1:-1] = (v_obs_cell[1:] + v_obs_cell[:-1]) / 2.0
 
-print("Loading SMB...")
-smb_data = load_smb_mar(SMB_PATH)
-smb = interpolate_to_grid(smb_data['smb'], smb_data['x'], smb_data['y'], x, y)
+smb = load_smb_racmo(SMB_PATH,x,y)
 
 # Compute B (rate factor)
 B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
@@ -85,7 +82,7 @@ B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 # =============================================================================
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1, water_drag=1e-6)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0,water_drag=1e-5)
 physics.set_geometry(geometry['bed'], geometry['thickness'])
 physics.set_parameters(B=B, beta=0.01, smb=smb)
 
@@ -111,10 +108,13 @@ while g.child is not None:
     level_grids.append(g.child)
     g = g.child
 
+for g in level_grids:
+    g.dt = cp.float32(DT)
+
 # =============================================================================
 # Multi-resolution optimization
 # =============================================================================
-
+verbose = False
 for level_idx in range(len(level_grids) - 1, -1, -1):
     current_grid = level_grids[level_idx]
     u_obs_level, v_obs_level = obs_hierarchy[level_idx]
@@ -151,8 +151,33 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
         # Forward solve
         restrict_parameters_to_hierarchy(current_grid)
         current_grid.f_H[:,:] = current_grid.H_prev/current_grid.dt + current_grid.smb
+
+        if verbose:
+            rss_H_init = current_grid.compute_residual(return_fischer_burmeister=True)
+            r0 = float(cp.sqrt(
+                cp.linalg.norm(current_grid.r_u)**2 +
+                cp.linalg.norm(current_grid.r_v)**2 +
+                cp.linalg.norm(rss_H_init)**2
+            ))
+            print(f"  Initial: |r| = {r0:.2e}, "
+                  f"|r_u| = {float(cp.linalg.norm(current_grid.r_u)):.2e}, "
+                  f"|r_v| = {float(cp.linalg.norm(current_grid.r_v)):.2e}, "
+                  f"|rss_H| = {float(cp.linalg.norm(rss_H_init)):.2e}")
         for _ in range(5):
             fascd_vcycle(current_grid, physics.thklim, finest=True)
+            if verbose:
+                rss_H = current_grid.compute_residual(return_fischer_burmeister=True)
+                r_combined = float(cp.sqrt(
+                    cp.linalg.norm(current_grid.r_u)**2 +
+                    cp.linalg.norm(current_grid.r_v)**2 +
+                    cp.linalg.norm(rss_H)**2
+                ))
+                rel = r_combined / r0 if r0 > 0 else 0.0
+                print(f"  V-cycle {counter}: |r|/|r0| = {rel:.2e}, "
+                      f"|r_u| = {float(cp.linalg.norm(current_grid.r_u)):.2e}, "
+                      f"|r_v| = {float(cp.linalg.norm(current_grid.r_v)):.2e}, "
+                      f"|rss_H| = {float(cp.linalg.norm(rss_H)):.2e}")
+
 
         # Compute loss
         J = huber_loss(current_grid.u, current_grid.v, u_obs_level, v_obs_level)
@@ -165,9 +190,10 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
         current_grid.Lambda.fill(0.0)
 
         adjoint_vcycle(current_grid)
+        adjoint_vcycle(current_grid)
 
         # Gradient
-        grad_beta = current_grid.compute_grad_beta().clip(-1.0, 1.0)
+        grad_beta = grid.grad_beta = current_grid.compute_grad_beta()#.clip(-1.0, 1.0)
         grad_log_beta = current_grid.beta * grad_beta
 
         # Regularization
@@ -205,7 +231,7 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
         bounds=bounds,
         callback=callback,
         factr=1e11,
-        m=15
+        m=10
     )
 
     # Update beta with optimized values

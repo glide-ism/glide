@@ -64,7 +64,7 @@ def download_file(url, filename, cache_dir=None, force=False):
     return filepath
 
 
-def load_bedmachine(path, skip=1, thklim=0.1):
+def load_bedmachine(path, skip=1, thklim=0.1,bbox_pad=[0,1,0,1]):
     """
     Load BedMachine Greenland data.
 
@@ -93,14 +93,15 @@ def load_bedmachine(path, skip=1, thklim=0.1):
 
     dataset = nc.Dataset(path, 'r')
 
-    x = dataset.variables['x'][::skip]
-    y = dataset.variables['y'][::skip]
-    bed = dataset.variables['bed'][::skip, ::skip]
-    thickness = dataset.variables['thickness'][::skip, ::skip]
+    x = dataset.variables['x'][bbox_pad[0]:-bbox_pad[1]][::skip]
+    y = dataset.variables['y'][bbox_pad[2]:-bbox_pad[3]][::skip]
+    bed = dataset.variables['bed'][bbox_pad[2]:-bbox_pad[3],bbox_pad[0]:-bbox_pad[1]][::skip, ::skip]
+    thickness = dataset.variables['thickness'][bbox_pad[2]:-bbox_pad[3],bbox_pad[0]:-bbox_pad[1]][::skip, ::skip]
+    surface = dataset.variables['surface'][bbox_pad[2]:-bbox_pad[3],bbox_pad[0]:-bbox_pad[1]][::skip, ::skip]
 
+    base = np.maximum(bed,surface*(1 - (1/(1-0.917))))
+    thickness = surface - base + thklim
     # Add minimum thickness
-    thickness = thickness + thklim
-    surface = bed + thickness
 
     dx = float(abs(x[1] - x[0]))
 
@@ -162,6 +163,11 @@ def load_velocity_mosaic(u_path, v_path):
         'bounds': bounds
     }
 
+def load_antarctic_velocity(U_OBS_PATH):
+    import xarray as xr
+    data = xr.load_dataset(U_OBS_PATH)
+    return data.variables['x'].values,data.variables['y'].values,data.variables['VX'],data.variables['VY']
+
 
 def load_smb_mar(path):
     """
@@ -200,6 +206,40 @@ def load_smb_mar(path):
         'y': y
     }
 
+def load_smb_racmo(SMB_PATH,x,y):
+    import xarray as xr
+    import numpy as np
+    from pyproj import Transformer
+    from scipy.interpolate import griddata
+
+    # Load RACMO
+    racmo = xr.open_dataset(SMB_PATH)
+    lat = racmo.lat.values  # (rlat, rlon)
+    lon = racmo.lon.values
+
+    # Transform to EPSG:3031
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:3031", always_xy=True)
+    x_racmo, y_racmo = transformer.transform(lon, lat)  # both now 2D arrays
+
+    X, Y = np.meshgrid(x, y)
+
+    # Flatten source coordinates and data for griddata
+    x_src = x_racmo.ravel()
+    y_src = y_racmo.ravel()
+
+    # Pick a single time slice to start
+    #$smb = racmo.smbgl.isel(time=0, height=0).values  # (rlat, rlon)
+    smb = racmo.smbgl.values.mean(axis=0).squeeze()/917*12
+    smb_flat = smb.ravel()
+
+    # Interpolate
+    smb_reprojected = griddata(
+        (x_src, y_src), 
+        smb_flat, 
+        (X, Y), 
+        method='nearest')
+
+    return smb_reprojected
 
 def interpolate_to_grid(data, x_data, y_data, x_target, y_target):
     """

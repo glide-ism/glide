@@ -71,7 +71,7 @@ B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 # =============================================================================
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,water_drag=1e-6)
 physics.set_geometry(geometry['bed'], geometry['thickness'])
 physics.set_parameters(B=B, beta=beta, smb=smb)
 

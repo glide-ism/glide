@@ -243,8 +243,8 @@ TauBxJacobian get_tau_bx_jac(
 {
     TauBxJacobian jac = {0};
 
-    float grounded_l = sigmoid(s.bed_l + 0.917f*s.H_l,1.0f);
-    float grounded_r = sigmoid(s.bed_r + 0.917f*s.H_r,1.0f);
+    float grounded_l = sigmoid(s.bed_l + 0.917f*s.H_l,0.1f);
+    float grounded_r = sigmoid(s.bed_r + 0.917f*s.H_r,0.1f);
 
     float beta_eff_l = grounded_l*s.beta_l + (1.0f - grounded_l)*s.water_drag;
     float beta_eff_r = grounded_r*s.beta_r + (1.0f - grounded_r)*s.water_drag;
@@ -312,8 +312,8 @@ TauByJacobian get_tau_by_jac(
    TauByStencil s) {
     TauByJacobian jac = {0};
 
-    float grounded_t = sigmoid(s.bed_t + 0.917f*s.H_t,1.0f);
-    float grounded_b = sigmoid(s.bed_b + 0.917f*s.H_b,1.0f);
+    float grounded_t = sigmoid(s.bed_t + 0.917f*s.H_t,0.1f);
+    float grounded_b = sigmoid(s.bed_b + 0.917f*s.H_b,0.1f);
 
     float beta_eff_t = grounded_t*s.beta_t + (1.0f - grounded_t)*s.water_drag;
     float beta_eff_b = grounded_b*s.beta_b + (1.0f - grounded_b)*s.water_drag;

@@ -13,7 +13,7 @@ from glide import IcePhysics
 from glide.io import VTIWriter, write_vti
 from glide.data import (
     load_bedmachine,
-    load_smb_mar,
+    load_smb_racmo,
     prepare_grid,
     interpolate_to_grid
 )
@@ -23,13 +23,13 @@ from glide.data import (
 # =============================================================================
 
 GEOMETRY_PATH = "./data/BedMachineAntarctica-v3.nc"
-SMB_PATH = "./data/smb_monthlyS_ANT27_ERA5-3H_RACMO2.3p2_197901_202212.nc"
-#BETA_PATH = "./inverse_output/beta_level_0.p"
+SMB_PATH = "./data/smbgl_monthlyS_ANT11_RACMO2.4p1_ERA5_197901_202312.nc"
+BETA_PATH = "./inverse_output/beta_level_0.p"
 OUTPUT_DIR = "./output"
 
 SKIP = 4           # Geometry downsampling factor
-DT = 25.0          # Time step (years)
-N_STEPS = 200      # Number of time steps
+DT = 10.0          # Time step (years)
+N_STEPS = 20      # Number of time steps
 N_LEVELS = 5       # Multigrid levels
 N_VCYCLES = 3      # V-cycles per time step
 
@@ -43,7 +43,7 @@ N_GLEN = 3.0
 # =============================================================================
 
 print("Loading geometry...")
-geometry = load_bedmachine(GEOMETRY_PATH, skip=SKIP, thklim=0.1)
+geometry = load_bedmachine(GEOMETRY_PATH, skip=SKIP, thklim=0.1,bbox_pad=[1100,1000,1600,1600])
 geometry = prepare_grid(geometry, n_levels=N_LEVELS)
 
 ny, nx = geometry['ny'], geometry['nx']
@@ -53,18 +53,15 @@ x, y = geometry['x'], geometry['y']
 print(f"Grid: {ny} x {nx}, dx = {dx:.1f} m")
 
 print("Loading SMB...")
-#smb_data = load_smb_mar(SMB_PATH)
-smb = cp.zeros((ny,nx),dtype=cp.float32)
-        #interpolate_to_grid(
-    #smb_data['smb'], smb_data['x'], smb_data['y'],
-    #x, y
-#)
+smb = load_smb_racmo(SMB_PATH,x,y)
+
+smb[geometry['surface'] == 0] = -50.0
 
 print("Loading beta...")
-beta = cp.ones((ny,nx),dtype=cp.float32)*0.05#cp.array(pickle.load(open(BETA_PATH, 'rb')))
+beta = cp.array(pickle.load(open(BETA_PATH, 'rb')))
 
 # Compute B (rate factor - we measure driving stress in units of head, so the rho g factor gets subsumed into definitions of beta and B!)
-B_scalar = cp.float32(1e-18 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
+B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
 B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 
 # =============================================================================
@@ -72,7 +69,7 @@ B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 # =============================================================================
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0,water_drag=1e-5)
 physics.set_geometry(geometry['bed'], geometry['thickness'])
 physics.set_parameters(B=B, beta=beta, smb=smb)
 

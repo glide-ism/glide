@@ -273,7 +273,11 @@ def huber_loss(u, v, u_obs, v_obs, eps=10.0):
     """
     eps = cp.float32(eps)
     delta_u = u - u_obs
+    mask_u = cp.isnan(delta_u)
+    delta_u[mask_u] = 0.0
     delta_v = v - v_obs
+    mask_v = cp.isnan(delta_v)
+    delta_v[mask_v] = 0.0
     return float(cp.sqrt(delta_u**2 + eps).mean() + cp.sqrt(delta_v**2 + eps).mean())
 
 
@@ -297,7 +301,11 @@ def huber_grad(u, v, u_obs, v_obs, eps=10.0):
     """
     eps = cp.float32(eps)
     delta_u = u - u_obs
+    mask_u = cp.isnan(delta_u)
+    delta_u[mask_u] = 0.0
     delta_v = v - v_obs
+    mask_v = cp.isnan(delta_v)
+    delta_v[mask_v] = 0.0
     n = u.size
     dL_du = delta_u / cp.sqrt(delta_u**2 + eps) / n
     dL_dv = delta_v / cp.sqrt(delta_v**2 + eps) / n
