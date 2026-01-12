@@ -876,18 +876,21 @@ void vanka_smooth_local(
     int j = blockIdx.x * stride + (threadIdx.x - halo);
     int i = blockIdx.y * stride + (threadIdx.y - halo);
 
-    if (i < 0 || i >= ny || j<0 || j >= nx) return;
-    
+    // Check bounds but don't return yet - all threads must reach __syncthreads()
+    bool in_bounds = (i >= 0 && i < ny && j >= 0 && j < nx);
+
     bool my_cell_bad = false;
-    if( get_cell(mask,i,j,ny,nx) > 0.5f ) my_cell_bad = true;
+    if (in_bounds && get_cell(mask,i,j,ny,nx) > 0.5f) my_cell_bad = true;
+
     __shared__ bool block_is_active;
     if (bi == 0 && bj == 0) block_is_active = false;
     __syncthreads();
     if (my_cell_bad) block_is_active = true;
     __syncthreads();
 
-    if (!block_is_active) return;
-    
+    // Now safe to return after all threads have passed the barriers
+    if (!block_is_active || !in_bounds) return;
+
     __shared__ float eta_local[bny][bnx];
 
     populate_viscosity(eta_local, bi, bj, i, j, u, v, B, params->n, params->eps_reg, dx, ny, nx);
