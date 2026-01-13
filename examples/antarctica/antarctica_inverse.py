@@ -12,13 +12,14 @@ from scipy.optimize import fmin_l_bfgs_b
 
 from glide import IcePhysics
 from glide.io import VTIWriter, write_vti
-from glide.physics import huber_loss, huber_grad, tikhonov_regularization
+from glide.physics import abs_loss,abs_grad,huber_loss, huber_grad, tikhonov_regularization
 from glide.data import (
     load_bedmachine,
     load_velocity_mosaic,
     load_smb_racmo,
     prepare_grid,
-    interpolate_to_grid,load_antarctic_velocity
+    interpolate_to_grid,
+    load_antarctic_velocity
 )
 from glide.kernels import restrict_vfacet, restrict_hfacet, get_kernels
 from glide.solver import fascd_vcycle, adjoint_vcycle, restrict_parameters_to_hierarchy
@@ -35,7 +36,7 @@ OUTPUT_DIR = "./inverse_output"
 SKIP = 4              # Geometry downsampling factor
 DT = 1.0             # Time step (years)
 N_LEVELS = 5          # Multigrid levels
-REG_WEIGHT = 1e-5     # Tikhonov regularization weight
+REG_WEIGHT = 1e-4     # Tikhonov regularization weight
 
 # Physical constants
 RHO_ICE = 917.0
@@ -72,7 +73,7 @@ v_obs = cp.zeros((ny + 1, nx), dtype=cp.float32)
 v_obs[1:-1] = (v_obs_cell[1:] + v_obs_cell[:-1]) / 2.0
 
 smb = load_smb_racmo(SMB_PATH,x,y)
-
+#smb[geometry['surface']==0] = -50
 # Compute B (rate factor)
 B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
 B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
@@ -82,7 +83,7 @@ B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 # =============================================================================
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0,water_drag=1e-5)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0,water_drag=1e-5,gl_derivatives=False)
 physics.set_geometry(geometry['bed'], geometry['thickness'])
 physics.set_parameters(B=B, beta=0.01, smb=smb)
 
@@ -180,12 +181,12 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
 
 
         # Compute loss
-        J = huber_loss(current_grid.u, current_grid.v, u_obs_level, v_obs_level)
-        dJdu, dJdv = huber_grad(current_grid.u, current_grid.v, u_obs_level, v_obs_level)
+        J = abs_loss(current_grid.u, current_grid.v, u_obs_level, v_obs_level)
+        dJdu, dJdv = abs_grad(current_grid.u, current_grid.v, u_obs_level, v_obs_level)
 
         # Adjoint solve
-        current_grid.f_adj_u[:] = dJdu
-        current_grid.f_adj_v[:] = dJdv
+        current_grid.f_adj_u[:] = -dJdu
+        current_grid.f_adj_v[:] = -dJdv
         current_grid.f_adj_H.fill(0.0)
         current_grid.Lambda.fill(0.0)
 
@@ -193,7 +194,7 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
         adjoint_vcycle(current_grid)
 
         # Gradient
-        grad_beta = grid.grad_beta = current_grid.compute_grad_beta()#.clip(-1.0, 1.0)
+        grad_beta = current_grid.grad_beta = current_grid.compute_grad_beta()
         grad_log_beta = current_grid.beta * grad_beta
 
         # Regularization
@@ -202,7 +203,7 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
         tik_grad *= REG_WEIGHT
 
         total_loss = J + tik_loss
-        total_grad = -grad_log_beta + tik_grad
+        total_grad = grad_log_beta + tik_grad
 
         print(f"  Loss: {J:.4f}, Reg: {tik_loss:.4f}, Total: {total_loss:.4f}")
 
@@ -230,8 +231,8 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
         objective, x0,
         bounds=bounds,
         callback=callback,
-        factr=1e11,
-        m=10
+        factr=1e10,
+        m=15
     )
 
     # Update beta with optimized values

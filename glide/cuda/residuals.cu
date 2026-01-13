@@ -56,7 +56,7 @@ void compute_residual(
 	    float rH = H_c/dt - f_H_c;
 
 	    float bed_c = get_cell(bed,i,j,ny,nx);
-	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,params->calving_rate},i, j, ny, nx);
+	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,params->calving_rate,params->gl_sigmoid_c,params->gl_derivatives},i, j, ny, nx);
 	    rH -= j_calve.res;
 
 	    float H_l = get_cell(H,i,j-1,ny,nx);
@@ -173,7 +173,7 @@ void compute_residual(
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float beta_l = get_cell(beta,i,j-1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauBxJacobian tau_bx = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag});
+	    TauBxJacobian tau_bx = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag,params->gl_sigmoid_c,params->gl_derivatives});
 	    ru_l += tau_bx.res;
 	    }
 
@@ -272,7 +272,7 @@ void compute_residual(
 	    float beta_t = get_cell(beta,i-1,j,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
 
-	    TauByJacobian tau_by = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag});
+	    TauByJacobian tau_by = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag,params->gl_sigmoid_c,params->gl_derivatives});
 	    rv_t += tau_by.res;
 	    }
 
@@ -346,7 +346,7 @@ void compute_jvp(
 	    float d_rH = H_c.d/dt;
 
 	    float bed_c = get_cell(bed,i,j,ny,nx);
-	    DualFloat calve = get_cell_calving_dual({H_c,bed_c,params->calving_rate},i, j, ny, nx);
+	    DualFloat calve = get_cell_calving_dual({H_c,bed_c,params->calving_rate,params->gl_sigmoid_c,params->gl_derivatives},i, j, ny, nx);
 	    d_rH -= calve.d;
 
 	    DualFloat H_l = get_cell(H,d_H,i,j-1,ny,nx);
@@ -460,7 +460,7 @@ void compute_jvp(
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float beta_l = get_cell(beta,i,j-1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    DualFloat tau_bx = get_tau_bx_dual({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag});
+	    DualFloat tau_bx = get_tau_bx_dual({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag,params->gl_sigmoid_c,params->gl_derivatives});
 	    d_ru_l += tau_bx.d;
 	    }
 
@@ -558,7 +558,7 @@ void compute_jvp(
 	    float beta_t     = get_cell(beta,i-1,j,ny,nx);
 	    float beta_c     = get_cell(beta,i,j,ny,nx);
 
-	    DualFloat tau_by = get_tau_by_dual({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag});
+	    DualFloat tau_by = get_tau_by_dual({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag,params->gl_sigmoid_c,params->gl_derivatives});
 	    d_rv_t += tau_by.d;
 	    }
 
@@ -649,7 +649,7 @@ void compute_vjp(
 	    atomicAdd(&s_adj_H[bi][bj], lambda_H_c/dt);
 
 	    float bed_c = get_cell(bed,i,j,ny,nx);
-	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,params->calving_rate},i, j, ny, nx);
+	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,params->calving_rate,params->gl_sigmoid_c,params->gl_derivatives},i, j, ny, nx);
 	    atomicAdd(&s_adj_H[bi][bj] , -lambda_H_c*j_calve.d_H);
 
 	    float H_l = get_cell(H,i,j-1,ny,nx);
@@ -802,7 +802,7 @@ void compute_vjp(
 	    atomicAdd(&s_adj_H[bi+1][bj],  -lambda_u_l * j_sigma_xy_bl.d_eta_H*eta_H_bl.d_H_br*dx_inv);
 	    }
 
-            {    
+            {
             float u_l    = get_vfacet(u,i,j,ny,nx);
             float lambda_u_l    = get_vfacet(lambda_u,i,j,ny,nx);
 	    float H_l    = get_cell(H,i,j-1,ny,nx);
@@ -811,9 +811,11 @@ void compute_vjp(
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float beta_l = get_cell(beta,i,j-1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauBxJacobian j_tau_bx = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag});
+	    TauBxJacobian j_tau_bx = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag,params->gl_sigmoid_c,params->gl_derivatives});
 
 	    atomicAdd(&s_adj_u[bi][bj],lambda_u_l * j_tau_bx.d_u);
+	    atomicAdd(&s_adj_H[bi][bj-1], lambda_u_l * j_tau_bx.d_H_l);
+	    atomicAdd(&s_adj_H[bi][bj],   lambda_u_l * j_tau_bx.d_H_r);
 	    }
 
 	    {
@@ -952,8 +954,10 @@ void compute_vjp(
 	    float beta_t = get_cell(beta,i-1,j,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
 
-	    TauByJacobian j_tau_by = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag});
+	    TauByJacobian j_tau_by = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag,params->gl_sigmoid_c,params->gl_derivatives});
 	    atomicAdd(&s_adj_v[bi][bj],lambda_v_t * j_tau_by.d_v);
+	    atomicAdd(&s_adj_H[bi-1][bj], lambda_v_t * j_tau_by.d_H_t);
+	    atomicAdd(&s_adj_H[bi][bj],   lambda_v_t * j_tau_by.d_H_b);
 	    }
 
 	    {

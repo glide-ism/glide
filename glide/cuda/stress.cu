@@ -202,6 +202,8 @@ struct TauBxStencil {
     float bed_l, bed_r;
     float beta_l, beta_r;
     float water_drag;
+    float sigmoid_c;
+    int gl_derivatives;
 };
 
 struct TauBxStencilDual {
@@ -210,15 +212,17 @@ struct TauBxStencilDual {
     float bed_l, bed_r;
     float beta_l, beta_r;
     float water_drag;
+    float sigmoid_c;
+    int gl_derivatives;
 
     __device__ __forceinline__
     TauBxStencil get_primals() const {
-        return {u.v,H_l.v,H_r.v,bed_l,bed_r,beta_l,beta_r,water_drag};
+        return {u.v,H_l.v,H_r.v,bed_l,bed_r,beta_l,beta_r,water_drag,sigmoid_c,gl_derivatives};
     }
 
     __device__ __forceinline__
     TauBxStencil get_diffs() const {
-        return {u.d,H_l.d,H_r.d,0.0f,0.0f,0.0f,0.0f,0.0f};
+        return {u.d,H_l.d,H_r.d,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0};
     }
 
 };
@@ -243,18 +247,30 @@ TauBxJacobian get_tau_bx_jac(
 {
     TauBxJacobian jac = {0};
 
-    float grounded_l = sigmoid(s.bed_l + 0.917f*s.H_l,0.1f);
-    float grounded_r = sigmoid(s.bed_r + 0.917f*s.H_r,0.1f);
+    float z_l = s.bed_l + 0.917f*s.H_l;
+    float z_r = s.bed_r + 0.917f*s.H_r;
+
+    float grounded_l = sigmoid(z_l, s.sigmoid_c);
+    float grounded_r = sigmoid(z_r, s.sigmoid_c);
 
     float beta_eff_l = grounded_l*s.beta_l + (1.0f - grounded_l)*s.water_drag;
     float beta_eff_r = grounded_r*s.beta_r + (1.0f - grounded_r)*s.water_drag;
-
     float beta_eff = 0.5f*(beta_eff_l + beta_eff_r);
 
     jac.res = -beta_eff * s.u;
     jac.d_u = -beta_eff;
     jac.d_beta_l = -0.5f*grounded_l*s.u;
     jac.d_beta_r = -0.5f*grounded_r*s.u;
+
+    // Optional: include H derivatives through grounding line sigmoid
+    if (s.gl_derivatives) {
+        float dgrounded_dH_l = 0.917f * sigmoid_deriv(z_l, s.sigmoid_c);
+        float dgrounded_dH_r = 0.917f * sigmoid_deriv(z_r, s.sigmoid_c);
+        float dbeta_eff_dH_l = dgrounded_dH_l * (s.beta_l - s.water_drag);
+        float dbeta_eff_dH_r = dgrounded_dH_r * (s.beta_r - s.water_drag);
+        jac.d_H_l = -0.5f * dbeta_eff_dH_l * s.u;
+        jac.d_H_r = -0.5f * dbeta_eff_dH_r * s.u;
+    }
 
     return jac;
 }
@@ -271,6 +287,8 @@ struct TauByStencil {
     float bed_t, bed_b;
     float beta_t, beta_b;
     float water_drag;
+    float sigmoid_c;
+    int gl_derivatives;
 };
 
 struct TauByStencilDual {
@@ -279,15 +297,17 @@ struct TauByStencilDual {
     float bed_t, bed_b;
     float beta_t, beta_b;
     float water_drag;
+    float sigmoid_c;
+    int gl_derivatives;
 
     __device__ __forceinline__
     TauByStencil get_primals() const {
-        return {v.v,H_t.v,H_b.v,bed_t,bed_b,beta_t,beta_b,water_drag};
+        return {v.v,H_t.v,H_b.v,bed_t,bed_b,beta_t,beta_b,water_drag,sigmoid_c,gl_derivatives};
     }
 
     __device__ __forceinline__
     TauByStencil get_diffs() const {
-        return {v.d,H_t.d,H_b.d,0.0f,0.0f,0.0f,0.0f,0.0f};
+        return {v.d,H_t.d,H_b.d,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0};
     }
 
 };
@@ -312,18 +332,30 @@ TauByJacobian get_tau_by_jac(
    TauByStencil s) {
     TauByJacobian jac = {0};
 
-    float grounded_t = sigmoid(s.bed_t + 0.917f*s.H_t,0.1f);
-    float grounded_b = sigmoid(s.bed_b + 0.917f*s.H_b,0.1f);
+    float z_t = s.bed_t + 0.917f*s.H_t;
+    float z_b = s.bed_b + 0.917f*s.H_b;
+
+    float grounded_t = sigmoid(z_t, s.sigmoid_c);
+    float grounded_b = sigmoid(z_b, s.sigmoid_c);
 
     float beta_eff_t = grounded_t*s.beta_t + (1.0f - grounded_t)*s.water_drag;
     float beta_eff_b = grounded_b*s.beta_b + (1.0f - grounded_b)*s.water_drag;
-
     float beta_eff = 0.5f*(beta_eff_t + beta_eff_b);
 
     jac.res = -beta_eff * s.v;
     jac.d_v = -beta_eff;
     jac.d_beta_t = -0.5f*grounded_t*s.v;
     jac.d_beta_b = -0.5f*grounded_b*s.v;
+
+    // Optional: include H derivatives through grounding line sigmoid
+    if (s.gl_derivatives) {
+        float dgrounded_dH_t = 0.917f * sigmoid_deriv(z_t, s.sigmoid_c);
+        float dgrounded_dH_b = 0.917f * sigmoid_deriv(z_b, s.sigmoid_c);
+        float dbeta_eff_dH_t = dgrounded_dH_t * (s.beta_t - s.water_drag);
+        float dbeta_eff_dH_b = dgrounded_dH_b * (s.beta_b - s.water_drag);
+        jac.d_H_t = -0.5f * dbeta_eff_dH_t * s.v;
+        jac.d_H_b = -0.5f * dbeta_eff_dH_b * s.v;
+    }
 
     return jac;
 }
@@ -400,8 +432,6 @@ TauDxJacobian get_tau_dx_jac(
 
     jac.d_H_l = 0.5f*(S_r - S_l)*dx_inv - H_avg*(1.0f + dbase_dH_l)*dx_inv;
     jac.d_H_r = 0.5f*(S_r - S_l)*dx_inv + H_avg*(1.0f + dbase_dH_r)*dx_inv;
-    //jac.d_H_l = 0.0f*(S_r - S_l)*dx_inv - H_avg*(1.0f + dbase_dH_l)*dx_inv;
-    //jac.d_H_r = 0.0f*(S_r - S_l)*dx_inv + H_avg*(1.0f + dbase_dH_r)*dx_inv;
     return jac;
 }
 
@@ -475,8 +505,6 @@ TauDyJacobian get_tau_dy_jac(
 
     jac.d_H_t = 0.5f*(S_t - S_b)*dx_inv + H_avg*(1.0f + dbase_dH_t)*dx_inv;
     jac.d_H_b = 0.5f*(S_t - S_b)*dx_inv - H_avg*(1.0f + dbase_dH_b)*dx_inv;
-    //jac.d_H_t = 0.0f*(S_t - S_b)*dx_inv + H_avg*(1.0f + dbase_dH_t)*dx_inv;
-    //jac.d_H_b = 0.0f*(S_t - S_b)*dx_inv - H_avg*(1.0f + dbase_dH_b)*dx_inv;
     return jac;
 
 }

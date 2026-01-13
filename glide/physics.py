@@ -46,7 +46,7 @@ class IcePhysics:
     >>> u, v, H = physics.forward(dt=10.0, n_vcycles=3)
     """
 
-    def __init__(self, ny, nx, dx, n_levels=5, n=3.0, eps_reg=1e-5, thklim=0.1, water_drag=1e-3,calving_rate=1.0):
+    def __init__(self, ny, nx, dx, n_levels=5, n=3.0, eps_reg=1e-5, thklim=0.1, water_drag=1e-3,calving_rate=1.0,gl_sigmoid_c=0.1,gl_derivatives=False):
         self.ny = ny
         self.nx = nx
         self.dx = dx
@@ -56,6 +56,8 @@ class IcePhysics:
         self.thklim = cp.float32(thklim)
         self.water_drag = cp.float32(water_drag)
         self.calving_rate = cp.float32(calving_rate)
+        self.gl_sigmoid_c=cp.float32(gl_sigmoid_c)
+        self.gl_derivatives=gl_derivatives
 
         # Load kernels
         self.kernels = get_kernels()
@@ -69,7 +71,8 @@ class IcePhysics:
             self.ny, self.nx, self.dx, dt=1.0,
             kernels=self.kernels,
             n=self.n, eps_reg=self.eps_reg,
-            water_drag=self.water_drag,calving_rate=self.calving_rate
+            water_drag=self.water_drag,calving_rate=self.calving_rate,
+            gl_sigmoid_c=self.gl_sigmoid_c,gl_derivatives=self.gl_derivatives
         )
         self.grids = [self.grid]
 
@@ -135,7 +138,7 @@ class IcePhysics:
             restrict_cell_centered(parent.H_prev, self.kernels, f_coarse=child.H_prev)
             child.gamma.fill(self.thklim)
 
-    def forward(self, dt, n_vcycles=3, verbose=False):
+    def forward(self, dt, n_vcycles=3, verbose=False, update_geometry=True):
         """
         Perform one forward time step.
 
@@ -200,11 +203,12 @@ class IcePhysics:
                       f"|rss_H| = {float(cp.linalg.norm(rss_H)):.2e}")
 
         # Update H_prev for next time step
-        self.grid.H_prev[:] = self.grid.H[:]
+        if update_geometry:
+            self.grid.H_prev[:] = self.grid.H[:]
 
         return self.grid.u, self.grid.v, self.grid.H
 
-    def adjoint(self, dL_du, dL_dv):
+    def adjoint(self, dL_du, dL_dv, dL_dH,n_vcycles=2):
         """
         Compute adjoint (reverse-mode AD) for gradient computation.
 
@@ -224,22 +228,24 @@ class IcePhysics:
             Gradient of loss w.r.t. beta (ny, nx)
         """
         # Set adjoint forcing
-        self.grid.f_adj_u[:] = cp.asarray(dL_du, dtype=cp.float32)
-        self.grid.f_adj_v[:] = cp.asarray(dL_dv, dtype=cp.float32)
-        self.grid.f_adj_H.fill(0.0)
+        self.grid.f_adj_u[:] = cp.asarray(-dL_du, dtype=cp.float32)
+        self.grid.f_adj_v[:] = cp.asarray(-dL_dv, dtype=cp.float32)
+        self.grid.f_adj_H[:] = cp.asarray(-dL_dH, dtype=cp.float32)
         self.grid.Lambda.fill(0.0)
         self.grid.Lambda_out.fill(0.0)
 
         # Solve adjoint system
-        adjoint_vcycle(self.grid)
+        for _ in range(n_vcycles):
+            adjoint_vcycle(self.grid)
 
         # Compute parameter gradient
         return self.grid.compute_grad_beta()
 
-    def reset_velocities(self):
+    def reset_solution(self):
         """Reset velocity fields to zero."""
         self.grid.u.fill(0.0)
         self.grid.v.fill(0.0)
+        self.grid.H[:] = self.grid.H_prev[:]
 
     def get_surface(self):
         """Compute ice surface elevation."""
@@ -278,7 +284,7 @@ def huber_loss(u, v, u_obs, v_obs, eps=10.0):
     delta_v = v - v_obs
     mask_v = cp.isnan(delta_v)
     delta_v[mask_v] = 0.0
-    return float(cp.sqrt(delta_u**2 + eps).mean() + cp.sqrt(delta_v**2 + eps).mean())
+    return cp.sqrt(delta_u**2 + eps).mean() + cp.sqrt(delta_v**2 + eps).mean()
 
 
 def huber_grad(u, v, u_obs, v_obs, eps=10.0):
@@ -310,6 +316,67 @@ def huber_grad(u, v, u_obs, v_obs, eps=10.0):
     dL_du = delta_u / cp.sqrt(delta_u**2 + eps) / n
     dL_dv = delta_v / cp.sqrt(delta_v**2 + eps) / n
     return dL_du, dL_dv
+
+def abs_loss(u, v, u_obs, v_obs):
+    """
+    Compute Huber-like loss for velocity misfit.
+
+    Parameters
+    ----------
+    u, v : cupy.ndarray
+        Model velocities
+    u_obs, v_obs : cupy.ndarray
+        Observed velocities
+    eps : float
+        Smoothing parameter
+
+    Returns
+    -------
+    loss : float
+        Loss value
+    """
+    u = u.astype(cp.float64)
+    v = v.astype(cp.float64)
+    u_obs = u_obs.astype(cp.float64)
+    v_obs = v_obs.astype(cp.float64)
+    delta_u = u - u_obs
+    mask_u = cp.isnan(delta_u)
+    delta_u[mask_u] = 0.0
+    delta_v = v - v_obs
+    mask_v = cp.isnan(delta_v)
+    delta_v[mask_v] = 0.0
+    return abs(delta_u).mean() + abs(delta_v).mean()
+    #return abs(delta_u).sum() + abs(delta_v).sum()
+
+
+def abs_grad(u, v, u_obs, v_obs, eps=10.0):
+    """
+    Compute gradient of Huber-like loss.
+
+    Parameters
+    ----------
+    u, v : cupy.ndarray
+        Model velocities
+    u_obs, v_obs : cupy.ndarray
+        Observed velocities
+    eps : float
+        Smoothing parameter
+
+    Returns
+    -------
+    dL_du, dL_dv : cupy.ndarray
+        Gradients w.r.t. velocities
+    """
+    eps = cp.float32(eps)
+    delta_u = u - u_obs
+    mask_u = cp.isnan(delta_u)
+    delta_u[mask_u] = 0.0
+    delta_v = v - v_obs
+    mask_v = cp.isnan(delta_v)
+    delta_v[mask_v] = 0.0
+    n = u.size
+    return cp.sign(delta_u)/n, cp.sign(delta_v)/n
+    #return cp.sign(delta_u), cp.sign(delta_v)
 
 
 def tikhonov_regularization(field):

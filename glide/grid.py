@@ -41,7 +41,9 @@ class Grid:
     """
 
     def __init__(self, ny, nx, dx, dt, kernels, parent=None,
-                 n=3.0, eps_reg=1e-5, water_drag=0.001, calving_rate=1.0):
+                 n=3.0, eps_reg=1e-5, water_drag=0.001, calving_rate=1.0,
+                 gl_sigmoid_c=0.1,gl_derivatives=False):
+
         self.parent = parent
         self.child = None
         self.kernels = kernels
@@ -63,9 +65,12 @@ class Grid:
         self._eps_reg = float(eps_reg)
         self._water_drag = float(water_drag)
         self._calving_rate = float(calving_rate)
+        self._gl_sigmoid_c = float(gl_sigmoid_c)
+        self._gl_derivatives = gl_derivatives
         self.physics_params = make_physics_params(
             n=self._n, eps_reg=self._eps_reg,
-            water_drag=self._water_drag, calving_rate=self._calving_rate
+            water_drag=self._water_drag, calving_rate=self._calving_rate,
+            gl_sigmoid_c=self._gl_sigmoid_c, gl_derivatives=self._gl_derivatives
         )
 
         # Allocate state and work arrays

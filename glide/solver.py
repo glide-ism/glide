@@ -151,7 +151,7 @@ def fascd_vcycle(grid, thklim, finest=False):
         rss_H = a + b - cp.sqrt(a**2 + b**2)
         total_error = (abs(grid.r_u[:, 1:]) + abs(grid.r_u[:, :-1]) +
                        abs(grid.r_v[1:]) + abs(grid.r_v[:-1]) + abs(rss_H))
-        grid.error_mask[:] = (total_error > 0.1).astype(cp.float32)
+        grid.error_mask[:] = (total_error > 0.01).astype(cp.float32)
         grid.vanka_sweep_local(10)
 
     grid.gamma.fill(thklim)

@@ -151,21 +151,25 @@ struct CellCalvingStencil {
     float H;
     float bed;
     float calving_rate;
+    float sigmoid_c;
+    int gl_derivatives;
 };
 
 struct CellCalvingStencilDual {
     DualFloat H;
     float bed;
     float calving_rate;
+    float sigmoid_c;
+    int gl_derivatives;
 
     __device__ __forceinline__
     CellCalvingStencil get_primals() const {
-        return {H.v,bed,calving_rate};
+        return {H.v,bed,calving_rate,sigmoid_c,gl_derivatives};
     }
 
     __device__ __forceinline__
     CellCalvingStencil get_diffs() const {
-        return {H.d,0.0f,0.0f};
+        return {H.d,0.0f,0.0f,0.0f,0};
     }
 };
 
@@ -189,10 +193,20 @@ CellCalvingJacobian get_cell_calving_jac(
 
     CellCalvingJacobian jac = {0};
 
-    float grounded = sigmoid(s.bed + 0.917f*s.H,1.0f);
-    jac.res = -s.calving_rate*(1.0f-grounded)*s.H;
+    float z = s.bed + 0.917f*s.H;
+    float grounded = sigmoid(z, s.sigmoid_c);
 
-    jac.d_H = -s.calving_rate*(1.0f-grounded);
+    // res = -calving_rate * (1 - grounded) * H
+    jac.res = -s.calving_rate*(1.0f - grounded)*s.H;
+    jac.d_H = -s.calving_rate*(1.0f - grounded);
+
+    // Optional: include H derivative through grounding line sigmoid
+    // d(res)/d(H) += calving_rate * H * dgrounded_dH
+    if (s.gl_derivatives) {
+        float dgrounded_dH = 0.917f * sigmoid_deriv(z, s.sigmoid_c);
+        jac.d_H += s.calving_rate * s.H * dgrounded_dH;
+    }
+
     return jac;
 }
 

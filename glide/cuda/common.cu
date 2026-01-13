@@ -65,8 +65,14 @@ __device__ __forceinline__ DualFloat __powf(DualFloat u, float p) {
 }
 
 __device__ __forceinline__ float sigmoid(const float z, const float c) {
-   float scaled_z = fminf(fmaxf(c*z,-10.0f),10.0f);
+   float scaled_z = fminf(fmaxf(c*z,-20.0f),20.0f);
    return 1.0f/(1.0f + __expf(-scaled_z));
+}
+
+// Derivative of sigmoid w.r.t. z: d(sigmoid)/dz = c * sigmoid * (1 - sigmoid)
+__device__ __forceinline__ float sigmoid_deriv(const float z, const float c) {
+   float s = sigmoid(z, c);
+   return c * s * (1.0f - s);
 }
 
 __device__ __forceinline__ float get_vfacet(const float* __restrict__ u, int i, int j, int ny, int nx) {
@@ -236,4 +242,6 @@ struct PhysicsParams {
     float eps_reg;      // Strain rate regularization
     float water_drag;   // Drag coefficient for floating ice
     float calving_rate; // Calving rate for mass loss at margins
+    float gl_sigmoid_c; // Sigmoid sharpness for grounding line transitions
+    int   gl_derivatives; // Include H derivatives through grounding line (0=no, 1=yes)
 };
