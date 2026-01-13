@@ -307,7 +307,7 @@ class Grid:
         for _ in range(n_iter):
             self.delta_U.fill(0.0)
             self.vanka_smooth(0, omega=cp.float32(1.0), n_inner=n_inner)
-            self.vanka_smooth(1, omega=cp.float32(1.0), n_inner=n_inner)
+            #self.vanka_smooth(1, omega=cp.float32(1.0), n_inner=n_inner)
             self.U[:] += omega * self.delta_U
 
     def vanka_sweep_local(self, n_iter, n_inner=10, omega=cp.float32(0.5)):
@@ -315,7 +315,7 @@ class Grid:
         for _ in range(n_iter):
             self.delta_U.fill(0.0)
             self.vanka_smooth_local(0, omega=cp.float32(1.0), n_inner=n_inner)
-            self.vanka_smooth_local(1, omega=cp.float32(1.0), n_inner=n_inner)
+            #self.vanka_smooth_local(1, omega=cp.float32(1.0), n_inner=n_inner)
             self.U[:] += omega * self.delta_U
 
     def vanka_sweep_adjoint(self, n_iter, omega=cp.float32(0.5)):

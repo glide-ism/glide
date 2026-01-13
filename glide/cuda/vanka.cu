@@ -40,7 +40,8 @@ void vanka_smooth(
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
 
-    if ( is_active && ((i + j) % 2 == color)) {
+    //if ( is_active && ((i + j) % 2 == color)) {
+    if ( is_active ) {
 	float dx_inv = 1.0f/dx;
 
 	float masked = get_cell(mask, i, j, ny, nx);
@@ -429,10 +430,10 @@ void vanka_smooth(
 	float v_b_prev = get_hfacet(v, i + 1, j, ny, nx);
 	float H_c_prev = get_cell(H, i, j, ny, nx);
 
-	u_out[i * (nx + 1) + j]     += 0.5f*(u_l - u_l_prev);
-	u_out[i * (nx + 1) + j + 1] += 0.5f*(u_r - u_r_prev);
-	v_out[i * nx + j]           += 0.5f*(v_t - v_t_prev);
-	v_out[(i + 1) * nx + j ]    += 0.5f*(v_b - v_b_prev);
+	atomicAdd(&u_out[i * (nx + 1) + j],       0.5f*(u_l - u_l_prev));
+	atomicAdd(&u_out[i * (nx + 1) + j + 1],   0.5f*(u_r - u_r_prev));
+	atomicAdd(&v_out[i * nx + j],             0.5f*(v_t - v_t_prev));
+	atomicAdd(&v_out[(i + 1) * nx + j ],      0.5f*(v_b - v_b_prev));
 	H_out[i * nx + j]           = (H_c - H_c_prev);
     }
 }
@@ -893,7 +894,8 @@ void vanka_smooth_local(
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
 
-    if ( is_active && ((i + j) % 2 == color)) {
+    //if ( is_active && ((i + j) % 2 == color)) {
+    if ( is_active ) {
 	float dx_inv = 1.0f/dx;
 
 	float u_l = get_vfacet(u, i, j, ny, nx);
@@ -1284,10 +1286,10 @@ void vanka_smooth_local(
 	float v_b_prev = get_hfacet(v, i + 1, j, ny, nx);
 	float H_c_prev = get_cell(H, i, j, ny, nx);
 
-	u_out[i * (nx + 1) + j]     += 0.5f*(u_l - u_l_prev);
-	u_out[i * (nx + 1) + j + 1] += 0.5f*(u_r - u_r_prev);
-	v_out[i * nx + j]           += 0.5f*(v_t - v_t_prev);
-	v_out[(i + 1) * nx + j ]    += 0.5f*(v_b - v_b_prev);
+	atomicAdd(&u_out[i * (nx + 1) + j],       0.5f*(u_l - u_l_prev));
+	atomicAdd(&u_out[i * (nx + 1) + j + 1],   0.5f*(u_r - u_r_prev));
+	atomicAdd(&v_out[i * nx + j],             0.5f*(v_t - v_t_prev));
+	atomicAdd(&v_out[(i + 1) * nx + j ],      0.5f*(v_b - v_b_prev));
 	H_out[i * nx + j]           = (H_c - H_c_prev);
     }
 }
