@@ -4,7 +4,7 @@ Greenland forward simulation example.
 Run interactively or execute as a script. Modify the paths and parameters
 below to match your setup.
 """
-
+import xarray as xr
 import pickle
 import cupy as cp
 import numpy as np
@@ -15,16 +15,14 @@ from glide.data import (
     load_bedmachine,
     load_smb_racmo,
     prepare_grid,
-    interpolate_to_grid
+    interpolate_to_grid,
+    load_antarctica_preprocessed
 )
 
 # =============================================================================
 # Configuration - modify these paths and parameters
 # =============================================================================
 
-GEOMETRY_PATH = "./data/BedMachineAntarctica-v3.nc"
-SMB_PATH = "./data/smbgl_monthlyS_ANT11_RACMO2.4p1_ERA5_197901_202312.nc"
-BETA_PATH = "./inverse_output/beta_level_0.p"
 OUTPUT_DIR = "./output"
 
 SKIP = 4           # Geometry downsampling factor
@@ -39,13 +37,21 @@ G = 9.81
 N_GLEN = 3.0
 
 # =============================================================================
-# Load data
+# Load data - From source files
 # =============================================================================
+
+"""
+GEOMETRY_PATH = "./data/BedMachineAntarctica-v3.nc"
+SMB_PATH = "./data/smbgl_monthlyS_ANT11_RACMO2.4p1_ERA5_197901_202312.nc"
+BETA_PATH = "./inverse_output/beta_level_0.p"
 
 print("Loading geometry...")
 geometry = load_bedmachine(GEOMETRY_PATH, skip=SKIP, thklim=0.1,bbox_pad=[1100,1000,1600,1600])
 geometry = prepare_grid(geometry, n_levels=N_LEVELS)
 
+bed = geometry['bed']
+thickness = geometry['thickness']
+surface = geometry['surface']
 ny, nx = geometry['ny'], geometry['nx']
 dx = geometry['dx']
 x, y = geometry['x'], geometry['y']
@@ -55,22 +61,36 @@ print(f"Grid: {ny} x {nx}, dx = {dx:.1f} m")
 print("Loading SMB...")
 smb = load_smb_racmo(SMB_PATH,x,y)
 
-smb[geometry['surface'] == 0] = -50.0
-
 print("Loading beta...")
 beta = cp.array(pickle.load(open(BETA_PATH, 'rb')))
+"""
+# =============================================================================
+# Load data - From prepackaged
+# =============================================================================
 
-# Compute B (rate factor - we measure driving stress in units of head, so the rho g factor gets subsumed into definitions of beta and B!)
-B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
-B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
+dataset = load_antarctica_preprocessed()
+ny,nx = dataset.ny,dataset.nx
+dx = dataset.dx
+bed = dataset.bed.values
+surface = dataset.surface.values
+thickness = dataset.thickness.values
+beta = dataset.beta.values
+smb = dataset.smb.values
 
 # =============================================================================
 # Initialize physics
 # =============================================================================
 
+# Emulate fixed calving front
+smb[surface == 0] = -50.0
+
+# Compute B (rate factor - we measure driving stress in units of head, so the rho g factor gets subsumed into definitions of beta and B!)
+B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
+B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
+
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.01,water_drag=1e-5,gl_derivatives=False)
-physics.set_geometry(geometry['bed'], geometry['thickness'])
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0,water_drag=1e-5,gl_derivatives=False)
+physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
 # Access the grid hierarchy

@@ -5,6 +5,7 @@ Infers basal friction (beta) from observed surface velocities using
 adjoint-based optimization. Run interactively or as a script.
 """
 
+import xarray as xr
 import pickle
 import cupy as cp
 import numpy as np
@@ -12,7 +13,7 @@ from scipy.optimize import fmin_l_bfgs_b
 
 from glide import IcePhysics
 from glide.io import VTIWriter, write_vti
-from glide.physics import huber_loss, huber_grad, tikhonov_regularization
+from glide.physics import abs_loss, abs_grad, tikhonov_regularization
 from glide.data import (
     load_bedmachine,
     load_velocity_mosaic,
@@ -44,11 +45,11 @@ RHO_ICE = 917.0
 G = 9.81
 N_GLEN = 3.0
 
-# =============================================================================
-# Load data
-# =============================================================================
-
 kernels = get_kernels()
+# =============================================================================
+# Load data - from source files
+# =============================================================================
+"""
 
 print("Loading geometry...")
 geometry = load_bedmachine(GEOMETRY_PATH, skip=SKIP, thklim=0.1)
@@ -75,18 +76,39 @@ v_obs[1:-1] = (v_obs_cell[1:] + v_obs_cell[:-1]) / 2.0
 print("Loading SMB...")
 smb_data = load_smb_mar(SMB_PATH)
 smb = interpolate_to_grid(smb_data['smb'], smb_data['x'], smb_data['y'], x, y)
+"""
+# =============================================================================
+# Load data - From prepackaged
+# =============================================================================
 
-# Compute B (rate factor)
-B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
-B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
+dataset = load_greenland_preprocessed()
+ny,nx = dataset.ny,dataset.nx
+dx = dataset.dx
+bed = dataset.bed.values
+surface = dataset.surface.values
+thickness = dataset.thickness.values
+smb = dataset.smb.values
+u_obs_cell = dataset.vx.values
+v_obs_cell = dataset.vy.values
+
+# Interpolate to faces
+u_obs = cp.zeros((ny, nx + 1), dtype=cp.float32)
+u_obs[:, 1:-1] = cp.array((u_obs_cell[:, 1:] + u_obs_cell[:, :-1]) / 2.0)
+v_obs = cp.zeros((ny + 1, nx), dtype=cp.float32)
+v_obs[1:-1] = cp.array((v_obs_cell[1:] + v_obs_cell[:-1]) / 2.0)
 
 # =============================================================================
 # Initialize physics
 # =============================================================================
 
+# Compute B (rate factor)
+B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
+B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
+
+
 print("Initializing physics...")
 physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1, water_drag=1e-6)
-physics.set_geometry(geometry['bed'], geometry['thickness'])
+physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=0.01, smb=smb)
 
 grid = physics.grid
@@ -155,19 +177,19 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
             fascd_vcycle(current_grid, physics.thklim, finest=True)
 
         # Compute loss
-        J = huber_loss(current_grid.u, current_grid.v, u_obs_level, v_obs_level)
-        dJdu, dJdv = huber_grad(current_grid.u, current_grid.v, u_obs_level, v_obs_level)
+        J = abs_loss(current_grid.u, current_grid.v, u_obs_level, v_obs_level)
+        dJdu, dJdv = abs_grad(current_grid.u, current_grid.v, u_obs_level, v_obs_level)
 
         # Adjoint solve
-        current_grid.f_adj_u[:] = dJdu
-        current_grid.f_adj_v[:] = dJdv
+        current_grid.f_adj_u[:] = -dJdu
+        current_grid.f_adj_v[:] = -dJdv
         current_grid.f_adj_H.fill(0.0)
         current_grid.Lambda.fill(0.0)
 
         adjoint_vcycle(current_grid)
 
         # Gradient
-        grad_beta = current_grid.compute_grad_beta().clip(-1.0, 1.0)
+        grad_beta = current_grid.compute_grad_beta()
         grad_log_beta = current_grid.beta * grad_beta
 
         # Regularization
@@ -176,7 +198,7 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
         tik_grad *= REG_WEIGHT
 
         total_loss = J + tik_loss
-        total_grad = -grad_log_beta + tik_grad
+        total_grad = grad_log_beta + tik_grad
 
         print(f"  Loss: {J:.4f}, Reg: {tik_loss:.4f}, Total: {total_loss:.4f}")
 

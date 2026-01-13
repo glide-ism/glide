@@ -2,27 +2,173 @@
 Data download and loading utilities.
 
 Provides functions to download standard ice sheet datasets and load them
-into GLIDE-compatible format.
+into GLIDE-compatible format. Uses Pooch for automatic downloading and caching.
 """
 
 import os
-import urllib.request
 from pathlib import Path
 import numpy as np
 
-# Default cache directory
-CACHE_DIR = Path.home() / ".cache" / "glide"
+try:
+    import gdown
+    HAS_GDOWN = True
+except ImportError:
+    HAS_GDOWN = False
+
+# =============================================================================
+# File registry with Google Drive file IDs
+# =============================================================================
+
+# Google Drive file IDs (extracted from share URLs)
+FILE_IDS = {
+    "GLIDE_greenland_inputs.h5": "1Iu3Xro_0b8TVht7OHe2KFOrJOX4YC-nj",
+    "GLIDE_antarctica_inputs.h5": "12pc5Yhmldwp6fD0-CRdXVCbrmDvg9afo",
+    "bitterroot_dem.tif": "18tsQDV6D4ri7hvhYsad1Ft_c2gYb1ziE",
+}
 
 
-def get_cache_dir():
-    """Get or create the cache directory."""
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    return CACHE_DIR
+def _gdrive_url(file_id):
+    """Convert Google Drive file ID to direct download URL."""
+    return f"https://drive.google.com/uc?export=download&id={file_id}"
 
+
+def fetch(filename, cache_dir=None, quiet=False):
+    """
+    Fetch a file, downloading from Google Drive if needed.
+
+    Files are cached to a local 'data' directory by default, making them
+    visible and easy to manage alongside example scripts.
+
+    Parameters
+    ----------
+    filename : str
+        Name of file in registry
+    cache_dir : str or Path, optional
+        Directory to cache files (default: ./data)
+    quiet : bool
+        Suppress download progress output
+
+    Returns
+    -------
+    str
+        Path to local file
+    """
+    if not HAS_GDOWN:
+        raise ImportError("gdown required for automatic downloads: pip install gdown")
+
+    # Default to ./data in current working directory
+    if cache_dir is None:
+        cache_dir = Path("./data")
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # Check if already cached
+    filepath = cache_dir / filename
+    if filepath.exists():
+        return str(filepath)
+
+    # Get file ID from registry
+    file_id = FILE_IDS.get(filename)
+    if file_id is None:
+        raise ValueError(f"Unknown file: {filename}. Available: {list(FILE_IDS.keys())}")
+
+    # Download using gdown (handles large file confirmation automatically)
+    url = _gdrive_url(file_id)
+    gdown.download(url, str(filepath), quiet=quiet)
+    return str(filepath)
+
+
+def clear_cache(cache_dir=None):
+    """Clear cached data files.
+
+    Parameters
+    ----------
+    cache_dir : str or Path, optional
+        Directory to clear (default: ./data)
+    """
+    import shutil
+    if cache_dir is None:
+        cache_dir = Path("./data")
+    cache_dir = Path(cache_dir)
+    if cache_dir.exists():
+        shutil.rmtree(cache_dir)
+        print(f"Cleared cache: {cache_dir}")
+
+
+# =============================================================================
+# High-level loaders for preprocessed data
+# =============================================================================
+
+def load_greenland_preprocessed(filename="GLIDE_greenland_inputs.h5", cache_dir=None, quiet=False):
+    """
+    Load preprocessed Greenland datasets (auto-downloads if needed).
+
+    Parameters
+    ----------
+    filename : str
+        Name of file in registry
+    cache_dir : str or Path, optional
+        Directory to cache files (default: ./data)
+    quiet : bool
+        Suppress download progress output
+
+    Returns
+    -------
+    xarray.Dataset
+    """
+    import xarray as xr
+    return xr.open_dataset(fetch(filename, cache_dir=cache_dir, quiet=quiet))
+
+
+def load_antarctica_preprocessed(filename="GLIDE_antarctica_inputs.h5", cache_dir=None, quiet=False):
+    """
+    Load preprocessed Antarctica datasets (auto-downloads if needed).
+
+    Parameters
+    ----------
+    filename : str
+        Name of file in registry
+    cache_dir : str or Path, optional
+        Directory to cache files (default: ./data)
+    quiet : bool
+        Suppress download progress output
+
+    Returns
+    -------
+    xarray.Dataset
+    """
+    import xarray as xr
+    return xr.open_dataset(fetch(filename, cache_dir=cache_dir, quiet=quiet))
+
+
+def load_bitterroot_dem(filename="bitterroot_dem.tif", cache_dir=None, quiet=False):
+    """
+    Load Bitterroot DEM (auto-downloads if needed).
+
+    Parameters
+    ----------
+    filename : str
+        Name of file in registry
+    cache_dir : str or Path, optional
+        Directory to cache files (default: ./data)
+    quiet : bool
+        Suppress download progress output
+
+    Returns
+    -------
+    xarray.DataArray
+    """
+    import rioxarray
+    return rioxarray.open_rasterio(fetch(filename, cache_dir=cache_dir, quiet=quiet)).squeeze()
+
+
+# =============================================================================
+# Legacy download function (for manual URLs)
+# =============================================================================
 
 def download_file(url, filename, cache_dir=None, force=False):
     """
-    Download a file with caching.
+    Download a file with caching (legacy function).
 
     Parameters
     ----------
@@ -31,7 +177,7 @@ def download_file(url, filename, cache_dir=None, force=False):
     filename : str
         Local filename to save as
     cache_dir : Path, optional
-        Cache directory (default ~/.cache/glide)
+        Cache directory (default: ./data)
     force : bool
         Re-download even if file exists
 
@@ -40,11 +186,12 @@ def download_file(url, filename, cache_dir=None, force=False):
     Path
         Path to downloaded file
     """
+    import urllib.request
+
     if cache_dir is None:
-        cache_dir = get_cache_dir()
-    else:
-        cache_dir = Path(cache_dir)
-        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_dir = Path("./data")
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
     filepath = cache_dir / filename
 
@@ -62,6 +209,11 @@ def download_file(url, filename, cache_dir=None, force=False):
     print()
 
     return filepath
+
+
+# =============================================================================
+# Loaders for raw/source data files
+# =============================================================================
 
 
 def load_bedmachine(path, skip=1, thklim=0.1,bbox_pad=[0,1,0,1]):

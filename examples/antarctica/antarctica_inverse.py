@@ -1,5 +1,5 @@
 """
-Greenland inverse modeling example.
+Antarctica inverse modeling example.
 
 Infers basal friction (beta) from observed surface velocities using
 adjoint-based optimization. Run interactively or as a script.
@@ -73,15 +73,36 @@ v_obs = cp.zeros((ny + 1, nx), dtype=cp.float32)
 v_obs[1:-1] = (v_obs_cell[1:] + v_obs_cell[:-1]) / 2.0
 
 smb = load_smb_racmo(SMB_PATH,x,y)
-#smb[geometry['surface']==0] = -50
-# Compute B (rate factor)
-B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
-B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
+
+# =============================================================================
+# Load data - From prepackaged
+# =============================================================================
+
+dataset = load_antarctica_preprocessed()
+ny,nx = dataset.ny,dataset.nx
+dx = dataset.dx
+bed = dataset.bed.values
+surface = dataset.surface.values
+thickness = dataset.thickness.values
+beta = dataset.beta.values
+smb = dataset.smb.values
+u_obs_cell = dataset.vx.values
+v_obs_cell = dataset.vy.values
+
+# Interpolate to faces
+u_obs = cp.zeros((ny, nx + 1), dtype=cp.float32)
+u_obs[:, 1:-1] = cp.array((u_obs_cell[:, 1:] + u_obs_cell[:, :-1]) / 2.0)
+v_obs = cp.zeros((ny + 1, nx), dtype=cp.float32)
+v_obs[1:-1] = cp.array((v_obs_cell[1:] + v_obs_cell[:-1]) / 2.0)
 
 # =============================================================================
 # Initialize physics
 # =============================================================================
 
+# Compute B (rate factor)
+B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
+
+B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 print("Initializing physics...")
 physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0,water_drag=1e-5,gl_derivatives=False)
 physics.set_geometry(geometry['bed'], geometry['thickness'])

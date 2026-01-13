@@ -12,10 +12,7 @@ import numpy as np
 from glide import IcePhysics
 from glide.io import VTIWriter, write_vti
 from glide.data import (
-    load_bedmachine,
-    load_smb_mar,
-    prepare_grid,
-    interpolate_to_grid
+    load_bitterroot_dem
 )
 
 # =============================================================================
@@ -45,9 +42,8 @@ N_GLEN = 3.0
 # =============================================================================
 
 print("Loading geometry...")
-import xarray as xr
-data = xr.load_dataset(GEOMETRY_PATH)
-bed = data.band_data.values.squeeze()[100:-100,100:-100]
+data = load_bitterroot_dem()#xr.load_dataset(GEOMETRY_PATH)
+bed = data.values.squeeze()[100:-100,100:-100]
 srf = bed + 0.1
 thk = srf - bed
 x = data.x.values[100:-100]
@@ -84,7 +80,7 @@ grid = physics.grid
 # Set up output
 # =============================================================================
 
-writer = VTIWriter(OUTPUT_DIR, base="bearcreek", dx=dx)
+writer = VTIWriter(OUTPUT_DIR, base="bitterroot", dx=dx)
 write_vti(f"{OUTPUT_DIR}/bed.vti", {'bed': grid.bed}, dx)
 
 # =============================================================================
