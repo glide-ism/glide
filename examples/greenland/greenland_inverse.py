@@ -11,6 +11,13 @@ import cupy as cp
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
 
+
+def allocate_pinned(shape, dtype=np.float64):
+    """Allocate a pinned (page-locked) numpy array for fast GPU transfers."""
+    nbytes = int(np.prod(shape) * np.dtype(dtype).itemsize)
+    mem = cp.cuda.alloc_pinned_memory(nbytes)
+    return np.frombuffer(mem, dtype=dtype, count=int(np.prod(shape))).reshape(shape)
+
 from glide import IcePhysics
 from glide.io import VTIWriter, write_vti
 from glide.physics import abs_loss, abs_grad, tikhonov_regularization
@@ -161,9 +168,15 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
 
     counter = [0]
 
+    # Allocate pinned memory for fast CPU-GPU transfers
+    n_params = current_grid.nh
+    x_pinned = allocate_pinned(n_params, dtype=np.float64)
+    grad_pinned = allocate_pinned(n_params, dtype=np.float64)
+
     def objective(log_beta_flat):
         """Objective function for L-BFGS-B."""
-        log_beta = cp.array(log_beta_flat.reshape((current_grid.ny, current_grid.nx))).astype(cp.float32)
+        # Transfer from (pinned) CPU to GPU
+        log_beta = cp.asarray(log_beta_flat.reshape((current_grid.ny, current_grid.nx)), dtype=cp.float32)
         current_grid.beta[:] = cp.exp(log_beta)
 
         # Reset state
@@ -203,11 +216,13 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
 
         print(f"  Loss: {J:.4f}, Reg: {tik_loss:.4f}, Total: {total_loss:.4f}")
 
-        return float(total_loss), total_grad.get().ravel().astype(np.float64)
+        # Transfer gradient to pinned memory (fast GPU->CPU)
+        grad_pinned[:] = total_grad.ravel().get().astype(np.float64)
+        return float(total_loss), grad_pinned
 
     def callback(log_beta_flat):
         """Callback for visualization."""
-        log_beta = cp.array(log_beta_flat.reshape((current_grid.ny, current_grid.nx))).astype(cp.float32)
+        log_beta = cp.asarray(log_beta_flat.reshape((current_grid.ny, current_grid.nx)), dtype=cp.float32)
         counter[0] += 1
 
         u_c = 0.5 * (current_grid.u[:, 1:] + current_grid.u[:, :-1])
@@ -219,12 +234,12 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
         })
         writer.write_pvd()
 
-    # Run optimization
-    x0 = cp.log(current_grid.beta).ravel().get().astype(np.float64)
+    # Initialize x0 in pinned memory
+    x_pinned[:] = cp.log(current_grid.beta).ravel().get().astype(np.float64)
     bounds = [(-6, 5)] * current_grid.nh
 
     result = fmin_l_bfgs_b(
-        objective, x0,
+        objective, x_pinned,
         bounds=bounds,
         callback=callback,
         factr=1e11,
