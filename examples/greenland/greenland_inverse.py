@@ -19,7 +19,8 @@ from glide.data import (
     load_velocity_mosaic,
     load_smb_mar,
     prepare_grid,
-    interpolate_to_grid
+    interpolate_to_grid,
+    load_greenland_preprocessed
 )
 from glide.kernels import restrict_vfacet, restrict_hfacet, get_kernels
 from glide.solver import fascd_vcycle, adjoint_vcycle, restrict_parameters_to_hierarchy

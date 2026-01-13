@@ -19,15 +19,10 @@ from glide.data import (
 # Configuration - modify these paths and parameters
 # =============================================================================
 
-GEOMETRY_PATH = "./data/bitterroot.tif"
-
-
-
-
 OUTPUT_DIR = "./output"
 
 SKIP = 6           # Geometry downsampling factor
-DT = 10.0          # Time step (years)
+DT = 25.0          # Time step (years)
 N_STEPS = 200      # Number of time steps
 N_LEVELS = 5       # Multigrid levels
 N_VCYCLES = 3      # V-cycles per time step
@@ -42,7 +37,7 @@ N_GLEN = 3.0
 # =============================================================================
 
 print("Loading geometry...")
-data = load_bitterroot_dem()#xr.load_dataset(GEOMETRY_PATH)
+data = load_bitterroot_dem()
 bed = data.values.squeeze()[100:-100,100:-100]
 srf = bed + 0.1
 thk = srf - bed

@@ -19,7 +19,8 @@ from glide.data import (
     load_smb_racmo,
     prepare_grid,
     interpolate_to_grid,
-    load_antarctic_velocity
+    load_antarctic_velocity,
+    load_antarctica_preprocessed
 )
 from glide.kernels import restrict_vfacet, restrict_hfacet, get_kernels
 from glide.solver import fascd_vcycle, adjoint_vcycle, restrict_parameters_to_hierarchy
@@ -43,12 +44,13 @@ RHO_ICE = 917.0
 G = 9.81
 N_GLEN = 3.0
 
+kernels = get_kernels()
+
 # =============================================================================
 # Load data
 # =============================================================================
 
-kernels = get_kernels()
-
+"""
 print("Loading geometry...")
 geometry = load_bedmachine(GEOMETRY_PATH, skip=SKIP, thklim=0.1,bbox_pad=[1100,1000,1600,1600])
 geometry = prepare_grid(geometry, n_levels=N_LEVELS)
@@ -73,7 +75,7 @@ v_obs = cp.zeros((ny + 1, nx), dtype=cp.float32)
 v_obs[1:-1] = (v_obs_cell[1:] + v_obs_cell[:-1]) / 2.0
 
 smb = load_smb_racmo(SMB_PATH,x,y)
-
+"""
 # =============================================================================
 # Load data - From prepackaged
 # =============================================================================
@@ -84,7 +86,6 @@ dx = dataset.dx
 bed = dataset.bed.values
 surface = dataset.surface.values
 thickness = dataset.thickness.values
-beta = dataset.beta.values
 smb = dataset.smb.values
 u_obs_cell = dataset.vx.values
 v_obs_cell = dataset.vy.values
@@ -105,7 +106,7 @@ B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
 B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 print("Initializing physics...")
 physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0,water_drag=1e-5,gl_derivatives=False)
-physics.set_geometry(geometry['bed'], geometry['thickness'])
+physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=0.01, smb=smb)
 
 grid = physics.grid

@@ -27,8 +27,8 @@ from glide.data import (
 OUTPUT_DIR = "./output"
 
 SKIP = 6           # Geometry downsampling factor
-DT = 25.0          # Time step (years)
-N_STEPS = 1      # Number of time steps
+DT = 10.0          # Time step (years)
+N_STEPS = 20      # Number of time steps
 N_LEVELS = 5       # Multigrid levels
 N_VCYCLES = 3      # V-cycles per time step
 
@@ -83,7 +83,6 @@ thickness = dataset.thickness.values
 beta = dataset.beta.values
 smb = dataset.smb.values
 
-
 # =============================================================================
 # Initialize physics
 # =============================================================================
@@ -94,7 +93,7 @@ B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,water_drag=1e-3,gl_sigmoid_c=0.1,gl_derivatives=False)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,water_drag=1e-6,gl_sigmoid_c=0.1,gl_derivatives=False)
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 

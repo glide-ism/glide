@@ -412,7 +412,7 @@ void vanka_smooth(
 	    lu_5x5_solve(J,r,delta_x);
 
 
-            float relaxation_factor = 0.5f;
+            float relaxation_factor = 0.25f;
 
 	    u_l -= relaxation_factor*delta_x[0];
 	    u_r -= relaxation_factor*delta_x[1];
@@ -1257,10 +1257,6 @@ void vanka_smooth_local(
 	    J[19] -= tau_dy_b.d_H_t;
 	    }
 
-	    //float r_norm = 0.f;
-	    //for (int q = 0; q < 5; q++) r_norm += r[q]*r[q];
-	    //if (r_norm < 0.1f) break;
-
             J[0]  -= 1.0f;
             J[6]  -= 1.0f;
             J[12] -= 1.0f;
@@ -1271,7 +1267,7 @@ void vanka_smooth_local(
 	    lu_5x5_solve(J,r,delta_x);
 
 
-            float relaxation_factor = 0.5f;
+            float relaxation_factor = 0.25f;
 
 	    u_l -= relaxation_factor*delta_x[0];
 	    u_r -= relaxation_factor*delta_x[1];
