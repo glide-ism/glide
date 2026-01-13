@@ -118,7 +118,7 @@ def load_greenland_preprocessed(filename="GLIDE_greenland_inputs.h5", cache_dir=
     xarray.Dataset
     """
     import xarray as xr
-    return xr.open_dataset(fetch(filename, cache_dir=cache_dir, quiet=quiet))
+    return xr.open_dataset(fetch(filename, cache_dir=cache_dir, quiet=quiet), engine='h5netcdf')
 
 
 def load_antarctica_preprocessed(filename="GLIDE_antarctica_inputs.h5", cache_dir=None, quiet=False):
@@ -139,7 +139,7 @@ def load_antarctica_preprocessed(filename="GLIDE_antarctica_inputs.h5", cache_di
     xarray.Dataset
     """
     import xarray as xr
-    return xr.open_dataset(fetch(filename, cache_dir=cache_dir, quiet=quiet))
+    return xr.open_dataset(fetch(filename, cache_dir=cache_dir, quiet=quiet), engine='h5netcdf')
 
 
 def load_bitterroot_dem(filename="bitterroot_dem.tif", cache_dir=None, quiet=False):
