@@ -160,7 +160,7 @@ def load_bitterroot_dem(filename="bitterroot_dem.tif", cache_dir=None, quiet=Fal
     xarray.DataArray
     """
     import xarray as xr
-    return xr.open_dataarray(fetch(filename, cache_dir=cache_dir, quiet=quiet)).squeeze()
+    return xr.open_dataarray(fetch(filename, cache_dir=cache_dir, quiet=quiet), engine='h5netcdf').squeeze()
 
 
 # =============================================================================
