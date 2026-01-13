@@ -25,11 +25,8 @@ pip install -e .
 - Python >= 3.8
 - NVIDIA GPU with CUDA support
 - CuPy (install for your CUDA version, e.g., `pip install cupy-cuda12x`)
-
-Optional dependencies for data loading:
-```bash
-pip install netCDF4 rasterio
-```
+- NumPy, SciPy, xarray, h5py
+- gdown (for automatic data downloads)
 
 ## Quick Start
 

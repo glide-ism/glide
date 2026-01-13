@@ -2,7 +2,8 @@
 Data download and loading utilities.
 
 Provides functions to download standard ice sheet datasets and load them
-into GLIDE-compatible format. Uses Pooch for automatic downloading and caching.
+into GLIDE-compatible format. Uses gdown for automatic downloading from
+Google Drive and xarray for data loading.
 """
 
 import os
@@ -158,8 +159,8 @@ def load_bitterroot_dem(filename="bitterroot_dem.tif", cache_dir=None, quiet=Fal
     -------
     xarray.DataArray
     """
-    import rioxarray
-    return rioxarray.open_rasterio(fetch(filename, cache_dir=cache_dir, quiet=quiet)).squeeze()
+    import xarray as xr
+    return xr.open_dataarray(fetch(filename, cache_dir=cache_dir, quiet=quiet)).squeeze()
 
 
 # =============================================================================
@@ -216,7 +217,7 @@ def download_file(url, filename, cache_dir=None, force=False):
 # =============================================================================
 
 
-def load_bedmachine(path, skip=1, thklim=0.1,bbox_pad=[0,1,0,1]):
+def load_bedmachine(path, skip=1, thklim=0.1, bbox_pad=[0,1,0,1]):
     """
     Load BedMachine Greenland data.
 
@@ -228,6 +229,8 @@ def load_bedmachine(path, skip=1, thklim=0.1,bbox_pad=[0,1,0,1]):
         Downsampling factor (default 1 = full resolution)
     thklim : float
         Minimum thickness to add (prevents zero thickness)
+    bbox_pad : list
+        Padding to remove from edges [x_start, x_end, y_start, y_end]
 
     Returns
     -------
@@ -238,26 +241,23 @@ def load_bedmachine(path, skip=1, thklim=0.1,bbox_pad=[0,1,0,1]):
         surface : 2D surface elevation
         dx : grid spacing
     """
-    try:
-        import netCDF4 as nc
-    except ImportError:
-        raise ImportError("netCDF4 required: pip install netCDF4")
+    import xarray as xr
 
-    dataset = nc.Dataset(path, 'r')
+    ds = xr.open_dataset(path)
 
-    x = dataset.variables['x'][bbox_pad[0]:-bbox_pad[1]][::skip]
-    y = dataset.variables['y'][bbox_pad[2]:-bbox_pad[3]][::skip]
-    bed = dataset.variables['bed'][bbox_pad[2]:-bbox_pad[3],bbox_pad[0]:-bbox_pad[1]][::skip, ::skip]
-    thickness = dataset.variables['thickness'][bbox_pad[2]:-bbox_pad[3],bbox_pad[0]:-bbox_pad[1]][::skip, ::skip]
-    surface = dataset.variables['surface'][bbox_pad[2]:-bbox_pad[3],bbox_pad[0]:-bbox_pad[1]][::skip, ::skip]
+    # Apply bounding box padding and skip
+    x = ds['x'].values[bbox_pad[0]:-bbox_pad[1]][::skip]
+    y = ds['y'].values[bbox_pad[2]:-bbox_pad[3]][::skip]
+    bed = ds['bed'].values[bbox_pad[2]:-bbox_pad[3], bbox_pad[0]:-bbox_pad[1]][::skip, ::skip]
+    thickness = ds['thickness'].values[bbox_pad[2]:-bbox_pad[3], bbox_pad[0]:-bbox_pad[1]][::skip, ::skip]
+    surface = ds['surface'].values[bbox_pad[2]:-bbox_pad[3], bbox_pad[0]:-bbox_pad[1]][::skip, ::skip]
 
-    base = np.maximum(bed,surface*(1 - (1/(1-0.917))))
+    ds.close()
+
+    base = np.maximum(bed, surface * (1 - (1 / (1 - 0.917))))
     thickness = surface - base + thklim
-    # Add minimum thickness
 
     dx = float(abs(x[1] - x[0]))
-
-    dataset.close()
 
     return {
         'x': np.array(x),
@@ -285,22 +285,16 @@ def load_velocity_mosaic(u_path, v_path):
     dict with keys:
         u, v : 2D velocity arrays
         x, y : 1D coordinate arrays
-        bounds : (left, bottom, right, top)
     """
-    try:
-        import rasterio
-    except ImportError:
-        raise ImportError("rasterio required: pip install rasterio")
+    import xarray as xr
 
-    with rasterio.open(u_path) as src:
-        u = src.read().squeeze()
-        bounds = src.bounds
-        ny, nx = u.shape
-        x = np.linspace(bounds.left, bounds.right, nx)
-        y = np.linspace(bounds.top, bounds.bottom, ny)
+    u_da = xr.open_dataarray(u_path).squeeze()
+    v_da = xr.open_dataarray(v_path).squeeze()
 
-    with rasterio.open(v_path) as src:
-        v = src.read().squeeze()
+    u = u_da.values
+    v = v_da.values
+    x = u_da.coords['x'].values
+    y = u_da.coords['y'].values
 
     # Replace no-data values
     nodata = u[0, 0]
@@ -312,7 +306,6 @@ def load_velocity_mosaic(u_path, v_path):
         'v': v.astype(np.float32),
         'x': x,
         'y': y,
-        'bounds': bounds
     }
 
 def load_antarctic_velocity(U_OBS_PATH):
@@ -336,21 +329,18 @@ def load_smb_mar(path):
         smb : 2D SMB array (m/yr ice equivalent)
         x, y : 1D coordinate arrays
     """
-    try:
-        import netCDF4 as nc
-    except ImportError:
-        raise ImportError("netCDF4 required: pip install netCDF4")
+    import xarray as xr
 
-    dataset = nc.Dataset(path, 'r')
+    ds = xr.open_dataset(path)
 
-    x = np.array(dataset.variables['x'])
-    y = np.array(dataset.variables['y'])
-    smb = np.array(dataset.variables['SMB'][:].squeeze()) / 1000.0  # Convert to m/yr
+    x = ds['x'].values
+    y = ds['y'].values
+    smb = ds['SMB'].values.squeeze() / 1000.0  # Convert to m/yr
+
+    ds.close()
 
     # Replace masked values with typical ablation
     smb[smb == smb.max()] = -2.2
-
-    dataset.close()
 
     return {
         'smb': smb.astype(np.float32),
