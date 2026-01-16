@@ -157,6 +157,12 @@ class Grid:
         self.error_mask = cp.zeros((ny, nx), dtype=cp.float32)
         self.gamma = cp.zeros((ny, nx), dtype=cp.float32)
 
+        # Frozen fields for Picard linearization (precomputed before V-cycle)
+        # These are restricted to coarser grids rather than recomputed
+        self.eta = cp.zeros((ny, nx), dtype=cp.float32)      # Viscosity
+        self.beta_eff = cp.zeros((ny, nx), dtype=cp.float32) # Effective basal traction
+        self.c_eff = cp.zeros((ny, nx), dtype=cp.float32)    # Effective calving rate
+
     def _vec_to_fields(self, x):
         """Create field views into a monolithic state vector."""
         u = x[:self.nu].reshape(self.ny, self.nx + 1)
@@ -174,7 +180,9 @@ class Grid:
             n=self._n,
             eps_reg=self._eps_reg,
             water_drag=self._water_drag,
-            calving_rate=self._calving_rate
+            calving_rate=self._calving_rate,
+            gl_sigmoid_c=self._gl_sigmoid_c,
+            gl_derivatives=self._gl_derivatives
         )
         self.child = child
         return child
@@ -187,12 +195,29 @@ class Grid:
         grid_size = (self.nx // stride + 1, self.ny // stride + 1)
         return grid_size, block_size, stride, halo
 
-    def compute_residual(self, return_fischer_burmeister=False):
+    def compute_residual(self, return_fischer_burmeister=False,frozen=False):
         """Compute residual r = f - F(U)."""
-        kernel = self.kernels.ice.get_function('compute_residual')
+        
         grid_size, block_size, stride, halo = self._kernel_config()
+        if frozen:
+            kernel = self.kernels.ice.get_function('compute_residual_frozen')
 
-        kernel(grid_size, block_size,
+            kernel(grid_size, block_size,
+               (self.r_u, self.r_v, self.r_H,
+                self.u, self.v, self.H,
+                self.f_u, self.f_v, self.f_H,
+                self.eta,
+                self.bed, self.B, self.beta_eff,
+                self.mask, self.gamma,
+                self.physics_params,
+                self.dx, self.dt,
+                self.ny, self.nx, stride, halo))
+
+
+        else:
+            kernel = self.kernels.ice.get_function('compute_residual')
+
+            kernel(grid_size, block_size,
                (self.r_u, self.r_v, self.r_H,
                 self.u, self.v, self.H,
                 self.f_u, self.f_v, self.f_H,
@@ -207,12 +232,28 @@ class Grid:
             b = self.H - self.gamma
             return a + b - cp.sqrt(a**2 + b**2)
 
-    def compute_F(self):
+    def compute_F(self,frozen=False):
         """Compute F(U) (operator evaluation without RHS)."""
-        kernel = self.kernels.ice.get_function('compute_residual')
         grid_size, block_size, stride, halo = self._kernel_config()
+        if frozen:
+            kernel = self.kernels.ice.get_function('compute_residual_frozen')
 
-        kernel(grid_size, block_size,
+            kernel(grid_size, block_size,
+               (self.F_u, self.F_v, self.F_H,
+                self.u, self.v, self.H,
+                self.Z_u, self.Z_v, self.Z_H,
+                self.eta,
+                self.bed, self.B, self.beta_eff,
+                self.mask, self.gamma,
+                self.physics_params,
+                self.dx, self.dt,
+                self.ny, self.nx, stride, halo))
+
+
+        else:
+            kernel = self.kernels.ice.get_function('compute_residual')
+
+            kernel(grid_size, block_size,
                (self.F_u, self.F_v, self.F_H,
                 self.u, self.v, self.H,
                 self.Z_u, self.Z_v, self.Z_H,
@@ -253,12 +294,28 @@ class Grid:
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 
-    def vanka_smooth(self, color, omega=cp.float32(0.5), n_inner=1):
-        """Apply one Vanka smoother pass (red-black)."""
-        kernel = self.kernels.ice.get_function('vanka_smooth')
+    def vanka_smooth(self, n_inner=10, frozen=False):
+        """Apply one Vanka smoother pass"""
         grid_size, block_size, stride, halo = self._kernel_config()
+        
+        if frozen:
+            kernel = self.kernels.ice.get_function('vanka_smooth_frozen')
 
-        kernel(grid_size, block_size,
+            kernel(grid_size, block_size,
+               (self.delta_u, self.delta_v, self.delta_H, self.mask,
+                self.u, self.v, self.H,
+                self.f_u, self.f_v, self.f_H,
+                self.eta,
+                self.bed, self.B, self.beta_eff, self.gamma,
+                self.physics_params,
+                self.dx, self.dt,
+                self.ny, self.nx, stride, halo,
+                n_inner))
+
+        else:
+            kernel = self.kernels.ice.get_function('vanka_smooth')
+
+            kernel(grid_size, block_size,
                (self.delta_u, self.delta_v, self.delta_H, self.mask,
                 self.u, self.v, self.H,
                 self.f_u, self.f_v, self.f_H,
@@ -266,7 +323,7 @@ class Grid:
                 self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo,
-                color, n_inner, omega))
+                n_inner))
 
     def vanka_smooth_local(self, color, omega=cp.float32(0.5), n_inner=1):
         """Apply Vanka smoother only where error_mask is set."""
@@ -302,11 +359,11 @@ class Grid:
                 color, omega))
         self.Lambda[:] = self.Lambda_out[:]
 
-    def vanka_sweep(self, n_iter, n_inner=10, omega=cp.float32(0.5)):
+    def vanka_sweep(self, n_iter, n_inner=10, omega=cp.float32(1.0),frozen=False):
         """Perform n_iter red-black Vanka smoothing sweeps."""
         for _ in range(n_iter):
             self.delta_U.fill(0.0)
-            self.vanka_smooth(0, omega=cp.float32(1.0), n_inner=n_inner)
+            self.vanka_smooth(n_inner=n_inner,frozen=frozen)
             self.U[:] += omega * self.delta_U
 
     def vanka_sweep_local(self, n_iter, n_inner=10, omega=cp.float32(0.5)):
@@ -353,3 +410,47 @@ class Grid:
 
         self.mask.fill(0.0)
         return grad_beta
+
+    def compute_eta_field(self):
+        """Compute frozen viscosity field from current velocity state."""
+        kernel = self.kernels.ice.get_function('compute_eta')
+        total_work = self.ny * self.nx
+        block_size = 256
+        grid_size = (total_work + block_size - 1) // block_size
+
+        kernel((grid_size,), (block_size,),
+               (self.eta, self.u, self.v, self.B,
+                cp.float32(self._n), cp.float32(self._eps_reg), self.dx,
+                self.ny, self.nx))
+
+    def compute_beta_eff_field(self):
+        """Compute frozen effective basal traction field."""
+        kernel = self.kernels.ice.get_function('compute_beta_eff')
+        total_work = self.ny * self.nx
+        block_size = 256
+        grid_size = (total_work + block_size - 1) // block_size
+
+        kernel((grid_size,), (block_size,),
+               (self.beta_eff, self.H, self.bed, self.beta,
+                cp.float32(self._water_drag), cp.float32(self._gl_sigmoid_c),
+                self.ny, self.nx))
+
+    def compute_c_eff_field(self):
+        """Compute frozen effective calving rate field."""
+        kernel = self.kernels.ice.get_function('compute_c_eff')
+        total_work = self.ny * self.nx
+        block_size = 256
+        grid_size = (total_work + block_size - 1) // block_size
+
+        kernel((grid_size,), (block_size,),
+               (self.c_eff, self.H, self.bed,
+                cp.float32(self._calving_rate), cp.float32(self._gl_sigmoid_c),
+                self.ny, self.nx))
+
+    def compute_frozen_fields(self):
+        """Compute all frozen fields (eta, beta_eff, c_eff) for Picard linearization."""
+        self.compute_eta_field()
+        self.compute_beta_eff_field()
+        self.compute_c_eff_field()
+
+

@@ -19,7 +19,7 @@ void vanka_smooth(
     const PhysicsParams* params,
     float dx, float dt,
     int ny, int nx, int stride, int halo,
-    int color, int n_newton, float omega
+    int n_newton
     ) 
 {
     const int bny = 16;

@@ -219,3 +219,36 @@ DualFloat get_cell_calving_dual(
     return {jac.res,jac.apply_jvp(s.get_diffs())};
 }
 
+/*==============================================
+  ==========  CALVING (Frozen) =================
+  =============================================*/
+
+// Frozen version: uses precomputed c_eff instead of computing grounding
+struct CellCalvingFrozenStencil {
+    float H;
+    float c_eff;  // Precomputed effective calving rate = (1-grounded)*calving_rate
+};
+
+struct CellCalvingFrozenJacobian {
+    float res;
+    float d_H;
+
+    __device__ __forceinline__
+    float apply_jvp(const CellCalvingFrozenStencil& dot) const {
+        return d_H * dot.H;
+    }
+};
+
+__device__
+CellCalvingFrozenJacobian get_cell_calving_frozen_jac(
+    CellCalvingFrozenStencil s,
+    int i, int j,
+    int ny, int nx)
+{
+    CellCalvingFrozenJacobian jac = {0};
+    // res = -c_eff * H  (c_eff already includes the (1-grounded) factor)
+    jac.res = -s.c_eff * s.H;
+    jac.d_H = -s.c_eff;
+    return jac;
+}
+

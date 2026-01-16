@@ -367,6 +367,59 @@ DualFloat get_tau_by_dual(TauByStencilDual s) {
 }
 
 /*=========================================================
+  ======= Basal Shear Stress (Frozen Coefficients) ========
+  =========================================================*/
+
+// Frozen version: uses precomputed beta_eff instead of computing grounding
+struct TauBxFrozenStencil {
+    float u;
+    float beta_eff_l, beta_eff_r;  // Precomputed effective basal traction
+};
+
+struct TauBxFrozenJacobian {
+    float res;
+    float d_u;
+
+    __device__ __forceinline__
+    float apply_jvp(const TauBxFrozenStencil& dot) const {
+        return d_u * dot.u;
+    }
+};
+
+__device__ __forceinline__
+TauBxFrozenJacobian get_tau_bx_frozen_jac(TauBxFrozenStencil s) {
+    TauBxFrozenJacobian jac = {0};
+    float beta_eff = 0.5f * (s.beta_eff_l + s.beta_eff_r);
+    jac.res = -beta_eff * s.u;
+    jac.d_u = -beta_eff;
+    return jac;
+}
+
+struct TauByFrozenStencil {
+    float v;
+    float beta_eff_t, beta_eff_b;  // Precomputed effective basal traction
+};
+
+struct TauByFrozenJacobian {
+    float res;
+    float d_v;
+
+    __device__ __forceinline__
+    float apply_jvp(const TauByFrozenStencil& dot) const {
+        return d_v * dot.v;
+    }
+};
+
+__device__ __forceinline__
+TauByFrozenJacobian get_tau_by_frozen_jac(TauByFrozenStencil s) {
+    TauByFrozenJacobian jac = {0};
+    float beta_eff = 0.5f * (s.beta_eff_t + s.beta_eff_b);
+    jac.res = -beta_eff * s.v;
+    jac.d_v = -beta_eff;
+    return jac;
+}
+
+/*=========================================================
   ==================== Driving Stress =====================
   =========================================================*/
 

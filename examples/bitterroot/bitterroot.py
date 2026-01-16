@@ -12,7 +12,8 @@ import numpy as np
 from glide import IcePhysics
 from glide.io import VTIWriter, write_vti
 from glide.data import (
-    load_bitterroot_dem
+    load_bitterroot_dem,
+    prepare_grid
 )
 
 # =============================================================================
@@ -22,10 +23,10 @@ from glide.data import (
 OUTPUT_DIR = "./output"
 
 SKIP = 6           # Geometry downsampling factor
-DT = 25.0          # Time step (years)
-N_STEPS = 200      # Number of time steps
+DT = 10.0          # Time step (years)
+N_STEPS = 100      # Number of time steps
 N_LEVELS = 5       # Multigrid levels
-N_VCYCLES = 3      # V-cycles per time step
+N_VCYCLES = 5      # V-cycles per time step
 
 # Physical constants
 RHO_ICE = 917.0
@@ -39,10 +40,26 @@ N_GLEN = 3.0
 print("Loading geometry...")
 data = load_bitterroot_dem()
 bed = data.values.squeeze()[100:-100,100:-100]
-srf = bed + 0.1
-thk = srf - bed
 x = data.x.values[100:-100]
 y = data.y.values[100:-100]
+
+factor = 2**N_LEVELS
+nx_target = (len(x) // factor) * factor
+ny_target = (len(y) // factor) * factor
+
+# Center the subregion
+x_start = (len(x) - nx_target) // 2
+y_start = (len(y) - ny_target) // 2
+
+x_slice = slice(x_start, x_start + nx_target)
+y_slice = slice(y_start, y_start + ny_target)
+
+x = x[x_slice]
+y = y[y_slice]
+bed = bed[y_slice,x_slice]
+srf = bed + 0.1
+thk = srf - bed
+
 ny,nx = srf.shape
 dx = x[1]-x[0]
 
@@ -64,7 +81,7 @@ B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 # =============================================================================
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,water_drag=1e-6)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,water_drag=1e-6,calving_rate=0)
 physics.set_geometry(bed, thk)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
@@ -83,13 +100,13 @@ write_vti(f"{OUTPUT_DIR}/bed.vti", {'bed': grid.bed}, dx)
 # =============================================================================
 
 print(f"Running {N_STEPS} time steps of {DT} years...")
-t = 0.0
 
+t = 0.0
 for step in range(N_STEPS):
     print(f"Step {step}: t = {t:.1f} yr, H_mean = {float(grid.H.mean()):.1f} m")
 
     # Forward solve
-    u, v, H = physics.forward(dt=DT, n_vcycles=N_VCYCLES, verbose=True)
+    u, v, H = physics.forward_frozen(dt=DT, n_vcycles=N_VCYCLES, verbose=True)
     t += DT
 
     # Output

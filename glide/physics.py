@@ -8,7 +8,8 @@ computations into a clean interface.
 import cupy as cp
 from .grid import Grid
 from .kernels import get_kernels, restrict_cell_centered
-from .solver import fascd_vcycle, adjoint_vcycle, restrict_parameters_to_hierarchy
+from .solver import (fascd_vcycle, fascd_vcycle_frozen, adjoint_vcycle,
+                     restrict_parameters_to_hierarchy, restrict_frozen_fields_to_hierarchy)
 
 
 # Physical constants
@@ -191,6 +192,90 @@ class IcePhysics:
 
             if verbose:
                 rss_H = self.grid.compute_residual(return_fischer_burmeister=True)
+                r_combined = float(cp.sqrt(
+                    cp.linalg.norm(self.grid.r_u)**2 +
+                    cp.linalg.norm(self.grid.r_v)**2 +
+                    cp.linalg.norm(rss_H)**2
+                ))
+                rel = r_combined / r0 if r0 > 0 else 0.0
+                print(f"  V-cycle {i}: |r|/|r0| = {rel:.2e}, "
+                      f"|r_u| = {float(cp.linalg.norm(self.grid.r_u)):.2e}, "
+                      f"|r_v| = {float(cp.linalg.norm(self.grid.r_v)):.2e}, "
+                      f"|rss_H| = {float(cp.linalg.norm(rss_H)):.2e}")
+
+        # Update H_prev for next time step
+        if update_geometry:
+            self.grid.H_prev[:] = self.grid.H[:]
+
+        return self.grid.u, self.grid.v, self.grid.H
+
+    def forward_frozen(self, dt, n_vcycles=3, verbose=False, update_geometry=True):
+        """
+        Perform one forward time step using frozen Picard coefficients.
+
+        This variant computes eta, beta_eff, and c_eff once at the finest level
+        before starting V-cycles, then restricts these fields to coarser grids.
+        This ensures operator consistency across multigrid levels and can improve
+        convergence when discontinuous coefficients (grounding line, calving) are
+        present.
+
+        Parameters
+        ----------
+        dt : float
+            Time step in years
+        n_vcycles : int
+            Number of multigrid V-cycles (default 3)
+        verbose : bool
+            Print convergence info
+        update_geometry : bool
+            Update H_prev after solve (default True)
+
+        Returns
+        -------
+        u : cupy.ndarray
+            x-velocity on vertical faces (ny, nx+1), m/yr
+        v : cupy.ndarray
+            y-velocity on horizontal faces (ny+1, nx), m/yr
+        H : cupy.ndarray
+            Ice thickness (ny, nx), m
+        """
+        self.grid.dt = cp.float32(dt)
+
+        # Propagate dt to all levels
+        for g in self.grids:
+            g.dt = self.grid.dt
+
+        # Set up RHS for mass equation
+        self.grid.f_H[:, :] = self.grid.H_prev / self.grid.dt + self.grid.smb
+
+        #self.grid.compute_frozen_fields()
+        # Compute initial residual for convergence tracking
+        if verbose:
+            rss_H_init = self.grid.compute_residual(return_fischer_burmeister=True,frozen=False)
+            r0 = float(cp.sqrt(
+                cp.linalg.norm(self.grid.r_u)**2 +
+                cp.linalg.norm(self.grid.r_v)**2 +
+                cp.linalg.norm(rss_H_init)**2
+            ))
+            print(f"  Initial: |r| = {r0:.2e}, "
+                  f"|r_u| = {float(cp.linalg.norm(self.grid.r_u)):.2e}, "
+                  f"|r_v| = {float(cp.linalg.norm(self.grid.r_v)):.2e}, "
+                  f"|rss_H| = {float(cp.linalg.norm(rss_H_init)):.2e}")
+
+        restrict_parameters_to_hierarchy(self.grid)
+        # Solve using frozen coefficients
+        for i in range(n_vcycles):
+            self.grid.compute_eta_field()
+            self.grid.compute_beta_eff_field()
+            # Restrict frozen fields to entire hierarchy
+            restrict_frozen_fields_to_hierarchy(self.grid)
+
+            # Run frozen V-cycle
+            fascd_vcycle_frozen(self.grid, self.thklim, finest=True)
+
+            if verbose:
+                # Use standard residual for convergence check (computes true residual)
+                rss_H = self.grid.compute_residual(return_fischer_burmeister=True,frozen=True)
                 r_combined = float(cp.sqrt(
                     cp.linalg.norm(self.grid.r_u)**2 +
                     cp.linalg.norm(self.grid.r_v)**2 +

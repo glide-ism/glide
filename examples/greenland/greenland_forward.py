@@ -27,10 +27,10 @@ from glide.data import (
 OUTPUT_DIR = "./output"
 
 SKIP = 6           # Geometry downsampling factor
-DT = 10.0          # Time step (years)
+DT = 25.0          # Time step (years)
 N_STEPS = 20      # Number of time steps
 N_LEVELS = 5       # Multigrid levels
-N_VCYCLES = 3      # V-cycles per time step
+N_VCYCLES = 5      # V-cycles per time step
 
 # Physical constants
 RHO_ICE = 917.0
@@ -93,7 +93,7 @@ B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,water_drag=1e-6,gl_sigmoid_c=0.1,gl_derivatives=False)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,water_drag=1e-6,gl_sigmoid_c=0.1,gl_derivatives=False,calving_rate=0.0)
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
@@ -118,7 +118,7 @@ for step in range(N_STEPS):
     print(f"Step {step}: t = {t:.1f} yr, H_mean = {float(grid.H.mean()):.1f} m")
 
     # Forward solve
-    u, v, H = physics.forward(dt=DT, n_vcycles=N_VCYCLES, verbose=True)
+    u, v, H = physics.forward_frozen(dt=DT, n_vcycles=N_VCYCLES, verbose=True)
     t += DT
 
     # Output
