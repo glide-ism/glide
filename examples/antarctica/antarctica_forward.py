@@ -27,9 +27,9 @@ OUTPUT_DIR = "./output"
 
 SKIP = 4           # Geometry downsampling factor
 DT = 25.0          # Time step (years)
-N_STEPS = 20      # Number of time steps
+N_STEPS = 50      # Number of time steps
 N_LEVELS = 5       # Multigrid levels
-N_VCYCLES = 5      # V-cycles per time step
+N_VCYCLES = 10      # V-cycles per time step
 
 # Physical constants
 RHO_ICE = 917.0
@@ -82,14 +82,15 @@ smb = dataset.smb.values
 # =============================================================================
 
 # Emulate fixed calving front
-smb[surface == 0] = -50.0
+smb -= 1.0
+smb[surface == 0] = -50
 
 # Compute B (rate factor - we measure driving stress in units of head, so the rho g factor gets subsumed into definitions of beta and B!)
 B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
 B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0,water_drag=1e-5,gl_derivatives=False,gl_sigmoid_c=0.1)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0,water_drag=1e-4,gl_derivatives=False,gl_sigmoid_c=0.1)
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
@@ -114,6 +115,8 @@ for step in range(N_STEPS):
     print(f"Step {step}: t = {t:.1f} yr, H_mean = {float(grid.H.mean()):.1f} m")
 
     # Forward solve
+    #grid.u.fill(0)
+    #grid.v.fill(0)
     u, v, H = physics.forward_frozen(dt=DT, n_vcycles=N_VCYCLES, verbose=True)
     t += DT
 

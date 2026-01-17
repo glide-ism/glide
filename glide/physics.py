@@ -267,6 +267,7 @@ class IcePhysics:
         for i in range(n_vcycles):
             self.grid.compute_eta_field()
             self.grid.compute_beta_eff_field()
+            self.grid.compute_c_eff_field()
             # Restrict frozen fields to entire hierarchy
             restrict_frozen_fields_to_hierarchy(self.grid)
 

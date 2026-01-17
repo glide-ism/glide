@@ -72,6 +72,7 @@ def restrict_frozen_fields(grid):
     kernels = grid.kernels
     restrict_cell_centered(grid.eta, kernels, f_coarse=child.eta)
     restrict_cell_centered(grid.beta_eff, kernels, f_coarse=child.beta_eff)
+    restrict_cell_centered(grid.c_eff, kernels, f_coarse=child.c_eff)
 
 def restrict_frozen_fields_to_hierarchy(grid):
     """Recursively restrict frozen fields through entire hierarchy."""
