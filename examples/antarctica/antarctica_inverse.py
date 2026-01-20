@@ -30,7 +30,7 @@ from glide.data import (
     load_antarctica_preprocessed
 )
 from glide.kernels import restrict_vfacet, restrict_hfacet, get_kernels
-from glide.solver import fascd_vcycle, adjoint_vcycle, restrict_parameters_to_hierarchy
+from glide.solver import fascd_vcycle_frozen, adjoint_vcycle, restrict_parameters_to_hierarchy, restrict_frozen_fields_to_hierarchy
 from glide.kernels import prolongate_cell_centered
 
 # =============================================================================
@@ -112,7 +112,7 @@ B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
 
 B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0,water_drag=1e-5,gl_derivatives=False)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0,water_drag=1e-5)
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=0.01, smb=smb)
 
@@ -188,32 +188,14 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
         restrict_parameters_to_hierarchy(current_grid)
         current_grid.f_H[:,:] = current_grid.H_prev/current_grid.dt + current_grid.smb
 
-        if verbose:
-            rss_H_init = current_grid.compute_residual(return_fischer_burmeister=True)
-            r0 = float(cp.sqrt(
-                cp.linalg.norm(current_grid.r_u)**2 +
-                cp.linalg.norm(current_grid.r_v)**2 +
-                cp.linalg.norm(rss_H_init)**2
-            ))
-            print(f"  Initial: |r| = {r0:.2e}, "
-                  f"|r_u| = {float(cp.linalg.norm(current_grid.r_u)):.2e}, "
-                  f"|r_v| = {float(cp.linalg.norm(current_grid.r_v)):.2e}, "
-                  f"|rss_H| = {float(cp.linalg.norm(rss_H_init)):.2e}")
         for _ in range(5):
-            fascd_vcycle(current_grid, physics.thklim, finest=True)
-            if verbose:
-                rss_H = current_grid.compute_residual(return_fischer_burmeister=True)
-                r_combined = float(cp.sqrt(
-                    cp.linalg.norm(current_grid.r_u)**2 +
-                    cp.linalg.norm(current_grid.r_v)**2 +
-                    cp.linalg.norm(rss_H)**2
-                ))
-                rel = r_combined / r0 if r0 > 0 else 0.0
-                print(f"  V-cycle {counter}: |r|/|r0| = {rel:.2e}, "
-                      f"|r_u| = {float(cp.linalg.norm(current_grid.r_u)):.2e}, "
-                      f"|r_v| = {float(cp.linalg.norm(current_grid.r_v)):.2e}, "
-                      f"|rss_H| = {float(cp.linalg.norm(rss_H)):.2e}")
-
+            current_grid.compute_eta_field()
+            current_grid.compute_beta_eff_field()
+            current_grid.compute_c_eff_field()
+            # Restrict frozen fields to entire hierarchy
+            restrict_frozen_fields_to_hierarchy(current_grid)
+            
+            fascd_vcycle_frozen(current_grid, physics.thklim, finest=True)
 
         # Compute loss
         J = abs_loss(current_grid.u, current_grid.v, u_obs_level, v_obs_level)

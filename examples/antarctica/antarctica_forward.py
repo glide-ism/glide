@@ -76,13 +76,13 @@ surface = dataset.surface.values
 thickness = dataset.thickness.values
 beta = dataset.beta.values
 smb = dataset.smb.values
-
+BETA_PATH = "./inverse_output/beta_level_0.p"
+beta = cp.array(pickle.load(open(BETA_PATH, 'rb')))
 # =============================================================================
 # Initialize physics
 # =============================================================================
 
 # Emulate fixed calving front
-smb -= 1.0
 smb[surface == 0] = -50
 
 # Compute B (rate factor - we measure driving stress in units of head, so the rho g factor gets subsumed into definitions of beta and B!)
@@ -90,7 +90,7 @@ B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
 B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0,water_drag=1e-4,gl_derivatives=False,gl_sigmoid_c=0.1)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.0,water_drag=1e-5)
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
@@ -115,8 +115,6 @@ for step in range(N_STEPS):
     print(f"Step {step}: t = {t:.1f} yr, H_mean = {float(grid.H.mean()):.1f} m")
 
     # Forward solve
-    #grid.u.fill(0)
-    #grid.v.fill(0)
     u, v, H = physics.forward_frozen(dt=DT, n_vcycles=N_VCYCLES, verbose=True)
     t += DT
 

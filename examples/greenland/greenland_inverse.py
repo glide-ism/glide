@@ -30,7 +30,7 @@ from glide.data import (
     load_greenland_preprocessed
 )
 from glide.kernels import restrict_vfacet, restrict_hfacet, get_kernels
-from glide.solver import fascd_vcycle, adjoint_vcycle, restrict_parameters_to_hierarchy
+from glide.solver import fascd_vcycle_frozen, adjoint_vcycle, restrict_parameters_to_hierarchy, restrict_frozen_fields_to_hierarchy
 from glide.kernels import prolongate_cell_centered
 
 # =============================================================================
@@ -105,6 +105,7 @@ u_obs[:, 1:-1] = cp.array((u_obs_cell[:, 1:] + u_obs_cell[:, :-1]) / 2.0)
 v_obs = cp.zeros((ny + 1, nx), dtype=cp.float32)
 v_obs[1:-1] = cp.array((v_obs_cell[1:] + v_obs_cell[:-1]) / 2.0)
 
+
 # =============================================================================
 # Initialize physics
 # =============================================================================
@@ -115,7 +116,7 @@ B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1, water_drag=1e-6)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1, water_drag=1e-6,calving_rate=2.0)
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=0.01, smb=smb)
 
@@ -187,8 +188,16 @@ for level_idx in range(len(level_grids) - 1, -1, -1):
         # Forward solve
         restrict_parameters_to_hierarchy(current_grid)
         current_grid.f_H[:,:] = current_grid.H_prev/current_grid.dt + current_grid.smb
+
+
         for _ in range(5):
-            fascd_vcycle(current_grid, physics.thklim, finest=True)
+            current_grid.compute_eta_field()
+            current_grid.compute_beta_eff_field()
+            current_grid.compute_c_eff_field()
+            # Restrict frozen fields to entire hierarchy
+            restrict_frozen_fields_to_hierarchy(current_grid)
+            
+            fascd_vcycle_frozen(current_grid, physics.thklim, finest=True)
 
         # Compute loss
         J = abs_loss(current_grid.u, current_grid.v, u_obs_level, v_obs_level)

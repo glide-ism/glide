@@ -28,9 +28,9 @@ OUTPUT_DIR = "./output"
 
 SKIP = 6           # Geometry downsampling factor
 DT = 10.0          # Time step (years)
-N_STEPS = 20      # Number of time steps
-N_LEVELS = 5       # Multigrid levels
-N_VCYCLES = 10      # V-cycles per time step
+N_STEPS = 10      # Number of time steps
+N_LEVELS = 6       # Multigrid levels
+N_VCYCLES = 5      # V-cycles per time step
 
 # Physical constants
 RHO_ICE = 917.0
@@ -82,19 +82,18 @@ surface = dataset.surface.values
 thickness = dataset.thickness.values
 beta = dataset.beta.values
 smb = dataset.smb.values
-#smb -= 1.0
 
 # =============================================================================
 # Initialize physics
 # =============================================================================
 
 # Compute B (rate factor - we measure driving stress in units of head, so the rho g factor gets subsumed into definitions of beta and B!)
-B_scalar = cp.float32(1e-16 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
+B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
 B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,water_drag=1e-6,gl_sigmoid_c=0.5,gl_derivatives=False,calving_rate=2.0)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,water_drag=1e-6,gl_derivatives=False,calving_rate=2.0)
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
