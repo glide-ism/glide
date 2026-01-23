@@ -162,6 +162,8 @@ class Grid:
         self.eta = cp.zeros((ny, nx), dtype=cp.float32)      # Viscosity
         self.beta_eff = cp.zeros((ny, nx), dtype=cp.float32) # Effective basal traction
         self.c_eff = cp.zeros((ny, nx), dtype=cp.float32)    # Effective calving rate
+        
+        self.d_eta = cp.zeros((ny, nx), dtype=cp.float32)      # Viscosity dual
 
     def _vec_to_fields(self, x):
         """Create field views into a monolithic state vector."""
@@ -326,20 +328,6 @@ class Grid:
                 self.ny, self.nx, stride, halo,
                 n_inner))
 
-    def vanka_smooth_local(self, color, omega=cp.float32(0.5), n_inner=1):
-        """Apply Vanka smoother only where error_mask is set."""
-        kernel = self.kernels.ice.get_function('vanka_smooth_local')
-        grid_size, block_size, stride, halo = self._kernel_config()
-
-        kernel(grid_size, block_size,
-               (self.delta_u, self.delta_v, self.delta_H, self.error_mask,
-                self.u, self.v, self.H,
-                self.f_u, self.f_v, self.f_H,
-                self.bed, self.B, self.beta, self.gamma,
-                self.physics_params,
-                self.dx, self.dt,
-                self.ny, self.nx, stride, halo,
-                color, n_inner, omega))
 
     def vanka_smooth_adjoint(self, color, omega=cp.float32(0.5)):
         """Apply adjoint Vanka smoother pass."""
@@ -360,19 +348,20 @@ class Grid:
                 color, omega))
         self.Lambda[:] = self.Lambda_out[:]
 
-    def vanka_sweep(self, n_iter, n_inner=10, omega=cp.float32(1.0),frozen=False):
+    def vanka_sweep(self, n_iter, n_inner=10, omega=cp.float32(1.0),frozen=False,verbose=False):
         """Perform n_iter red-black Vanka smoothing sweeps."""
         for _ in range(n_iter):
             self.delta_U.fill(0.0)
             self.vanka_smooth(n_inner=n_inner,frozen=frozen)
+            self.delta_u[:,0] *= 2
+            self.delta_u[:,-1] *= 2
+            self.delta_v[0] *= 2
+            self.delta_v[-1] *= 2
             self.U[:] += omega * self.delta_U
+            if verbose:
+                self.compute_residual(frozen=frozen)
+                print(self.dx,cp.linalg.norm(self.r_u),cp.linalg.norm(self.r_v),cp.linalg.norm(self.r_H))
 
-    def vanka_sweep_local(self, n_iter, n_inner=10, omega=cp.float32(0.5)):
-        """Perform local Vanka sweeps only where error_mask is set."""
-        for _ in range(n_iter):
-            self.delta_U.fill(0.0)
-            self.vanka_smooth_local(0, omega=cp.float32(1.0), n_inner=n_inner)
-            self.U[:] += omega * self.delta_U
 
     def vanka_sweep_adjoint(self, n_iter, omega=cp.float32(0.5)):
         """Perform n_iter adjoint Vanka smoothing sweeps."""
@@ -412,17 +401,26 @@ class Grid:
         self.mask.fill(0.0)
         return grad_beta
 
-    def compute_eta_field(self):
+    def compute_eta_field(self,compute_dual=False):
         """Compute frozen viscosity field from current velocity state."""
-        kernel = self.kernels.ice.get_function('compute_eta')
         total_work = self.ny * self.nx
         block_size = 256
         grid_size = (total_work + block_size - 1) // block_size
 
-        kernel((grid_size,), (block_size,),
-               (self.eta, self.u, self.v, self.B,
-                cp.float32(self._n), cp.float32(self._eps_reg), self.dx,
-                self.ny, self.nx))
+        if compute_dual:
+            kernel = self.kernels.ice.get_function('compute_eta_with_dual')
+            kernel((grid_size,), (block_size,),
+                   (self.eta, self.d_eta, self.u, self.v, self.d_u, self.d_v, self.B,
+                    cp.float32(self._n), cp.float32(self._eps_reg), self.dx,
+                    self.ny, self.nx))
+
+        else:
+
+            kernel = self.kernels.ice.get_function('compute_eta')
+            kernel((grid_size,), (block_size,),
+                   (self.eta, self.u, self.v, self.B,
+                    cp.float32(self._n), cp.float32(self._eps_reg), self.dx,
+                    self.ny, self.nx))
 
     def compute_beta_eff_field(self):
         """Compute frozen effective basal traction field."""
@@ -453,5 +451,31 @@ class Grid:
         self.compute_eta_field()
         self.compute_beta_eff_field()
         self.compute_c_eff_field()
+
+    def get_vanka_matrices(self):
+        """Apply one Vanka smoother pass"""
+        grid_size, block_size, stride, halo = self._kernel_config()
+        
+        kernel = self.kernels.ice.get_function('vanka_matrix_dump')
+
+        J = cp.zeros((self.ny*self.nx,25),dtype=cp.float32)
+        R = cp.zeros((self.ny*self.nx,5),dtype=cp.float32)
+        Delta = cp.zeros((self.ny*self.nx,5),dtype=cp.float32)
+
+        kernel(grid_size, block_size,
+           (J,R,Delta,
+            self.u, self.v, self.H,
+            self.f_u, self.f_v, self.f_H,
+            self.eta,
+            self.bed, self.B, self.beta_eff, self.c_eff, 
+            self.gamma,
+            self.physics_params,
+            self.dx, self.dt,
+            self.ny, self.nx, stride, halo,
+            ))
+
+        return J,R,Delta
+
+
 
 

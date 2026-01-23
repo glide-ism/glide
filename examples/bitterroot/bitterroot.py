@@ -23,7 +23,7 @@ from glide.data import (
 OUTPUT_DIR = "./output"
 
 SKIP = 6           # Geometry downsampling factor
-DT = 10.0          # Time step (years)
+DT = 20.0          # Time step (years)
 N_STEPS = 100      # Number of time steps
 N_LEVELS = 5       # Multigrid levels
 N_VCYCLES = 5      # V-cycles per time step
@@ -70,7 +70,7 @@ ela = 1800
 smb = 0.5/1000.0*(srf - ela)
 
 print("Loading beta...")
-beta = cp.ones_like(thk)*0.1#cp.array(pickle.load(open(BETA_PATH, 'rb')))
+beta = cp.ones_like(thk)*0.5#cp.array(pickle.load(open(BETA_PATH, 'rb')))
 
 # Compute B (rate factor - we measure driving stress in units of head, so the rho g factor gets subsumed into definitions of beta and B!)
 B_scalar = cp.float32(1e-16 ** (-1.0 / N_GLEN) / (RHO_ICE * G))

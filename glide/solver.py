@@ -168,7 +168,7 @@ def fascd_vcycle(grid, thklim, finest=False):
 
     grid.gamma.fill(thklim)
 
-def fascd_vcycle_frozen(grid, thklim, finest=False):
+def fascd_vcycle_frozen(grid, thklim, finest=False,verbose=False,omega=cp.float32(1.0)):
     """
     FASCD V-cycle for the coupled SSA + mass conservation system.
 
@@ -193,7 +193,7 @@ def fascd_vcycle_frozen(grid, thklim, finest=False):
     if grid.child is None:
         # Coarsest level: direct solve
         grid.gamma[:] = grid.w_H + grid.chi[:]
-        grid.vanka_sweep(400,frozen=True,n_inner=10)
+        grid.vanka_sweep(400,frozen=True,n_inner=10,verbose=verbose,omega=omega)
         grid.gamma.fill(thklim)
         return
 
@@ -206,7 +206,7 @@ def fascd_vcycle_frozen(grid, thklim, finest=False):
 
     # Pre-smooth with local constraint
     grid.gamma[:, :] = grid.w_H + grid.phi
-    grid.vanka_sweep(10,frozen=True)
+    grid.vanka_sweep(10,frozen=True,verbose=verbose,omega=omega)
     grid.gamma.fill(thklim)
 
     # Compute coarse grid correction
@@ -225,7 +225,7 @@ def fascd_vcycle_frozen(grid, thklim, finest=False):
     grid.child.f[:] = grid.child.F - grid.child.r
 
     # Recursive call
-    fascd_vcycle_frozen(grid.child, thklim)
+    fascd_vcycle_frozen(grid.child, thklim,verbose=verbose)
 
     # Compute coarse correction
     grid.child.z[:] = grid.child.U - grid.child.w
@@ -241,7 +241,7 @@ def fascd_vcycle_frozen(grid, thklim, finest=False):
 
     # Post-smooth
     grid.gamma[:, :] = grid.w_H + grid.chi
-    grid.vanka_sweep(10,frozen=True)
+    grid.vanka_sweep(10,frozen=True,verbose=verbose,omega=omega)
     grid.gamma.fill(thklim)
 
 def adjoint_vcycle(grid):

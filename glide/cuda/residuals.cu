@@ -185,6 +185,11 @@ void compute_residual(
 	    TauDxJacobian tau_dx = get_tau_dx_jac({H_l,H_c,bed_l,bed_c},dx_inv,i,j,ny,nx);
 	    ru_l -= tau_dx.res;
 	    }
+
+	    if (j == 0 || j == nx) {
+		ru_l = get_vfacet(u,i,j,ny,nx);
+	    }	
+
 	    r_u[i * (nx + 1) + j] = ru_l;
 	}
 
@@ -285,6 +290,10 @@ void compute_residual(
 	    TauDyJacobian tau_dy = get_tau_dy_jac({H_t,H_c,bed_t,bed_c},dx_inv,i,j,ny,nx);
 	    rv_t -= tau_dy.res;
 	    }
+
+	    if (i == 0 || i == ny) {
+		rv_t = get_hfacet(v,i,j,ny,nx);
+	    }	
 
 	    r_v[i * nx + j] = rv_t;
 	}

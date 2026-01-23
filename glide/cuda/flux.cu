@@ -231,6 +231,20 @@ struct CellCalvingFrozenStencil {
     float c_eff;  // Precomputed effective calving rate = (1-grounded)*calving_rate
 };
 
+struct CellCalvingFrozenStencilDual {
+    DualFloat H;
+    float c_eff;  // Precomputed effective calving rate = (1-grounded)*calving_rate
+    __device__ __forceinline__
+    CellCalvingFrozenStencil get_primals() const {
+        return {H.v,c_eff};
+    }
+
+    __device__ __forceinline__
+    CellCalvingFrozenStencil get_diffs() const {
+        return {H.d,0.0f};
+    }
+};
+
 struct CellCalvingFrozenJacobian {
     float res;
     float d_H;
@@ -254,3 +268,11 @@ CellCalvingFrozenJacobian get_cell_calving_frozen_jac(
     return jac;
 }
 
+__device__ __forceinline__
+DualFloat get_cell_calving_frozen_dual(
+    CellCalvingFrozenStencilDual s,
+    int i, int j,
+    int ny, int nx) {
+    CellCalvingFrozenJacobian jac = get_cell_calving_frozen_jac(s.get_primals(),i,j,ny,nx);
+    return {jac.res,jac.apply_jvp(s.get_diffs())};
+}

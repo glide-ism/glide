@@ -42,6 +42,10 @@ viz/
 inverse_output/
 inverse_results/
 
+# Output files
+*.vti
+*.pvd
+
 # Data files (download separately)
 *.nc
 *.tif
