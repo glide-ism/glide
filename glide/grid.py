@@ -163,7 +163,9 @@ class Grid:
         self.beta_eff = cp.zeros((ny, nx), dtype=cp.float32) # Effective basal traction
         self.c_eff = cp.zeros((ny, nx), dtype=cp.float32)    # Effective calving rate
         
+        self.eta_adjoint = cp.zeros((ny,nx),dtype=cp.float32)
         self.d_eta = cp.zeros((ny, nx), dtype=cp.float32)      # Viscosity dual
+        self.lambda_eta = cp.zeros((ny,nx), dtype=cp.float32)
 
     def _vec_to_fields(self, x):
         """Create field views into a monolithic state vector."""
@@ -265,12 +267,30 @@ class Grid:
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 
-    def compute_jvp(self):
+    def compute_jvp(self,frozen=False):
         """Compute Jacobian-vector product J @ d_U."""
-        kernel = self.kernels.ice.get_function('compute_jvp')
+        
         grid_size, block_size, stride, halo = self._kernel_config()
+        
+        if frozen:
+            kernel = self.kernels.ice.get_function('compute_jvp_frozen')
+            
+            kernel(grid_size, block_size,
+               (self.j_u, self.j_v, self.j_H,
+                self.u, self.v, self.H,
+                self.d_u, self.d_v, self.d_H,
+                self.eta, self.d_eta,
+                self.bed, self.B, self.beta_eff, self.c_eff,
+                self.mask, self.gamma,
+                self.physics_params,
+                self.dx, self.dt,
+                self.ny, self.nx, stride, halo))
 
-        kernel(grid_size, block_size,
+        else:
+
+            kernel = self.kernels.ice.get_function('compute_jvp')
+
+            kernel(grid_size, block_size,
                (self.j_u, self.j_v, self.j_H,
                 self.u, self.v, self.H,
                 self.d_u, self.d_v, self.d_H,
@@ -280,13 +300,28 @@ class Grid:
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 
-    def compute_vjp(self):
+    def compute_vjp(self,frozen=False,zero_boundaries=True):
         """Compute vector-Jacobian product Lambda^T @ J."""
-        kernel = self.kernels.ice.get_function('compute_vjp')
         grid_size, block_size, stride, halo = self._kernel_config()
 
-        self.l.fill(0.0)
-        kernel(grid_size, block_size,
+        if frozen:
+            kernel = self.kernels.ice.get_function('compute_vjp_frozen')
+            self.l.fill(0.0)
+            kernel(grid_size, block_size,
+               (self.l_u, self.l_v, self.l_H,
+                self.u, self.v, self.H,
+                self.lambda_u, self.lambda_v, self.lambda_H,
+                self.eta, self.lambda_eta,
+                self.bed, self.B, self.beta_eff, self.c_eff,
+                self.mask, self.gamma,
+                self.physics_params,
+                self.dx, self.dt,
+                self.ny, self.nx, stride, halo))
+
+        else:
+            kernel = self.kernels.ice.get_function('compute_vjp')
+            self.l.fill(0.0)
+            kernel(grid_size, block_size,
                (self.l_u, self.l_v, self.l_H,
                 self.u, self.v, self.H,
                 self.lambda_u, self.lambda_v, self.lambda_H,
@@ -295,6 +330,10 @@ class Grid:
                 self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
+        if zero_boundaries:
+            self.l_u[:,0] = self.l_u[:,-1] = 0
+            self.l_v[0] = self.l_v[-1] = 0
+
 
     def vanka_smooth(self, n_inner=10, frozen=False):
         """Apply one Vanka smoother pass"""
@@ -329,13 +368,30 @@ class Grid:
                 n_inner))
 
 
-    def vanka_smooth_adjoint(self, color, omega=cp.float32(0.5)):
+    def vanka_smooth_adjoint(self, color, omega=cp.float32(0.5),frozen=False):
         """Apply adjoint Vanka smoother pass."""
-        kernel = self.kernels.ice.get_function('vanka_smooth_adjoint')
         grid_size, block_size, stride, halo = self._kernel_config()
 
-        self.Lambda_out[:] = self.Lambda[:]
-        kernel(grid_size, block_size,
+        if frozen:
+            kernel = self.kernels.ice.get_function('vanka_smooth_adjoint_frozen')
+            self.Lambda_out[:] = self.Lambda[:]
+            kernel(grid_size, block_size,
+               (self.lambda_u_out, self.lambda_v_out, self.lambda_H_out,
+                self.lambda_u, self.lambda_v, self.lambda_H,
+                self.mask,
+                self.r_adj_u, self.r_adj_v, self.r_adj_H,
+                self.u, self.v, self.H, self.eta,
+                self.bed, self.B, self.beta_eff, self.c_eff, 
+                self.gamma,
+                self.physics_params,
+                self.dx, self.dt,
+                self.ny, self.nx, stride, halo,
+                color, omega))
+            self.Lambda[:] = self.Lambda_out[:]
+        else:
+            kernel = self.kernels.ice.get_function('vanka_smooth_adjoint')
+            self.Lambda_out[:] = self.Lambda[:]
+            kernel(grid_size, block_size,
                (self.lambda_u_out, self.lambda_v_out, self.lambda_H_out,
                 self.lambda_u, self.lambda_v, self.lambda_H,
                 self.mask,
@@ -346,7 +402,7 @@ class Grid:
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo,
                 color, omega))
-        self.Lambda[:] = self.Lambda_out[:]
+            self.Lambda[:] = self.Lambda_out[:]
 
     def vanka_sweep(self, n_iter, n_inner=10, omega=cp.float32(1.0),frozen=False,verbose=False):
         """Perform n_iter red-black Vanka smoothing sweeps."""
@@ -362,19 +418,18 @@ class Grid:
                 self.compute_residual(frozen=frozen)
                 print(self.dx,cp.linalg.norm(self.r_u),cp.linalg.norm(self.r_v),cp.linalg.norm(self.r_H))
 
-
-    def vanka_sweep_adjoint(self, n_iter, omega=cp.float32(0.5)):
+    def vanka_sweep_adjoint(self, n_iter, omega=cp.float32(0.5),frozen=False,verbose=False):
         """Perform n_iter adjoint Vanka smoothing sweeps."""
         for _ in range(n_iter):
             self.r_adj[:] = self.f_adj[:]
             self.compute_vjp()
             self.r_adj[:] -= self.l
-            self.vanka_smooth_adjoint(0, omega=omega)
+            self.vanka_smooth_adjoint(0, omega=omega,frozen=frozen)
 
             self.r_adj[:] = self.f_adj[:]
             self.compute_vjp()
             self.r_adj[:] -= self.l
-            self.vanka_smooth_adjoint(1, omega=omega)
+            self.vanka_smooth_adjoint(1, omega=omega,frozen=frozen)
 
     def compute_mask(self, tol=1e-1):
         """Compute active set mask for thickness constraints."""
@@ -401,21 +456,27 @@ class Grid:
         self.mask.fill(0.0)
         return grad_beta
 
-    def compute_eta_field(self,compute_dual=False):
+    def compute_eta_field(self,mode='residual'):
         """Compute frozen viscosity field from current velocity state."""
         total_work = self.ny * self.nx
         block_size = 256
         grid_size = (total_work + block_size - 1) // block_size
 
-        if compute_dual:
+        if mode=='dual':
             kernel = self.kernels.ice.get_function('compute_eta_with_dual')
             kernel((grid_size,), (block_size,),
                    (self.eta, self.d_eta, self.u, self.v, self.d_u, self.d_v, self.B,
                     cp.float32(self._n), cp.float32(self._eps_reg), self.dx,
                     self.ny, self.nx))
+        
+        elif mode=='adjoint':
+            kernel = self.kernels.ice.get_function('compute_eta_with_dual')
+            kernel((grid_size,), (block_size,),
+                   (self.eta_adjoint, self.lambda_eta, self.u, self.v, self.lambda_u, self.lambda_v, self.B,
+                    cp.float32(self._n), cp.float32(self._eps_reg), self.dx,
+                    self.ny, self.nx))
 
         else:
-
             kernel = self.kernels.ice.get_function('compute_eta')
             kernel((grid_size,), (block_size,),
                    (self.eta, self.u, self.v, self.B,
@@ -446,9 +507,9 @@ class Grid:
                 cp.float32(self._calving_rate), cp.float32(self._gl_sigmoid_c),
                 self.ny, self.nx))
 
-    def compute_frozen_fields(self):
+    def compute_frozen_fields(self,mode='residual'):
         """Compute all frozen fields (eta, beta_eff, c_eff) for Picard linearization."""
-        self.compute_eta_field()
+        self.compute_eta_field(mode=mode)
         self.compute_beta_eff_field()
         self.compute_c_eff_field()
 
@@ -475,6 +536,9 @@ class Grid:
             ))
 
         return J,R,Delta
+
+    def set_rhs(self):
+        self.f_H[:,:] = self.H_prev / self.dt + self.smb
 
 
 

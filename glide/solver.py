@@ -66,19 +66,21 @@ def restrict_parameters_to_hierarchy(grid):
         restrict_parameters_to_hierarchy(grid.child)
 
 
-def restrict_frozen_fields(grid):
+def restrict_frozen_fields(grid,restrict_adjoint_viscosity=False):
     """Restrict frozen fields (eta, beta_eff, c_eff) from grid to child."""
     child = grid.child
     kernels = grid.kernels
     restrict_cell_centered(grid.eta, kernels, f_coarse=child.eta)
     restrict_cell_centered(grid.beta_eff, kernels, f_coarse=child.beta_eff)
     restrict_cell_centered(grid.c_eff, kernels, f_coarse=child.c_eff)
+    if restrict_adjoint_viscosity:
+        restrict_cell_centered(grid.lambda_eta,kernels,f_coarse=child.lambda_eta)
 
-def restrict_frozen_fields_to_hierarchy(grid):
+def restrict_frozen_fields_to_hierarchy(grid,restrict_adjoint_viscosity=False):
     """Recursively restrict frozen fields through entire hierarchy."""
     if grid.child is not None:
-        restrict_frozen_fields(grid)
-        restrict_frozen_fields_to_hierarchy(grid.child)
+        restrict_frozen_fields(grid,restrict_adjoint_viscosity=restrict_adjoint_viscosity)
+        restrict_frozen_fields_to_hierarchy(grid.child,restrict_adjoint_viscosity=restrict_adjoint_viscosity)
 
 def fascd_vcycle(grid, thklim, finest=False):
     """
@@ -244,7 +246,7 @@ def fascd_vcycle_frozen(grid, thklim, finest=False,verbose=False,omega=cp.float3
     grid.vanka_sweep(10,frozen=True,verbose=verbose,omega=omega)
     grid.gamma.fill(thklim)
 
-def adjoint_vcycle(grid):
+def adjoint_vcycle(grid,frozen=False):
     """
     Adjoint V-cycle for computing gradients via reverse-mode AD.
 
@@ -261,13 +263,13 @@ def adjoint_vcycle(grid):
     if grid.child is None:
         # Coarsest level: direct solve
         grid.compute_mask()
-        grid.vanka_sweep_adjoint(100, omega=cp.float32(1.0))
+        grid.vanka_sweep_adjoint(100, omega=cp.float32(1.0),frozen=frozen)
         grid.mask.fill(0)
         return
 
     # Pre-smooth
     grid.compute_mask()
-    grid.vanka_sweep_adjoint(10, omega=cp.float32(1.0))
+    grid.vanka_sweep_adjoint(10, omega=cp.float32(1.0),frozen=frozen)
     grid.mask.fill(0)
 
     # Compute adjoint residual
@@ -276,19 +278,16 @@ def adjoint_vcycle(grid):
     grid.r_adj[:] -= grid.l
 
     # Restrict to child
-    restrict_solution(grid, adjoint=True)
-    restrict_parameters(grid)
+    #restrict_solution(grid, adjoint=True)
+    #restrict_parameters(grid)
 
     # Set up coarse RHS
-    grid.child.f_adj.fill(0.0)
     restrict_vfacet(grid.r_adj_u, kernels, u_coarse=grid.child.f_adj_u)
     restrict_hfacet(grid.r_adj_v, kernels, v_coarse=grid.child.f_adj_v)
     restrict_cell_centered(grid.r_adj_H, kernels, f_coarse=grid.child.f_adj_H)
-    grid.child.Lambda.fill(0.0)
-    grid.child.Lambda_out.fill(0.0)
 
     # Recursive call
-    adjoint_vcycle(grid.child)
+    adjoint_vcycle(grid.child,frozen=frozen)
 
     # Prolongate correction
     grid.z.fill(0.0)
@@ -303,5 +302,6 @@ def adjoint_vcycle(grid):
 
     # Post-smooth
     grid.compute_mask()
-    grid.vanka_sweep_adjoint(10, omega=cp.float32(1.0))
+    grid.vanka_sweep_adjoint(10, omega=cp.float32(1.0),frozen=frozen)
     grid.mask.fill(0)
+    

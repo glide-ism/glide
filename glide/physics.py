@@ -171,7 +171,7 @@ class IcePhysics:
             g.dt = self.grid.dt
 
         # Set up RHS for mass equation
-        self.grid.f_H[:, :] = self.grid.H_prev / self.grid.dt + self.grid.smb
+        self.grid.set_rhs()   #f_H[:, :] = self.grid.H_prev / self.grid.dt + self.grid.smb
 
         # Compute initial residual for convergence tracking
         if verbose:
@@ -317,15 +317,17 @@ class IcePhysics:
         self.grid.f_adj_u[:] = cp.asarray(-dL_du, dtype=cp.float32)
         self.grid.f_adj_v[:] = cp.asarray(-dL_dv, dtype=cp.float32)
         self.grid.f_adj_H[:] = cp.asarray(-dL_dH, dtype=cp.float32)
-        self.grid.Lambda.fill(0.0)
-        self.grid.Lambda_out.fill(0.0)
+
+        self.grid.compute_frozen_fields()
+        restrict_frozen_fields_to_hierarchy(self.grid,restrict_adjoint_viscosity=True)
 
         # Solve adjoint system
-        for _ in range(n_vcycles):
-            adjoint_vcycle(self.grid)
+        for j in range(n_vcycles):
+            adjoint_vcycle(self.grid,frozen=True)
+            print(j,cp.linalg.norm((self.grid.l - self.grid.f_adj)))
 
         # Compute parameter gradient
-        return self.grid.compute_grad_beta()
+        #return self.grid.compute_grad_beta()
 
     def reset_solution(self):
         """Reset velocity fields to zero."""

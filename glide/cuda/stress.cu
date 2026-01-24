@@ -376,6 +376,22 @@ struct TauBxFrozenStencil {
     float beta_eff_l, beta_eff_r;  // Precomputed effective basal traction
 };
 
+struct TauBxFrozenStencilDual {
+    DualFloat u;
+    float beta_eff_l, beta_eff_r;
+
+    __device__ __forceinline__
+    TauBxFrozenStencil get_primals() const {
+        return {u.v,beta_eff_l,beta_eff_r};
+    }
+
+    __device__ __forceinline__
+    TauBxFrozenStencil get_diffs() const {
+        return {u.d,0.0f,0.0f};
+    }
+
+};
+
 struct TauBxFrozenJacobian {
     float res;
     float d_u;
@@ -386,6 +402,7 @@ struct TauBxFrozenJacobian {
     }
 };
 
+
 __device__ __forceinline__
 TauBxFrozenJacobian get_tau_bx_frozen_jac(TauBxFrozenStencil s) {
     TauBxFrozenJacobian jac = {0};
@@ -395,9 +412,32 @@ TauBxFrozenJacobian get_tau_bx_frozen_jac(TauBxFrozenStencil s) {
     return jac;
 }
 
+__device__ __forceinline__
+DualFloat get_tau_bx_frozen_dual(TauBxFrozenStencilDual s) {
+    TauBxFrozenJacobian jac = get_tau_bx_frozen_jac(s.get_primals());
+    return {jac.res,jac.apply_jvp(s.get_diffs())};
+}
+
+
 struct TauByFrozenStencil {
     float v;
     float beta_eff_t, beta_eff_b;  // Precomputed effective basal traction
+};
+
+struct TauByFrozenStencilDual {
+    DualFloat v;
+    float beta_eff_t, beta_eff_b;
+
+    __device__ __forceinline__
+    TauByFrozenStencil get_primals() const {
+        return {v.v,beta_eff_t,beta_eff_b};
+    }
+
+    __device__ __forceinline__
+    TauByFrozenStencil get_diffs() const {
+        return {v.d,0.0f,0.0f};
+    }
+
 };
 
 struct TauByFrozenJacobian {
@@ -418,6 +458,13 @@ TauByFrozenJacobian get_tau_by_frozen_jac(TauByFrozenStencil s) {
     jac.d_v = -beta_eff;
     return jac;
 }
+
+__device__ __forceinline__
+DualFloat get_tau_by_frozen_dual(TauByFrozenStencilDual s) {
+    TauByFrozenJacobian jac = get_tau_by_frozen_jac(s.get_primals());
+    return {jac.res,jac.apply_jvp(s.get_diffs())};
+}
+
 
 /*=========================================================
   ==================== Driving Stress =====================
