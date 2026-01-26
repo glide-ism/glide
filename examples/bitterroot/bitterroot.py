@@ -25,7 +25,7 @@ OUTPUT_DIR = "./output"
 SKIP = 6           # Geometry downsampling factor
 DT = 20.0          # Time step (years)
 N_STEPS = 100      # Number of time steps
-N_LEVELS = 5       # Multigrid levels
+N_LEVELS = 6       # Multigrid levels
 N_VCYCLES = 5      # V-cycles per time step
 
 # Physical constants

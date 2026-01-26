@@ -263,11 +263,16 @@ class IcePhysics:
                   f"|rss_H| = {float(cp.linalg.norm(rss_H_init)):.2e}")
 
         restrict_parameters_to_hierarchy(self.grid)
+        self.grid.compute_eta_field()
+        self.grid.compute_beta_eff_field()
+        self.grid.compute_c_eff_field()
+        # Restrict frozen fields to entire hierarchy
+        restrict_frozen_fields_to_hierarchy(self.grid)
         # Solve using frozen coefficients
         for i in range(n_vcycles):
             self.grid.compute_eta_field()
             self.grid.compute_beta_eff_field()
-            self.grid.compute_c_eff_field()
+            self.grid.compute_c_eff_field(relaxation=0.5)
             # Restrict frozen fields to entire hierarchy
             restrict_frozen_fields_to_hierarchy(self.grid)
 

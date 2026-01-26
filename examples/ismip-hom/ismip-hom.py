@@ -19,8 +19,8 @@ from glide.solver import restrict_frozen_fields_to_hierarchy,fascd_vcycle_frozen
 # =============================================================================
 
 N_LEVELS = 6       # Multigrid levels
-N_VCYCLES = 20
-L = 20000
+N_VCYCLES = 10
+L = 5000
 EXP = 'C'
 
 # Physical constants
@@ -32,7 +32,7 @@ N_GLEN = 3.0
 # Configure Domain
 # =============================================================================
 
-base_res = 128
+base_res = 256
 
 y_factr = 7
 x_factr = 7
@@ -71,7 +71,7 @@ B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 # =============================================================================
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS,eps_reg=cp.float32(1e-6))
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS,eps_reg=cp.float32(1e-5))
 physics.set_geometry(bed, thk)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
@@ -81,7 +81,7 @@ grid = physics.grid
 writer = VTIWriter('./results/', base=f"ismip-hom-{EXP}-{L}", dx=dx)
 
 # Forward solve
-u, v, H = physics.forward_frozen(dt=0.001, n_vcycles=N_VCYCLES, verbose=True)
+u, v, H = physics.forward_frozen(dt=0.01, n_vcycles=N_VCYCLES, verbose=True)
 
 # Output
 u_c, v_c = physics.get_velocities_cell_centered()

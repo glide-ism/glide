@@ -199,10 +199,15 @@ class Grid:
         grid_size = (self.nx // stride + 1, self.ny // stride + 1)
         return grid_size, block_size, stride, halo
 
-    def compute_residual(self, return_fischer_burmeister=False,frozen=False):
+    def compute_residual(self, return_fischer_burmeister=False,frozen=False,use_mask=False):
         """Compute residual r = f - F(U)."""
         
         grid_size, block_size, stride, halo = self._kernel_config()
+
+        if use_mask:
+            mask = self.mask
+        else:
+            mask = self.Z_H
         if frozen:
             kernel = self.kernels.ice.get_function('compute_residual_frozen')
 
@@ -212,7 +217,7 @@ class Grid:
                 self.f_u, self.f_v, self.f_H,
                 self.eta,
                 self.bed, self.B, self.beta_eff, self.c_eff,
-                self.mask, self.gamma,
+                mask, self.gamma,
                 self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
@@ -226,7 +231,7 @@ class Grid:
                 self.u, self.v, self.H,
                 self.f_u, self.f_v, self.f_H,
                 self.bed, self.B, self.beta,
-                self.mask, self.gamma,
+                mask, self.gamma,
                 self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
@@ -236,8 +241,14 @@ class Grid:
             b = self.H - self.gamma
             return a + b - cp.sqrt(a**2 + b**2)
 
-    def compute_F(self,frozen=False):
+    def compute_F(self,frozen=False,use_mask=False):
         """Compute F(U) (operator evaluation without RHS)."""
+
+        if use_mask:
+            mask = self.mask
+        else:
+            mask = self.Z_H
+
         grid_size, block_size, stride, halo = self._kernel_config()
         if frozen:
             kernel = self.kernels.ice.get_function('compute_residual_frozen')
@@ -248,7 +259,7 @@ class Grid:
                 self.Z_u, self.Z_v, self.Z_H,
                 self.eta,
                 self.bed, self.B, self.beta_eff, self.c_eff,
-                self.mask, self.gamma,
+                mask, self.gamma,
                 self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
@@ -262,15 +273,20 @@ class Grid:
                 self.u, self.v, self.H,
                 self.Z_u, self.Z_v, self.Z_H,
                 self.bed, self.B, self.beta,
-                self.mask, self.gamma,
+                mask, self.gamma,
                 self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 
-    def compute_jvp(self,frozen=False):
+    def compute_jvp(self,frozen=False,use_mask=False):
         """Compute Jacobian-vector product J @ d_U."""
         
         grid_size, block_size, stride, halo = self._kernel_config()
+
+        if use_mask:
+            mask = self.mask
+        else:
+            mask = self.Z_H
         
         if frozen:
             kernel = self.kernels.ice.get_function('compute_jvp_frozen')
@@ -281,7 +297,7 @@ class Grid:
                 self.d_u, self.d_v, self.d_H,
                 self.eta, self.d_eta,
                 self.bed, self.B, self.beta_eff, self.c_eff,
-                self.mask, self.gamma,
+                mask, self.gamma,
                 self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
@@ -295,14 +311,20 @@ class Grid:
                 self.u, self.v, self.H,
                 self.d_u, self.d_v, self.d_H,
                 self.bed, self.B, self.beta,
-                self.mask, self.gamma,
+                mask, self.gamma,
                 self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 
-    def compute_vjp(self,frozen=False,zero_boundaries=True):
+    def compute_vjp(self,frozen=False,zero_dirichlet=True,use_mask=False):
         """Compute vector-Jacobian product Lambda^T @ J."""
         grid_size, block_size, stride, halo = self._kernel_config()
+
+        if use_mask:
+            mask = self.mask
+        else:
+            mask = self.Z_H
+
 
         if frozen:
             kernel = self.kernels.ice.get_function('compute_vjp_frozen')
@@ -313,7 +335,7 @@ class Grid:
                 self.lambda_u, self.lambda_v, self.lambda_H,
                 self.eta, self.lambda_eta,
                 self.bed, self.B, self.beta_eff, self.c_eff,
-                self.mask, self.gamma,
+                mask, self.gamma,
                 self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
@@ -326,13 +348,15 @@ class Grid:
                 self.u, self.v, self.H,
                 self.lambda_u, self.lambda_v, self.lambda_H,
                 self.bed, self.B, self.beta,
-                self.mask, self.gamma,
+                mask, self.gamma,
                 self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
-        if zero_boundaries:
-            self.l_u[:,0] = self.l_u[:,-1] = 0
-            self.l_v[0] = self.l_v[-1] = 0
+
+        if zero_dirichlet:
+            self.l_u[:,0] = self.l_u[:,-1] = 0.0
+            self.l_v[0] = self.l_v[-1] = 0.0
+            self.l_H[self.mask > 0.0] = 0.0
 
 
     def vanka_smooth(self, n_inner=10, frozen=False):
@@ -495,17 +519,24 @@ class Grid:
                 cp.float32(self._water_drag), cp.float32(self._gl_sigmoid_c),
                 self.ny, self.nx))
 
-    def compute_c_eff_field(self):
+    def compute_c_eff_field(self,relaxation=0.0):
         """Compute frozen effective calving rate field."""
         kernel = self.kernels.ice.get_function('compute_c_eff')
         total_work = self.ny * self.nx
         block_size = 256
         grid_size = (total_work + block_size - 1) // block_size
 
+        if relaxation > 0.0:
+            c_eff_old = cp.array(self.c_eff)
+
         kernel((grid_size,), (block_size,),
                (self.c_eff, self.H, self.bed,
                 cp.float32(self._calving_rate), cp.float32(self._gl_sigmoid_c),
                 self.ny, self.nx))
+
+        if relaxation > 0.0:
+            self.c_eff[:] = (1 - relaxation) * self.c_eff + relaxation * c_eff_old
+            
 
     def compute_frozen_fields(self,mode='residual'):
         """Compute all frozen fields (eta, beta_eff, c_eff) for Picard linearization."""
