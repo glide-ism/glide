@@ -86,7 +86,7 @@ thickness = dataset.thickness.values
 beta = dataset.beta.values
 beta[:] = 2.5
 smb = dataset.smb.values
-smb = (smb - 2.0)*1.3 + 2.0
+#smb = (smb - 2.0)*1.3 + 2.0
 # =============================================================================
 # Initialize physics
 # =============================================================================
@@ -104,6 +104,9 @@ physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS,
         calving_rate=2.0,gl_sigmoid_c=0.5,gl_derivatives=False)
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=beta, smb=smb)
+
+#physics.set_grid_level(3)
+#DT = 250.0
 
 # Access the grid hierarchy
 grid = physics.grid
@@ -129,7 +132,7 @@ for step in range(N_STEPS):
     print(f"Step {step}: t = {t:.1f} yr, H_mean = {float(grid.H.mean()):.1f} m")
 
     # Forward solve
-    u, v, H = physics.forward_frozen(dt=DT, n_vcycles=N_VCYCLES, verbose=True)
+    u, v, H = physics.forward(dt=DT, n_vcycles=N_VCYCLES, verbose=True)
     t += DT
 
     # Output

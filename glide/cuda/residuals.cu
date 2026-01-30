@@ -8,7 +8,7 @@
   =========================================================*/
 
 extern "C" __global__
-void compute_residual_frozen(
+void compute_residual(
     float* __restrict__ r_u,
     float* __restrict__ r_v,
     float* __restrict__ r_H,
@@ -308,7 +308,7 @@ void compute_residual_frozen(
   =========================================================*/
 
 extern "C" __global__
-void compute_jvp_frozen(
+void compute_jvp(
     float* __restrict__ jvp_u,
     float* __restrict__ jvp_v,
     float* __restrict__ jvp_H,
@@ -599,7 +599,7 @@ void compute_jvp_frozen(
   =========================================================*/
 
 extern "C" __global__
-void compute_vjp_frozen(
+void compute_vjp(
     float* __restrict__ vjp_u,
     float* __restrict__ vjp_v,
     float* __restrict__ vjp_H,

@@ -8,7 +8,7 @@ computations into a clean interface.
 import cupy as cp
 from .grid import Grid
 from .kernels import get_kernels, restrict_cell_centered
-from .solver import (fascd_vcycle, fascd_vcycle_frozen, adjoint_vcycle,
+from .solver import (fascd_vcycle, adjoint_vcycle,
                      restrict_parameters_to_hierarchy, restrict_frozen_fields_to_hierarchy)
 
 
@@ -68,6 +68,7 @@ class IcePhysics:
         # Create grid hierarchy
         self._init_hierarchy()
 
+
     def _init_hierarchy(self):
         """Initialize the multigrid hierarchy."""
         self.grid = Grid(
@@ -82,6 +83,10 @@ class IcePhysics:
 
         for _ in range(self.n_levels - 1):
             self.grids.append(self.grids[-1].spawn_child())
+
+    def set_grid_level(self,level=0):
+        self.grid = self.grids[level]
+
 
     def set_geometry(self, bed, thickness):
         """
@@ -142,7 +147,7 @@ class IcePhysics:
             restrict_cell_centered(parent.H_prev, self.kernels, f_coarse=child.H_prev)
             child.gamma.fill(self.thklim)
 
-    def forward_frozen(self, dt, n_vcycles=3, verbose=False, update_geometry=True, c_eff_relaxation=0.66):
+    def forward(self, dt, n_vcycles=3, verbose=False, update_geometry=True, c_eff_relaxation=0.66):
         """
         Perform one forward time step using frozen Picard coefficients.
 
@@ -185,7 +190,7 @@ class IcePhysics:
         # Compute initial residual for convergence tracking
 
         if verbose:
-            self.grid.compute_residual(return_fischer_burmeister=False,frozen=True,use_mask=True,recompute_frozen_fields=False)
+            self.grid.compute_residual(return_fischer_burmeister=False,use_mask=True,recompute_frozen_fields=False)
             
             r0 = float(cp.sqrt(
                 cp.linalg.norm(self.grid.r_u)**2 +
@@ -206,11 +211,11 @@ class IcePhysics:
             restrict_frozen_fields_to_hierarchy(self.grid)
 
             # Run frozen V-cycle
-            fascd_vcycle_frozen(self.grid, self.thklim, finest=True)
+            fascd_vcycle(self.grid, self.thklim, finest=True)
 
             if verbose:
                 # Use standard residual for convergence check (computes true residual)
-                self.grid.compute_residual(return_fischer_burmeister=False,frozen=True,use_mask=True)
+                self.grid.compute_residual(return_fischer_burmeister=False,use_mask=True)
                 r_combined = float(cp.sqrt(
                     cp.linalg.norm(self.grid.r_u)**2 +
                     cp.linalg.norm(self.grid.r_v)**2 +

@@ -7,7 +7,7 @@
   =========================================================*/
 
 extern "C" __global__
-void vanka_smooth_frozen(
+void vanka_smooth(
     float* __restrict__ u_out,
     float* __restrict__ v_out,
     float* __restrict__ H_out,
@@ -487,7 +487,7 @@ void vanka_smooth_frozen(
 }
 
 extern "C" __global__
-void vanka_smooth_adjoint_frozen(
+void vanka_smooth_adjoint(
     float* __restrict__ lambda_u_out,
     float* __restrict__ lambda_v_out,
     float* __restrict__ lambda_H_out,

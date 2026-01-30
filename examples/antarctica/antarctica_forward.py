@@ -100,6 +100,9 @@ physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS,
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
+#physics.set_grid_level(2)
+#DT = 100.0
+
 # Access the grid hierarchy
 grid = physics.grid
 grid.compute_eta_field()
@@ -124,7 +127,7 @@ for step in range(N_STEPS):
     print(f"Step {step}: t = {t:.1f} yr, H_mean = {float(grid.H.mean()):.1f} m")
 
     # Forward solve
-    u, v, H = physics.forward_frozen(dt=DT, n_vcycles=N_VCYCLES, verbose=True)
+    u, v, H = physics.forward(dt=DT, n_vcycles=N_VCYCLES, verbose=True)
     t += DT
 
     # Output

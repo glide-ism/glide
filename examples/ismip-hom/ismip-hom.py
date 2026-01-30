@@ -12,16 +12,14 @@ import matplotlib.pyplot as plt
 from glide import IcePhysics
 from glide.io import VTIWriter, write_vti
 
-from glide.solver import restrict_frozen_fields_to_hierarchy,fascd_vcycle_frozen
-
 # =============================================================================
 # Configuration - modify these paths and parameters
 # =============================================================================
 
 N_LEVELS = 6       # Multigrid levels
 N_VCYCLES = 10
-L = 5000
-EXP = 'C'
+L = 20000
+EXP = 'D'
 
 # Physical constants
 RHO_ICE = 917.0
@@ -32,7 +30,7 @@ N_GLEN = 3.0
 # Configure Domain
 # =============================================================================
 
-base_res = 256
+base_res = 128
 
 y_factr = 7
 x_factr = 7
@@ -60,8 +58,6 @@ elif EXP == 'D':
 else:
     raise NotImplementedError('Only support ISMIP-HOM C and D for now')
 
-beta*=5
-
 smb = cp.zeros_like(thk)
 
 # Compute B (rate factor - we measure driving stress in units of head, so the rho g factor gets subsumed into definitions of beta and B!)
@@ -73,7 +69,7 @@ B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 # =============================================================================
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS,eps_reg=cp.float32(1e-5))
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS,eps_reg=cp.float32(1e-6))
 physics.set_geometry(bed, thk)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
@@ -83,7 +79,7 @@ grid = physics.grid
 writer = VTIWriter('./results/', base=f"ismip-hom-{EXP}-{L}", dx=dx)
 
 # Forward solve
-u, v, H = physics.forward_frozen(dt=0.01, n_vcycles=N_VCYCLES, verbose=True)
+u, v, H = physics.forward(dt=0.01, n_vcycles=N_VCYCLES, verbose=True)
 
 # Output
 u_c, v_c = physics.get_velocities_cell_centered()

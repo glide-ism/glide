@@ -202,7 +202,7 @@ class Grid:
         grid_size = (self.nx // stride + 1, self.ny // stride + 1)
         return grid_size, block_size, stride, halo
 
-    def compute_residual(self, return_fischer_burmeister=False,frozen=False,use_mask=False,recompute_frozen_fields=False):
+    def compute_residual(self, return_fischer_burmeister=False,use_mask=False,recompute_frozen_fields=False):
         """Compute residual r = f - F(U)."""
         
         grid_size, block_size, stride, halo = self._kernel_config()
@@ -211,29 +211,30 @@ class Grid:
             mask = self.mask
         else:
             mask = self.Z_H
+
         if recompute_frozen_fields:
             self.compute_eta_field()
             self.compute_alpha_fields()
             self.compute_c_eff_field()
-        if frozen:
-            kernel = self.kernels.ice.get_function('compute_residual_frozen')
+            
+        kernel = self.kernels.ice.get_function('compute_residual')
 
-            kernel(grid_size, block_size,
-               (self.r_u, self.r_v, self.r_H,
-                self.u, self.v, self.H,
-                self.f_u, self.f_v, self.f_H,
-                self.eta,
-                self.bed, self.B, self.alpha_u, self.alpha_v, self.c_eff,
-                mask, self.gamma,
-                self.dx, self.dt,
-                self.ny, self.nx, stride, halo))
+        kernel(grid_size, block_size,
+           (self.r_u, self.r_v, self.r_H,
+            self.u, self.v, self.H,
+            self.f_u, self.f_v, self.f_H,
+            self.eta,
+            self.bed, self.B, self.alpha_u, self.alpha_v, self.c_eff,
+            mask, self.gamma,
+            self.dx, self.dt,
+            self.ny, self.nx, stride, halo))
 
         if return_fischer_burmeister:
             a = self.r_H
             b = self.H - self.gamma
             return a + b - cp.sqrt(a**2 + b**2)
 
-    def compute_F(self,frozen=False,use_mask=False):
+    def compute_F(self, use_mask=False):
         """Compute F(U) (operator evaluation without RHS)."""
 
         if use_mask:
@@ -242,20 +243,20 @@ class Grid:
             mask = self.Z_H
 
         grid_size, block_size, stride, halo = self._kernel_config()
-        if frozen:
-            kernel = self.kernels.ice.get_function('compute_residual_frozen')
+            
+        kernel = self.kernels.ice.get_function('compute_residual')
 
-            kernel(grid_size, block_size,
-               (self.F_u, self.F_v, self.F_H,
-                self.u, self.v, self.H,
-                self.Z_u, self.Z_v, self.Z_H,
-                self.eta,
-                self.bed, self.B, self.alpha_u, self.alpha_v, self.c_eff,
-                mask, self.gamma,
-                self.dx, self.dt,
-                self.ny, self.nx, stride, halo))
+        kernel(grid_size, block_size,
+           (self.F_u, self.F_v, self.F_H,
+            self.u, self.v, self.H,
+            self.Z_u, self.Z_v, self.Z_H,
+            self.eta,
+            self.bed, self.B, self.alpha_u, self.alpha_v, self.c_eff,
+            mask, self.gamma,
+            self.dx, self.dt,
+            self.ny, self.nx, stride, halo))
 
-    def compute_jvp(self,frozen=False,use_mask=False):
+    def compute_jvp(self,use_mask=False):
         """Compute Jacobian-vector product J @ d_U."""
         
         grid_size, block_size, stride, halo = self._kernel_config()
@@ -265,23 +266,22 @@ class Grid:
         else:
             mask = self.Z_H
         
-        if frozen:
-            kernel = self.kernels.ice.get_function('compute_jvp_frozen')
-            
-            kernel(grid_size, block_size,
-               (self.j_u, self.j_v, self.j_H,
-                self.u, self.v, self.H,
-                self.d_u, self.d_v, self.d_H,
-                self.eta, self.d_eta,
-                self.bed, self.B, 
-                self.alpha_u, self.alpha_v,
-                self.d_alpha_u,self.d_alpha_v,
-                self.c_eff,
-                mask, self.gamma,
-                self.dx, self.dt,
-                self.ny, self.nx, stride, halo))
+        kernel = self.kernels.ice.get_function('compute_jvp')
+        
+        kernel(grid_size, block_size,
+           (self.j_u, self.j_v, self.j_H,
+            self.u, self.v, self.H,
+            self.d_u, self.d_v, self.d_H,
+            self.eta, self.d_eta,
+            self.bed, self.B, 
+            self.alpha_u, self.alpha_v,
+            self.d_alpha_u,self.d_alpha_v,
+            self.c_eff,
+            mask, self.gamma,
+            self.dx, self.dt,
+            self.ny, self.nx, stride, halo))
 
-    def compute_vjp(self,frozen=False,zero_dirichlet=True,use_mask=False):
+    def compute_vjp(self,zero_dirichlet=True,use_mask=False):
         """Compute vector-Jacobian product Lambda^T @ J."""
         grid_size, block_size, stride, halo = self._kernel_config()
 
@@ -290,22 +290,20 @@ class Grid:
         else:
             mask = self.Z_H
 
-
-        if frozen:
-            kernel = self.kernels.ice.get_function('compute_vjp_frozen')
-            self.l.fill(0.0)
-            kernel(grid_size, block_size,
-               (self.l_u, self.l_v, self.l_H,
-                self.u, self.v, self.H,
-                self.lambda_u, self.lambda_v, self.lambda_H,
-                self.eta, self.lambda_eta,
-                self.bed, self.B, 
-                self.alpha_u,self.alpha_v, 
-                self.lambda_alpha_u,self.lambda_alpha_v, 
-                self.c_eff,
-                mask, self.gamma,
-                self.dx, self.dt,
-                self.ny, self.nx, stride, halo))
+        kernel = self.kernels.ice.get_function('compute_vjp')
+        self.l.fill(0.0)
+        kernel(grid_size, block_size,
+           (self.l_u, self.l_v, self.l_H,
+            self.u, self.v, self.H,
+            self.lambda_u, self.lambda_v, self.lambda_H,
+            self.eta, self.lambda_eta,
+            self.bed, self.B, 
+            self.alpha_u,self.alpha_v, 
+            self.lambda_alpha_u,self.lambda_alpha_v, 
+            self.c_eff,
+            mask, self.gamma,
+            self.dx, self.dt,
+            self.ny, self.nx, stride, halo))
 
         if zero_dirichlet:
             self.l_u[:,0] = self.l_u[:,-1] = 0.0
@@ -313,70 +311,68 @@ class Grid:
             self.l_H[self.mask > 0.0] = 0.0
 
 
-    def vanka_smooth(self, n_inner=10, frozen=False):
+    def vanka_smooth(self, n_inner=10):
         """Apply one Vanka smoother pass"""
         grid_size, block_size, stride, halo = self._kernel_config()
         
-        if frozen:
-            kernel = self.kernels.ice.get_function('vanka_smooth_frozen')
+        kernel = self.kernels.ice.get_function('vanka_smooth')
 
-            kernel(grid_size, block_size,
-               (self.delta_u, self.delta_v, self.delta_H, self.mask,
-                self.u, self.v, self.H,
-                self.f_u, self.f_v, self.f_H,
-                self.eta,
-                self.bed, self.B, self.alpha_u,self.alpha_v, self.c_eff, 
-                self.gamma,
-                self.dx, self.dt,
-                self.ny, self.nx, stride, halo,
-                n_inner))
+        kernel(grid_size, block_size,
+           (self.delta_u, self.delta_v, self.delta_H, self.mask,
+            self.u, self.v, self.H,
+            self.f_u, self.f_v, self.f_H,
+            self.eta,
+            self.bed, self.B, self.alpha_u,self.alpha_v, self.c_eff, 
+            self.gamma,
+            self.dx, self.dt,
+            self.ny, self.nx, stride, halo,
+            n_inner))
 
-    def vanka_smooth_adjoint(self, color, omega=cp.float32(0.5),frozen=False):
+    def vanka_smooth_adjoint(self, color, omega=cp.float32(0.5)):
         """Apply adjoint Vanka smoother pass."""
         grid_size, block_size, stride, halo = self._kernel_config()
 
-        if frozen:
-            kernel = self.kernels.ice.get_function('vanka_smooth_adjoint_frozen')
-            self.Lambda_out[:] = self.Lambda[:]
-            kernel(grid_size, block_size,
-               (self.lambda_u_out, self.lambda_v_out, self.lambda_H_out,
-                self.lambda_u, self.lambda_v, self.lambda_H,
-                self.mask,
-                self.r_adj_u, self.r_adj_v, self.r_adj_H,
-                self.u, self.v, self.H, self.eta,
-                self.bed, self.B, self.alpha_u,self.alpha_v, self.c_eff, 
-                self.gamma,
-                self.dx, self.dt,
-                self.ny, self.nx, stride, halo,
-                color, omega))
-            self.Lambda[:] = self.Lambda_out[:]
+        kernel = self.kernels.ice.get_function('vanka_smooth_adjoint')
+        self.Lambda_out[:] = self.Lambda[:]
+        kernel(grid_size, block_size,
+           (self.lambda_u_out, self.lambda_v_out, self.lambda_H_out,
+            self.lambda_u, self.lambda_v, self.lambda_H,
+            self.mask,
+            self.r_adj_u, self.r_adj_v, self.r_adj_H,
+            self.u, self.v, self.H, self.eta,
+            self.bed, self.B, self.alpha_u,self.alpha_v, self.c_eff, 
+            self.gamma,
+            self.dx, self.dt,
+            self.ny, self.nx, stride, halo,
+            color, omega))
+        self.Lambda[:] = self.Lambda_out[:]
 
-    def vanka_sweep(self, n_iter, n_inner=10, omega=cp.float32(1.0),frozen=False,verbose=False):
+    def vanka_sweep(self, n_iter, n_inner=10, omega=cp.float32(1.0),verbose=False):
         """Perform n_iter red-black Vanka smoothing sweeps."""
         for _ in range(n_iter):
             self.delta_U.fill(0.0)
-            self.vanka_smooth(n_inner=n_inner,frozen=frozen)
+            self.vanka_smooth(n_inner=n_inner)
             self.delta_u[:,0] *= 2
             self.delta_u[:,-1] *= 2
             self.delta_v[0] *= 2
             self.delta_v[-1] *= 2
             self.U[:] += omega * self.delta_U
             if verbose:
-                self.compute_residual(frozen=frozen)
+                self.compute_residual()
                 print(self.dx,cp.linalg.norm(self.r_u),cp.linalg.norm(self.r_v),cp.linalg.norm(self.r_H))
 
-    def vanka_sweep_adjoint(self, n_iter, omega=cp.float32(0.5),frozen=False,verbose=False):
+    def vanka_sweep_adjoint(self, n_iter, omega=cp.float32(0.5),verbose=False):
         """Perform n_iter adjoint Vanka smoothing sweeps."""
         for _ in range(n_iter):
             self.r_adj[:] = self.f_adj[:]
             self.compute_vjp()
             self.r_adj[:] -= self.l
-            self.vanka_smooth_adjoint(0, omega=omega,frozen=frozen)
+            self.vanka_smooth_adjoint(0, omega=omega)
 
             self.r_adj[:] = self.f_adj[:]
             self.compute_vjp()
             self.r_adj[:] -= self.l
-            self.vanka_smooth_adjoint(1, omega=omega,frozen=frozen)
+            self.vanka_smooth_adjoint(1, omega=omega)
 
     def compute_mask(self, tol=1e-1):
         """Compute active set mask for thickness constraints."""
@@ -465,7 +461,6 @@ class Grid:
     def compute_frozen_fields(self,mode='residual'):
         """Compute all frozen fields (eta, beta_eff, c_eff) for Picard linearization."""
         self.compute_eta_field(mode=mode)
-        self.compute_beta_eff_field()
         self.compute_alpha_fields()
         self.compute_c_eff_field()
 
