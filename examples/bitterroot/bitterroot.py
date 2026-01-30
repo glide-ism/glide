@@ -88,6 +88,9 @@ physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS,
 physics.set_geometry(bed, thk)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
+#physics.set_grid_level(2)
+#DT = 100.0
+
 # Access the grid hierarchy
 grid = physics.grid
 grid.compute_eta_field()

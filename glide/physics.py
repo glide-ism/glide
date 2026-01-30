@@ -87,7 +87,6 @@ class IcePhysics:
     def set_grid_level(self,level=0):
         self.grid = self.grids[level]
 
-
     def set_geometry(self, bed, thickness):
         """
         Set the ice sheet geometry.

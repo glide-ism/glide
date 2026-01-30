@@ -163,6 +163,8 @@ class Grid:
         self.alpha_v = cp.zeros((ny+1,nx),dtype=cp.float32)
         self.d_alpha_u = cp.zeros((ny,nx+1),dtype=cp.float32)
         self.d_alpha_v = cp.zeros((ny+1,nx),dtype=cp.float32)
+        self.lambda_alpha_u = cp.zeros((ny,nx+1),dtype=cp.float32)
+        self.lambda_alpha_v = cp.zeros((ny+1,nx),dtype=cp.float32)
         
         self.eta_adjoint = cp.zeros((ny,nx),dtype=cp.float32)
         self.d_eta = cp.zeros((ny, nx), dtype=cp.float32)      # Viscosity dual
@@ -425,16 +427,33 @@ class Grid:
                     self._n, self._eps_reg, self.dx,
                     self.ny, self.nx))
 
-    def compute_alpha_fields(self, eps_sliding=1e-3, m=1./3):
+    def compute_alpha_fields(self, mode='residual'):
         """Compute combined traction/nonlinear sliding coefficient
         alpha_u = 0.5 * (beta_left * grounded_left + beta_right * grounded_right)*|u|^m-1  
         """
-        kernel = self.kernels.ice.get_function('compute_alpha')
         total_work = self.ny * (self.nx + 1) + (self.ny + 1) * self.nx
         block_size = 256
         grid_size = (total_work + block_size - 1) // block_size
 
-        kernel((grid_size,), (block_size,),
+        if mode=='dual':
+            kernel = self.kernels.ice.get_function('compute_alpha_with_dual')
+            kernel((grid_size,), (block_size,),
+               (self.alpha_u, self.alpha_v, self.d_alpha_u, self.d_alpha_v, 
+                   self.u, self.v, self.d_u, self.d_v, self.H, self.bed, self.beta,
+                self._m, self._eps_sliding, self._water_drag, self._gl_sigmoid_c,
+                self.ny, self.nx))
+        
+        if mode=='adjoint':
+            kernel = self.kernels.ice.get_function('compute_alpha_with_dual')
+            kernel((grid_size,), (block_size,),
+               (self.alpha_u, self.alpha_v, self.lambda_alpha_u, self.lambda_alpha_v, 
+                   self.u, self.v, self.lambda_u, self.lambda_v, self.H, self.bed, self.beta,
+                self._m, self._eps_sliding, self._water_drag, self._gl_sigmoid_c,
+                self.ny, self.nx))
+
+        else:
+            kernel = self.kernels.ice.get_function('compute_alpha')
+            kernel((grid_size,), (block_size,),
                (self.alpha_u, self.alpha_v, self.u, self.v, self.H, self.bed, self.beta,
                 self._m, self._eps_sliding, self._water_drag, self._gl_sigmoid_c,
                 self.ny, self.nx))
@@ -461,7 +480,7 @@ class Grid:
     def compute_frozen_fields(self,mode='residual'):
         """Compute all frozen fields (eta, beta_eff, c_eff) for Picard linearization."""
         self.compute_eta_field(mode=mode)
-        self.compute_alpha_fields()
+        self.compute_alpha_fields(mode=mode)
         self.compute_c_eff_field()
 
     def get_vanka_matrices(self):

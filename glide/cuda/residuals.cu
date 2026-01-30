@@ -174,9 +174,16 @@ void compute_residual(
 	    }
 	
             {    
+	    float alpha_u_l = get_vfacet(alpha_u,i,j,ny,nx);
+	    float alpha_v_tl = get_hfacet(alpha_v,i,j-1,ny,nx);
+	    float alpha_v_tr = get_hfacet(alpha_v,i,j,ny,nx);
+	    float alpha_v_bl = get_hfacet(alpha_v,i+1,j-1,ny,nx);
+	    float alpha_v_br = get_hfacet(alpha_v,i+1,j,ny,nx);
+
+	    AlphaBarUJacobian alpha_bar_u_l = get_alpha_bar_u_jac({alpha_u_l,alpha_v_tl,alpha_v_tr,alpha_v_bl,alpha_v_br});
+
             float u_l    = get_vfacet(u,i,j,ny,nx);
-	    float alpha_l = get_vfacet(alpha_u,i,j,ny,nx);
-	    TauBxFrozenJacobian tau_bx = get_tau_bx_frozen_jac({u_l,alpha_l});
+	    TauBxFrozenJacobian tau_bx = get_tau_bx_frozen_jac({u_l,alpha_bar_u_l.res});
 	    ru_l += tau_bx.res;
 	    }
 
@@ -274,10 +281,17 @@ void compute_residual(
 	    }
 
 	    {
-	    float v_t = get_hfacet(v,i,j,ny,nx);
-	    float alpha_t = get_hfacet(alpha_v,i,j,ny,nx);
+	    float alpha_v_t = get_hfacet(alpha_v,i,j,ny,nx);
+	    float alpha_u_tl = get_vfacet(alpha_u,i-1,j,ny,nx);
+	    float alpha_u_tr = get_vfacet(alpha_u,i-1,j+1,ny,nx);
+	    float alpha_u_bl = get_vfacet(alpha_u,i,j,ny,nx);
+	    float alpha_u_br = get_vfacet(alpha_u,i,j+1,ny,nx);
 
-	    TauByFrozenJacobian tau_by = get_tau_by_frozen_jac({v_t,alpha_t});
+	    AlphaBarVJacobian alpha_bar_v_t = get_alpha_bar_v_jac({alpha_v_t,alpha_u_tl,alpha_u_tr,alpha_u_bl,alpha_u_br});
+
+	    float v_t = get_hfacet(v,i,j,ny,nx);
+
+	    TauByFrozenJacobian tau_by = get_tau_by_frozen_jac({v_t,alpha_bar_v_t.res});
 	    rv_t += tau_by.res;
 	    }
 
@@ -472,9 +486,16 @@ void compute_jvp(
 	    }
 	
             {    
+	    DualFloat alpha_u_l = get_vfacet(alpha_u,d_alpha_u,i,j,ny,nx);
+	    DualFloat alpha_v_tl = get_hfacet(alpha_v,d_alpha_v,i,j-1,ny,nx);
+	    DualFloat alpha_v_tr = get_hfacet(alpha_v,d_alpha_v,i,j,ny,nx);
+	    DualFloat alpha_v_bl = get_hfacet(alpha_v,d_alpha_v,i+1,j-1,ny,nx);
+	    DualFloat alpha_v_br = get_hfacet(alpha_v,d_alpha_v,i+1,j,ny,nx);
+
+	    DualFloat alpha_bar_u_l = get_alpha_bar_u_dual({alpha_u_l,alpha_v_tl,alpha_v_tr,alpha_v_bl,alpha_v_br});
             DualFloat u_l    = get_vfacet(u,d_u,i,j,ny,nx);
-	    DualFloat alpha_l = get_vfacet(alpha_u,d_alpha_u,i,j,ny,nx);
-	    DualFloat tau_bx = get_tau_bx_frozen_dual({u_l,alpha_l});
+	    
+	    DualFloat tau_bx = get_tau_bx_frozen_dual({u_l,alpha_bar_u_l});
 	    d_ru_l += tau_bx.d;
 	    }
 
@@ -567,10 +588,16 @@ void compute_jvp(
 	    }
 
 	    {
-	    DualFloat v_t    = get_hfacet(v,d_v,i,j,ny,nx);
-	    DualFloat alpha_t    = get_hfacet(alpha_v,d_alpha_v,i,j,ny,nx);
+	    DualFloat alpha_v_t = get_hfacet(alpha_v,d_alpha_v,i,j,ny,nx);
+	    DualFloat alpha_u_tl = get_vfacet(alpha_u,d_alpha_u,i-1,j,ny,nx);
+	    DualFloat alpha_u_tr = get_vfacet(alpha_u,d_alpha_u,i-1,j+1,ny,nx);
+	    DualFloat alpha_u_bl = get_vfacet(alpha_u,d_alpha_u,i,j,ny,nx);
+	    DualFloat alpha_u_br = get_vfacet(alpha_u,d_alpha_u,i,j+1,ny,nx);
 
-	    DualFloat tau_by = get_tau_by_frozen_dual({v_t,alpha_t});
+	    DualFloat alpha_bar_v_t = get_alpha_bar_v_dual({alpha_v_t,alpha_u_tl,alpha_u_tr,alpha_u_bl,alpha_u_br});
+	    DualFloat v_t    = get_hfacet(v,d_v,i,j,ny,nx);
+
+	    DualFloat tau_by = get_tau_by_frozen_dual({v_t,alpha_bar_v_t});
 	    d_rv_t += tau_by.d;
 	    }
 
@@ -825,15 +852,18 @@ void compute_vjp(
 	    }
 
             {
-            float u_l    = get_vfacet(u,i,j,ny,nx);
-            float lambda_u_l    = get_vfacet(lambda_u,i,j,ny,nx);
-	    /// This is going to break the jvp/vjp a little bit - neglecting d_alpha terms here - need to treat like eta with jvp
-	    float alpha_l = get_vfacet(alpha_u,i,j,ny,nx);
-	    TauBxFrozenJacobian j_tau_bx = get_tau_bx_frozen_jac({u_l,alpha_l});
+	    DualFloat alpha_u_l = get_vfacet(alpha_u,lambda_alpha_u,i,j,ny,nx);
+	    DualFloat alpha_v_tl = get_hfacet(alpha_v,lambda_alpha_v,i,j-1,ny,nx);
+	    DualFloat alpha_v_tr = get_hfacet(alpha_v,lambda_alpha_v,i,j,ny,nx);
+	    DualFloat alpha_v_bl = get_hfacet(alpha_v,lambda_alpha_v,i+1,j-1,ny,nx);
+	    DualFloat alpha_v_br = get_hfacet(alpha_v,lambda_alpha_v,i+1,j,ny,nx);
 
-	    atomicAdd(&s_adj_u[bi][bj],   lambda_u_l * j_tau_bx.d_u);
-	    //atomicAdd(&s_adj_H[bi][bj-1], lambda_u_l * j_tau_bx.d_H_l);
-	    //atomicAdd(&s_adj_H[bi][bj],   lambda_u_l * j_tau_bx.d_H_r);
+	    DualFloat alpha_bar_u_l = get_alpha_bar_u_dual({alpha_u_l,alpha_v_tl,alpha_v_tr,alpha_v_bl,alpha_v_br});
+            DualFloat u_l    = get_vfacet(u,lambda_u,i,j,ny,nx);
+	    
+	    DualFloat tau_bx = get_tau_bx_frozen_dual({u_l,alpha_bar_u_l});
+	    
+	    atomicAdd(&s_adj_u[bi][bj],   tau_bx.d);
 	    }
 
 	    {
@@ -964,14 +994,18 @@ void compute_vjp(
 	    }
 
 	    {
-	    float v_t = get_hfacet(v,i,j,ny,nx);
-	    float lambda_v_t = get_hfacet(lambda_v,i,j,ny,nx);
-	    float alpha_t = get_hfacet(alpha_v,i,j,ny,nx);
+	    DualFloat alpha_v_t = get_hfacet(alpha_v,lambda_alpha_v,i,j,ny,nx);
+	    DualFloat alpha_u_tl = get_vfacet(alpha_u,lambda_alpha_u,i-1,j,ny,nx);
+	    DualFloat alpha_u_tr = get_vfacet(alpha_u,lambda_alpha_u,i-1,j+1,ny,nx);
+	    DualFloat alpha_u_bl = get_vfacet(alpha_u,lambda_alpha_u,i,j,ny,nx);
+	    DualFloat alpha_u_br = get_vfacet(alpha_u,lambda_alpha_u,i,j+1,ny,nx);
 
-	    TauByFrozenJacobian j_tau_by = get_tau_by_frozen_jac({v_t,alpha_t});
-	    atomicAdd(&s_adj_v[bi][bj],     lambda_v_t * j_tau_by.d_v);
-	    //atomicAdd(&s_adj_H[bi-1][bj], lambda_v_t * j_tau_by.d_H_t);
-	    //atomicAdd(&s_adj_H[bi][bj],   lambda_v_t * j_tau_by.d_H_b);
+	    DualFloat alpha_bar_v_t = get_alpha_bar_v_dual({alpha_v_t,alpha_u_tl,alpha_u_tr,alpha_u_bl,alpha_u_br});
+	    DualFloat v_t    = get_hfacet(v,lambda_v,i,j,ny,nx);
+
+	    DualFloat tau_by = get_tau_by_frozen_dual({v_t,alpha_bar_v_t});
+
+	    atomicAdd(&s_adj_v[bi][bj],     tau_by.d);
 	    }
 
 	    {

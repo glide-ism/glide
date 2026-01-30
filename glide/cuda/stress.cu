@@ -447,3 +447,113 @@ DualFloat get_tau_dy_dual(
     return {jac.res,jac.apply_jvp(s.get_diffs())};
 }
 
+
+struct AlphaBarUStencil {
+    float alpha_u;
+    float alpha_v_tl, alpha_v_tr, alpha_v_bl, alpha_v_br;
+};
+
+struct AlphaBarUStencilDual {
+    DualFloat alpha_u;
+    DualFloat alpha_v_tl, alpha_v_tr, alpha_v_bl, alpha_v_br;
+
+    __device__ __forceinline__
+    AlphaBarUStencil get_primals() const {
+        return {alpha_u.v, alpha_v_tl.v, alpha_v_tr.v, alpha_v_bl.v, alpha_v_br.v};
+    }
+    
+    __device__ __forceinline__
+    AlphaBarUStencil get_diffs() const {
+        return {alpha_u.d, alpha_v_tl.d, alpha_v_tr.d, alpha_v_bl.d, alpha_v_br.d};
+    }
+};
+
+struct AlphaBarUJacobian {
+    float res;
+    float d_alpha_u;
+    float d_alpha_v_tl, d_alpha_v_tr, d_alpha_v_bl, d_alpha_v_br;
+
+    __device__ __forceinline__
+    float apply_jvp(const AlphaBarUStencil& dot) const {
+	return d_alpha_u * dot.alpha_u 
+	       + d_alpha_v_tl * dot.alpha_v_tl 
+               + d_alpha_v_tr * dot.alpha_v_tr
+               + d_alpha_v_bl * dot.alpha_v_bl
+               + d_alpha_v_br * dot.alpha_v_br;
+    }
+};
+
+__device__ __forceinline__
+AlphaBarUJacobian get_alpha_bar_u_jac(AlphaBarUStencil s) {
+    AlphaBarUJacobian jac;
+    jac.res = 0.5f*(s.alpha_u + 0.25f*(s.alpha_v_tl + s.alpha_v_tr + s.alpha_v_bl + s.alpha_v_br));
+    jac.d_alpha_u = 0.5f;
+    jac.d_alpha_v_tl = 0.125f;
+    jac.d_alpha_v_tr = 0.125f;
+    jac.d_alpha_v_bl = 0.125f;
+    jac.d_alpha_v_br = 0.125f;
+    return jac;
+}
+
+__device__ __forceinline__
+DualFloat get_alpha_bar_u_dual(AlphaBarUStencilDual s){
+    AlphaBarUJacobian jac = get_alpha_bar_u_jac(s.get_primals());
+    return {jac.res,jac.apply_jvp(s.get_diffs())};
+}
+
+
+struct AlphaBarVStencil {
+    float alpha_v;
+    float alpha_u_tl, alpha_u_tr, alpha_u_bl, alpha_u_br;
+};
+
+struct AlphaBarVStencilDual {
+    DualFloat alpha_v;
+    DualFloat alpha_u_tl, alpha_u_tr, alpha_u_bl, alpha_u_br;
+
+    __device__ __forceinline__
+    AlphaBarVStencil get_primals() const {
+        return {alpha_v.v, alpha_u_tl.v, alpha_u_tr.v, alpha_u_bl.v, alpha_u_br.v};
+    }
+    
+    __device__ __forceinline__
+    AlphaBarVStencil get_diffs() const {
+        return {alpha_v.d, alpha_u_tl.d, alpha_u_tr.d, alpha_u_bl.d, alpha_u_br.d};
+    }
+};
+
+struct AlphaBarVJacobian {
+    float res;
+    float d_alpha_v;
+    float d_alpha_u_tl, d_alpha_u_tr, d_alpha_u_bl, d_alpha_u_br;
+
+    __device__ __forceinline__
+    float apply_jvp(const AlphaBarVStencil& dot) const {
+	return d_alpha_v * dot.alpha_v 
+	       + d_alpha_u_tl * dot.alpha_u_tl 
+               + d_alpha_u_tr * dot.alpha_u_tr
+               + d_alpha_u_bl * dot.alpha_u_bl
+               + d_alpha_u_br * dot.alpha_u_br;
+    }
+};
+
+__device__ __forceinline__
+AlphaBarVJacobian get_alpha_bar_v_jac(AlphaBarVStencil s) {
+    AlphaBarVJacobian jac;
+    jac.res = 0.5f*(s.alpha_v + 0.25f*(s.alpha_u_tl + s.alpha_u_tr + s.alpha_u_bl + s.alpha_u_br));
+    jac.d_alpha_v = 0.5f;
+    jac.d_alpha_u_tl = 0.125f;
+    jac.d_alpha_u_tr = 0.125f;
+    jac.d_alpha_u_bl = 0.125f;
+    jac.d_alpha_u_br = 0.125f;
+    return jac;
+}
+
+__device__ __forceinline__
+DualFloat get_alpha_bar_v_dual(AlphaBarVStencilDual s){
+    AlphaBarVJacobian jac = get_alpha_bar_v_jac(s.get_primals());
+    return {jac.res,jac.apply_jvp(s.get_diffs())};
+}
+
+
+

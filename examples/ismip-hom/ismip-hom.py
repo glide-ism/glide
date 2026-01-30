@@ -18,8 +18,8 @@ from glide.io import VTIWriter, write_vti
 
 N_LEVELS = 6       # Multigrid levels
 N_VCYCLES = 10
-L = 20000
-EXP = 'D'
+L = 80000
+EXP = 'C'
 
 # Physical constants
 RHO_ICE = 917.0
