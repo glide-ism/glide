@@ -19,6 +19,7 @@ from glide.data import (
     interpolate_to_grid,
     load_greenland_preprocessed
 )
+from scipy.ndimage import gaussian_filter
 
 # =============================================================================
 # Configuration - modify these paths and parameters
@@ -36,6 +37,7 @@ N_VCYCLES = 5      # V-cycles per time step
 RHO_ICE = 917.0
 G = 9.81
 N_GLEN = 3.0
+M = 1./3.
 
 # =============================================================================
 # Load data - from source files
@@ -78,27 +80,35 @@ dataset = load_greenland_preprocessed()
 ny,nx = dataset.ny,dataset.nx
 dx = dataset.dx
 bed = dataset.bed.values
+bed = gaussian_filter(bed,1)
 surface = dataset.surface.values
 thickness = dataset.thickness.values
 beta = dataset.beta.values
+beta[:] = 2.5
 smb = dataset.smb.values
-smb -= 2.0
 # =============================================================================
 # Initialize physics
 # =============================================================================
 
 # Compute B (rate factor - we measure driving stress in units of head, so the rho g factor gets subsumed into definitions of beta and B!)
-B_scalar = cp.float32(1e-18 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
+B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
 B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,water_drag=1e-3,gl_sigmoid_c=0.1,gl_derivatives=False,calving_rate=1.0)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, 
+        n=3.0,eps_reg=1e-6,
+        m=0.333,eps_sliding=1e-6,
+        thklim=0.1,water_drag=1e-3,
+        calving_rate=2.0,gl_sigmoid_c=0.1,gl_derivatives=False)
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
 # Access the grid hierarchy
 grid = physics.grid
+grid.compute_eta_field()
+grid.compute_alpha_fields()
+grid.compute_c_eff_field(relaxation=0.0)
 
 # =============================================================================
 # Set up output
@@ -118,8 +128,6 @@ for step in range(N_STEPS):
     print(f"Step {step}: t = {t:.1f} yr, H_mean = {float(grid.H.mean()):.1f} m")
 
     # Forward solve
-    #grid.u.fill(0)
-    #grid.v.fill(0)
     u, v, H = physics.forward_frozen(dt=DT, n_vcycles=N_VCYCLES, verbose=True)
     t += DT
 

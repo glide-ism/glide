@@ -71,7 +71,8 @@ def restrict_frozen_fields(grid,restrict_adjoint_viscosity=False):
     child = grid.child
     kernels = grid.kernels
     restrict_cell_centered(grid.eta, kernels, f_coarse=child.eta)
-    restrict_cell_centered(grid.beta_eff, kernels, f_coarse=child.beta_eff)
+    restrict_vfacet(grid.alpha_u, kernels, u_coarse=child.alpha_u)
+    restrict_hfacet(grid.alpha_v, kernels, v_coarse=child.alpha_v)
     restrict_cell_centered(grid.c_eff, kernels, f_coarse=child.c_eff)
     if restrict_adjoint_viscosity:
         restrict_cell_centered(grid.lambda_eta,kernels,f_coarse=child.lambda_eta)
@@ -170,7 +171,7 @@ def fascd_vcycle(grid, thklim, finest=False):
 
     grid.gamma.fill(thklim)
 
-def fascd_vcycle_frozen(grid, thklim, finest=False,verbose=False,omega=cp.float32(0.5),pre_steps=10,post_steps=30,coarse_steps=400,newton_iterations=10):
+def fascd_vcycle_frozen(grid, thklim, finest=False,verbose=False,omega=cp.float32(0.5),pre_steps=10,post_steps=10,coarse_steps=400,newton_iterations=10):
     """
     FASCD V-cycle for the coupled SSA + mass conservation system.
 

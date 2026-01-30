@@ -47,13 +47,15 @@ class IcePhysics:
     >>> u, v, H = physics.forward(dt=10.0, n_vcycles=3)
     """
 
-    def __init__(self, ny, nx, dx, n_levels=5, n=3.0, eps_reg=1e-5, thklim=0.1, water_drag=1e-3,calving_rate=1.0,gl_sigmoid_c=0.1,gl_derivatives=False):
+    def __init__(self, ny, nx, dx, n_levels=5, n=3.0, eps_reg=1e-5, m=1.0, eps_sliding=1e-3, thklim=0.1, water_drag=1e-3,calving_rate=1.0,gl_sigmoid_c=0.1,gl_derivatives=False):
         self.ny = ny
         self.nx = nx
         self.dx = dx
         self.n_levels = n_levels
         self.n = cp.float32(n)
         self.eps_reg = cp.float32(eps_reg)
+        self.m = cp.float32(m)
+        self.eps_sliding = cp.float32(eps_sliding)
         self.thklim = cp.float32(thklim)
         self.water_drag = cp.float32(water_drag)
         self.calving_rate = cp.float32(calving_rate)
@@ -72,6 +74,7 @@ class IcePhysics:
             self.ny, self.nx, self.dx, dt=1.0,
             kernels=self.kernels,
             n=self.n, eps_reg=self.eps_reg,
+            m=self.m, eps_sliding=self.eps_sliding,
             water_drag=self.water_drag,calving_rate=self.calving_rate,
             gl_sigmoid_c=self.gl_sigmoid_c,gl_derivatives=self.gl_derivatives
         )
@@ -139,77 +142,7 @@ class IcePhysics:
             restrict_cell_centered(parent.H_prev, self.kernels, f_coarse=child.H_prev)
             child.gamma.fill(self.thklim)
 
-    def forward(self, dt, n_vcycles=3, verbose=False, update_geometry=True):
-        """
-        Perform one forward time step.
-
-        Solves the coupled SSA momentum equations and mass conservation
-        for the ice velocity and thickness after time dt.
-
-        Parameters
-        ----------
-        dt : float
-            Time step in years
-        n_vcycles : int
-            Number of multigrid V-cycles (default 3)
-        verbose : bool
-            Print convergence info
-
-        Returns
-        -------
-        u : cupy.ndarray
-            x-velocity on vertical faces (ny, nx+1), m/yr
-        v : cupy.ndarray
-            y-velocity on horizontal faces (ny+1, nx), m/yr
-        H : cupy.ndarray
-            Ice thickness (ny, nx), m
-        """
-        self.grid.dt = cp.float32(dt)
-
-        # Propagate dt to all levels
-        for g in self.grids:
-            g.dt = self.grid.dt
-
-        # Set up RHS for mass equation
-        self.grid.set_rhs()   #f_H[:, :] = self.grid.H_prev / self.grid.dt + self.grid.smb
-
-        # Compute initial residual for convergence tracking
-        if verbose:
-            rss_H_init = self.grid.compute_residual(return_fischer_burmeister=True)
-            r0 = float(cp.sqrt(
-                cp.linalg.norm(self.grid.r_u)**2 +
-                cp.linalg.norm(self.grid.r_v)**2 +
-                cp.linalg.norm(rss_H_init)**2
-            ))
-            print(f"  Initial: |r| = {r0:.2e}, "
-                  f"|r_u| = {float(cp.linalg.norm(self.grid.r_u)):.2e}, "
-                  f"|r_v| = {float(cp.linalg.norm(self.grid.r_v)):.2e}, "
-                  f"|rss_H| = {float(cp.linalg.norm(rss_H_init)):.2e}")
-
-        # Solve
-        for i in range(n_vcycles):
-            fascd_vcycle(self.grid, self.thklim, finest=True)
-
-            if verbose:
-                rss_H = self.grid.compute_residual(return_fischer_burmeister=True)
-                r_combined = float(cp.sqrt(
-                    cp.linalg.norm(self.grid.r_u)**2 +
-                    cp.linalg.norm(self.grid.r_v)**2 +
-                    cp.linalg.norm(rss_H)**2
-                ))
-                rel = r_combined / r0 if r0 > 0 else 0.0
-                print(f"  V-cycle {i}: |r|/|r0| = {rel:.2e}, "
-                      f"|r_u| = {float(cp.linalg.norm(self.grid.r_u)):.2e}, "
-                      f"|r_v| = {float(cp.linalg.norm(self.grid.r_v)):.2e}, "
-                      f"|rss_H| = {float(cp.linalg.norm(rss_H)):.2e}")
-
-        # Update H_prev for next time step
-        if update_geometry:
-            self.grid.H_prev[:] = self.grid.H[:]
-
-        return self.grid.u, self.grid.v, self.grid.H
-
-    def forward_frozen(self, dt, n_vcycles=3, verbose=False, update_geometry=True):
+    def forward_frozen(self, dt, n_vcycles=3, verbose=False, update_geometry=True, c_eff_relaxation=0.9):
         """
         Perform one forward time step using frozen Picard coefficients.
 
@@ -250,30 +183,26 @@ class IcePhysics:
 
         #self.grid.compute_frozen_fields()
         # Compute initial residual for convergence tracking
+
         if verbose:
-            rss_H_init = self.grid.compute_residual(return_fischer_burmeister=True,frozen=False)
+            self.grid.compute_residual(return_fischer_burmeister=False,frozen=True,use_mask=True,recompute_frozen_fields=False)
+            
             r0 = float(cp.sqrt(
                 cp.linalg.norm(self.grid.r_u)**2 +
                 cp.linalg.norm(self.grid.r_v)**2 +
-                cp.linalg.norm(rss_H_init)**2
+                cp.linalg.norm(self.grid.r_H)**2
             ))
             print(f"  Initial: |r| = {r0:.2e}, "
                   f"|r_u| = {float(cp.linalg.norm(self.grid.r_u)):.2e}, "
                   f"|r_v| = {float(cp.linalg.norm(self.grid.r_v)):.2e}, "
-                  f"|rss_H| = {float(cp.linalg.norm(rss_H_init)):.2e}")
+                  f"|r_H| = {float(cp.linalg.norm(self.grid.r_H)):.2e}")
 
         restrict_parameters_to_hierarchy(self.grid)
-        self.grid.compute_eta_field()
-        self.grid.compute_beta_eff_field()
-        self.grid.compute_c_eff_field()
-        # Restrict frozen fields to entire hierarchy
-        restrict_frozen_fields_to_hierarchy(self.grid)
         # Solve using frozen coefficients
         for i in range(n_vcycles):
             self.grid.compute_eta_field()
-            self.grid.compute_beta_eff_field()
-            self.grid.compute_c_eff_field(relaxation=0.5)
-            # Restrict frozen fields to entire hierarchy
+            self.grid.compute_alpha_fields()
+            self.grid.compute_c_eff_field(relaxation=c_eff_relaxation)
             restrict_frozen_fields_to_hierarchy(self.grid)
 
             # Run frozen V-cycle
@@ -281,17 +210,17 @@ class IcePhysics:
 
             if verbose:
                 # Use standard residual for convergence check (computes true residual)
-                rss_H = self.grid.compute_residual(return_fischer_burmeister=True,frozen=True)
+                self.grid.compute_residual(return_fischer_burmeister=False,frozen=True,use_mask=True)
                 r_combined = float(cp.sqrt(
                     cp.linalg.norm(self.grid.r_u)**2 +
                     cp.linalg.norm(self.grid.r_v)**2 +
-                    cp.linalg.norm(rss_H)**2
+                    cp.linalg.norm(self.grid.r_H)**2
                 ))
                 rel = r_combined / r0 if r0 > 0 else 0.0
                 print(f"  V-cycle {i}: |r|/|r0| = {rel:.2e}, "
                       f"|r_u| = {float(cp.linalg.norm(self.grid.r_u)):.2e}, "
                       f"|r_v| = {float(cp.linalg.norm(self.grid.r_v)):.2e}, "
-                      f"|rss_H| = {float(cp.linalg.norm(rss_H)):.2e}")
+                      f"|r_H| = {float(cp.linalg.norm(self.grid.r_H)):.2e}")
 
         # Update H_prev for next time step
         if update_geometry:

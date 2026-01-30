@@ -18,7 +18,7 @@ from glide.data import (
     interpolate_to_grid,
     load_antarctica_preprocessed
 )
-
+from scipy.ndimage import gaussian_filter
 # =============================================================================
 # Configuration - modify these paths and parameters
 # =============================================================================
@@ -26,8 +26,8 @@ from glide.data import (
 OUTPUT_DIR = "./output"
 
 SKIP = 4           # Geometry downsampling factor
-DT = 25.0          # Time step (years)
-N_STEPS = 50      # Number of time steps
+DT = 20.0          # Time step (years)
+N_STEPS = 100      # Number of time steps
 N_LEVELS = 5       # Multigrid levels
 N_VCYCLES = 5      # V-cycles per time step
 
@@ -72,12 +72,14 @@ dataset = load_antarctica_preprocessed()
 ny,nx = dataset.ny,dataset.nx
 dx = dataset.dx
 bed = dataset.bed.values
+bed = gaussian_filter(bed,1)
 surface = dataset.surface.values
 thickness = dataset.thickness.values
 beta = dataset.beta.values
+beta[:] = 2.5
 smb = dataset.smb.values
-BETA_PATH = "./inverse_output/beta_level_0.p"
-beta = cp.array(pickle.load(open(BETA_PATH, 'rb')))
+#BETA_PATH = "./inverse_output/beta_level_0.p"
+#beta = cp.array(pickle.load(open(BETA_PATH, 'rb')))
 # =============================================================================
 # Initialize physics
 # =============================================================================
@@ -90,12 +92,19 @@ B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
 B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,calving_rate=0.1,water_drag=1e-4)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, 
+        n=3.0, eps_reg=1e-6,
+        m=1./3., eps_sliding=1e-3,
+        thklim=0.1,calving_rate=0.0,
+        water_drag=1e-5,gl_sigmoid_c=0.5)
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
 # Access the grid hierarchy
 grid = physics.grid
+grid.compute_eta_field()
+grid.compute_alpha_fields()
+grid.compute_c_eff_field(relaxation=0.0)
 
 # =============================================================================
 # Set up output
@@ -115,8 +124,6 @@ for step in range(N_STEPS):
     print(f"Step {step}: t = {t:.1f} yr, H_mean = {float(grid.H.mean()):.1f} m")
 
     # Forward solve
-    #grid.u.fill(0)
-    #grid.v.fill(0)
     u, v, H = physics.forward_frozen(dt=DT, n_vcycles=N_VCYCLES, verbose=True)
     t += DT
 
@@ -127,7 +134,8 @@ for step in range(N_STEPS):
     writer.write_step(step, t, {
         'thk': H,
         'srf': surface,
-        'vel': [u_c, v_c]
+        'vel': [u_c, v_c],
+        'bas': surface - H
     })
     writer.write_pvd()
 

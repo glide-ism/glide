@@ -60,6 +60,8 @@ elif EXP == 'D':
 else:
     raise NotImplementedError('Only support ISMIP-HOM C and D for now')
 
+beta*=5
+
 smb = cp.zeros_like(thk)
 
 # Compute B (rate factor - we measure driving stress in units of head, so the rho g factor gets subsumed into definitions of beta and B!)

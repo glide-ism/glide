@@ -81,13 +81,18 @@ B = B_scalar * cp.ones((ny, nx), dtype=cp.float32)
 # =============================================================================
 
 print("Initializing physics...")
-physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, thklim=0.1,water_drag=1e-6,calving_rate=0)
+physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS, 
+        n=3.0, eps_reg=1e-6,
+        m=1./3.,eps_sliding=1e-6,
+        thklim=0.1)
 physics.set_geometry(bed, thk)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
 # Access the grid hierarchy
 grid = physics.grid
-
+grid.compute_eta_field()
+grid.compute_alpha_fields()
+grid.compute_c_eff_field(relaxation=0.0)
 # =============================================================================
 # Set up output
 # =============================================================================

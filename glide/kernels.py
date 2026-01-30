@@ -63,8 +63,9 @@ class Kernels:
             self.util = cp.RawModule(code=f.read())
 
         # Concatenate ice kernel files in dependency order
+        # grad.cu currently commented out for debug
         ice_files = ['common.cu', 'viscosity.cu', 'stress.cu', 'flux.cu',
-                          'residuals.cu', 'vanka.cu', 'grad.cu', 'frozen_fields.cu',
+                          'frozen_fields.cu',
                           'residuals_frozen.cu', 'vanka_frozen.cu']
         ice_source = '\n'.join(
             (cuda_dir / f).read_text() for f in ice_files

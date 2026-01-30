@@ -8,7 +8,6 @@ Implements a MAC (marker-and-cell) staggered grid with:
 """
 
 import cupy as cp
-from .kernels import make_physics_params
 
 
 class Grid:
@@ -41,7 +40,7 @@ class Grid:
     """
 
     def __init__(self, ny, nx, dx, dt, kernels, parent=None,
-                 n=3.0, eps_reg=1e-5, water_drag=0.001, calving_rate=1.0,
+                 n=3.0, eps_reg=1e-5, m=1., eps_sliding=1e-3, water_drag=0.001, calving_rate=1.0,
                  gl_sigmoid_c=0.1,gl_derivatives=False):
 
         self.parent = parent
@@ -61,17 +60,14 @@ class Grid:
         self.n_total = self.nu + self.nv + self.nh
 
         # Physics parameters (passed to CUDA kernels as struct)
-        self._n = float(n)
-        self._eps_reg = float(eps_reg)
-        self._water_drag = float(water_drag)
-        self._calving_rate = float(calving_rate)
-        self._gl_sigmoid_c = float(gl_sigmoid_c)
+        self._n = cp.float32(n)
+        self._eps_reg = cp.float32(eps_reg)
+        self._m = cp.float32(m)
+        self._eps_sliding = cp.float32(eps_sliding)
+        self._water_drag = cp.float32(water_drag)
+        self._calving_rate = cp.float32(calving_rate)
+        self._gl_sigmoid_c = cp.float32(gl_sigmoid_c)
         self._gl_derivatives = gl_derivatives
-        self.physics_params = make_physics_params(
-            n=self._n, eps_reg=self._eps_reg,
-            water_drag=self._water_drag, calving_rate=self._calving_rate,
-            gl_sigmoid_c=self._gl_sigmoid_c, gl_derivatives=self._gl_derivatives
-        )
 
         # Allocate state and work arrays
         self._allocate_arrays()
@@ -162,6 +158,11 @@ class Grid:
         self.eta = cp.zeros((ny, nx), dtype=cp.float32)      # Viscosity
         self.beta_eff = cp.zeros((ny, nx), dtype=cp.float32) # Effective basal traction
         self.c_eff = cp.zeros((ny, nx), dtype=cp.float32)    # Effective calving rate
+
+        self.alpha_u = cp.zeros((ny,nx+1),dtype=cp.float32)
+        self.alpha_v = cp.zeros((ny+1,nx),dtype=cp.float32)
+        self.d_alpha_u = cp.zeros((ny,nx+1),dtype=cp.float32)
+        self.d_alpha_v = cp.zeros((ny+1,nx),dtype=cp.float32)
         
         self.eta_adjoint = cp.zeros((ny,nx),dtype=cp.float32)
         self.d_eta = cp.zeros((ny, nx), dtype=cp.float32)      # Viscosity dual
@@ -183,6 +184,8 @@ class Grid:
             parent=self,
             n=self._n,
             eps_reg=self._eps_reg,
+            m=self._m,
+            eps_sliding=self._eps_sliding,
             water_drag=self._water_drag,
             calving_rate=self._calving_rate,
             gl_sigmoid_c=self._gl_sigmoid_c,
@@ -199,7 +202,7 @@ class Grid:
         grid_size = (self.nx // stride + 1, self.ny // stride + 1)
         return grid_size, block_size, stride, halo
 
-    def compute_residual(self, return_fischer_burmeister=False,frozen=False,use_mask=False):
+    def compute_residual(self, return_fischer_burmeister=False,frozen=False,use_mask=False,recompute_frozen_fields=False):
         """Compute residual r = f - F(U)."""
         
         grid_size, block_size, stride, halo = self._kernel_config()
@@ -208,6 +211,10 @@ class Grid:
             mask = self.mask
         else:
             mask = self.Z_H
+        if recompute_frozen_fields:
+            self.compute_eta_field()
+            self.compute_alpha_fields()
+            self.compute_c_eff_field()
         if frozen:
             kernel = self.kernels.ice.get_function('compute_residual_frozen')
 
@@ -216,23 +223,8 @@ class Grid:
                 self.u, self.v, self.H,
                 self.f_u, self.f_v, self.f_H,
                 self.eta,
-                self.bed, self.B, self.beta_eff, self.c_eff,
+                self.bed, self.B, self.alpha_u, self.alpha_v, self.c_eff,
                 mask, self.gamma,
-                self.physics_params,
-                self.dx, self.dt,
-                self.ny, self.nx, stride, halo))
-
-
-        else:
-            kernel = self.kernels.ice.get_function('compute_residual')
-
-            kernel(grid_size, block_size,
-               (self.r_u, self.r_v, self.r_H,
-                self.u, self.v, self.H,
-                self.f_u, self.f_v, self.f_H,
-                self.bed, self.B, self.beta,
-                mask, self.gamma,
-                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 
@@ -258,23 +250,8 @@ class Grid:
                 self.u, self.v, self.H,
                 self.Z_u, self.Z_v, self.Z_H,
                 self.eta,
-                self.bed, self.B, self.beta_eff, self.c_eff,
+                self.bed, self.B, self.alpha_u, self.alpha_v, self.c_eff,
                 mask, self.gamma,
-                self.physics_params,
-                self.dx, self.dt,
-                self.ny, self.nx, stride, halo))
-
-
-        else:
-            kernel = self.kernels.ice.get_function('compute_residual')
-
-            kernel(grid_size, block_size,
-               (self.F_u, self.F_v, self.F_H,
-                self.u, self.v, self.H,
-                self.Z_u, self.Z_v, self.Z_H,
-                self.bed, self.B, self.beta,
-                mask, self.gamma,
-                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 
@@ -296,23 +273,11 @@ class Grid:
                 self.u, self.v, self.H,
                 self.d_u, self.d_v, self.d_H,
                 self.eta, self.d_eta,
-                self.bed, self.B, self.beta_eff, self.c_eff,
+                self.bed, self.B, 
+                self.alpha_u, self.alpha_v,
+                self.d_alpha_u,self.d_alpha_v,
+                self.c_eff,
                 mask, self.gamma,
-                self.physics_params,
-                self.dx, self.dt,
-                self.ny, self.nx, stride, halo))
-
-        else:
-
-            kernel = self.kernels.ice.get_function('compute_jvp')
-
-            kernel(grid_size, block_size,
-               (self.j_u, self.j_v, self.j_H,
-                self.u, self.v, self.H,
-                self.d_u, self.d_v, self.d_H,
-                self.bed, self.B, self.beta,
-                mask, self.gamma,
-                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 
@@ -334,22 +299,11 @@ class Grid:
                 self.u, self.v, self.H,
                 self.lambda_u, self.lambda_v, self.lambda_H,
                 self.eta, self.lambda_eta,
-                self.bed, self.B, self.beta_eff, self.c_eff,
+                self.bed, self.B, 
+                self.alpha_u,self.alpha_v, 
+                self.lambda_alpha_u,self.lambda_alpha_v, 
+                self.c_eff,
                 mask, self.gamma,
-                self.physics_params,
-                self.dx, self.dt,
-                self.ny, self.nx, stride, halo))
-
-        else:
-            kernel = self.kernels.ice.get_function('compute_vjp')
-            self.l.fill(0.0)
-            kernel(grid_size, block_size,
-               (self.l_u, self.l_v, self.l_H,
-                self.u, self.v, self.H,
-                self.lambda_u, self.lambda_v, self.lambda_H,
-                self.bed, self.B, self.beta,
-                mask, self.gamma,
-                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 
@@ -371,26 +325,11 @@ class Grid:
                 self.u, self.v, self.H,
                 self.f_u, self.f_v, self.f_H,
                 self.eta,
-                self.bed, self.B, self.beta_eff, self.c_eff, 
+                self.bed, self.B, self.alpha_u,self.alpha_v, self.c_eff, 
                 self.gamma,
-                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo,
                 n_inner))
-
-        else:
-            kernel = self.kernels.ice.get_function('vanka_smooth')
-
-            kernel(grid_size, block_size,
-               (self.delta_u, self.delta_v, self.delta_H, self.mask,
-                self.u, self.v, self.H,
-                self.f_u, self.f_v, self.f_H,
-                self.bed, self.B, self.beta, self.gamma,
-                self.physics_params,
-                self.dx, self.dt,
-                self.ny, self.nx, stride, halo,
-                n_inner))
-
 
     def vanka_smooth_adjoint(self, color, omega=cp.float32(0.5),frozen=False):
         """Apply adjoint Vanka smoother pass."""
@@ -405,24 +344,8 @@ class Grid:
                 self.mask,
                 self.r_adj_u, self.r_adj_v, self.r_adj_H,
                 self.u, self.v, self.H, self.eta,
-                self.bed, self.B, self.beta_eff, self.c_eff, 
+                self.bed, self.B, self.alpha_u,self.alpha_v, self.c_eff, 
                 self.gamma,
-                self.physics_params,
-                self.dx, self.dt,
-                self.ny, self.nx, stride, halo,
-                color, omega))
-            self.Lambda[:] = self.Lambda_out[:]
-        else:
-            kernel = self.kernels.ice.get_function('vanka_smooth_adjoint')
-            self.Lambda_out[:] = self.Lambda[:]
-            kernel(grid_size, block_size,
-               (self.lambda_u_out, self.lambda_v_out, self.lambda_H_out,
-                self.lambda_u, self.lambda_v, self.lambda_H,
-                self.mask,
-                self.r_adj_u, self.r_adj_v, self.r_adj_H,
-                self.u, self.v, self.H,
-                self.bed, self.B, self.beta, self.gamma,
-                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo,
                 color, omega))
@@ -473,7 +396,6 @@ class Grid:
                 self.lambda_u, self.lambda_v, self.lambda_H,
                 self.bed, self.B, self.beta,
                 self.mask, self.gamma,
-                self.physics_params,
                 self.dx, self.dt,
                 self.ny, self.nx, stride, halo))
 
@@ -490,33 +412,35 @@ class Grid:
             kernel = self.kernels.ice.get_function('compute_eta_with_dual')
             kernel((grid_size,), (block_size,),
                    (self.eta, self.d_eta, self.u, self.v, self.d_u, self.d_v, self.B,
-                    cp.float32(self._n), cp.float32(self._eps_reg), self.dx,
+                    self._n, self._eps_reg, self.dx,
                     self.ny, self.nx))
         
         elif mode=='adjoint':
             kernel = self.kernels.ice.get_function('compute_eta_with_dual')
             kernel((grid_size,), (block_size,),
                    (self.eta_adjoint, self.lambda_eta, self.u, self.v, self.lambda_u, self.lambda_v, self.B,
-                    cp.float32(self._n), cp.float32(self._eps_reg), self.dx,
+                    self._n, self._eps_reg, self.dx,
                     self.ny, self.nx))
 
         else:
             kernel = self.kernels.ice.get_function('compute_eta')
             kernel((grid_size,), (block_size,),
                    (self.eta, self.u, self.v, self.B,
-                    cp.float32(self._n), cp.float32(self._eps_reg), self.dx,
+                    self._n, self._eps_reg, self.dx,
                     self.ny, self.nx))
 
-    def compute_beta_eff_field(self):
-        """Compute frozen effective basal traction field."""
-        kernel = self.kernels.ice.get_function('compute_beta_eff')
-        total_work = self.ny * self.nx
+    def compute_alpha_fields(self, eps_sliding=1e-3, m=1./3):
+        """Compute combined traction/nonlinear sliding coefficient
+        alpha_u = 0.5 * (beta_left * grounded_left + beta_right * grounded_right)*|u|^m-1  
+        """
+        kernel = self.kernels.ice.get_function('compute_alpha')
+        total_work = self.ny * (self.nx + 1) + (self.ny + 1) * self.nx
         block_size = 256
         grid_size = (total_work + block_size - 1) // block_size
 
         kernel((grid_size,), (block_size,),
-               (self.beta_eff, self.H, self.bed, self.beta,
-                cp.float32(self._water_drag), cp.float32(self._gl_sigmoid_c),
+               (self.alpha_u, self.alpha_v, self.u, self.v, self.H, self.bed, self.beta,
+                self._m, self._eps_sliding, self._water_drag, self._gl_sigmoid_c,
                 self.ny, self.nx))
 
     def compute_c_eff_field(self,relaxation=0.0):
@@ -531,7 +455,7 @@ class Grid:
 
         kernel((grid_size,), (block_size,),
                (self.c_eff, self.H, self.bed,
-                cp.float32(self._calving_rate), cp.float32(self._gl_sigmoid_c),
+                self._calving_rate, self._gl_sigmoid_c,
                 self.ny, self.nx))
 
         if relaxation > 0.0:
@@ -542,6 +466,7 @@ class Grid:
         """Compute all frozen fields (eta, beta_eff, c_eff) for Picard linearization."""
         self.compute_eta_field(mode=mode)
         self.compute_beta_eff_field()
+        self.compute_alpha_fields()
         self.compute_c_eff_field()
 
     def get_vanka_matrices(self):
@@ -559,9 +484,8 @@ class Grid:
             self.u, self.v, self.H,
             self.f_u, self.f_v, self.f_H,
             self.eta,
-            self.bed, self.B, self.beta_eff, self.c_eff, 
+            self.bed, self.B, self.alpha_u, self.alpha_v, self.c_eff, 
             self.gamma,
-            self.physics_params,
             self.dx, self.dt,
             self.ny, self.nx, stride, halo,
             ))
