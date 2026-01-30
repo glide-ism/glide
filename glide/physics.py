@@ -142,7 +142,7 @@ class IcePhysics:
             restrict_cell_centered(parent.H_prev, self.kernels, f_coarse=child.H_prev)
             child.gamma.fill(self.thklim)
 
-    def forward_frozen(self, dt, n_vcycles=3, verbose=False, update_geometry=True, c_eff_relaxation=0.9):
+    def forward_frozen(self, dt, n_vcycles=3, verbose=False, update_geometry=True, c_eff_relaxation=0.66):
         """
         Perform one forward time step using frozen Picard coefficients.
 

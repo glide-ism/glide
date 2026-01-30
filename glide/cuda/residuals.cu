@@ -1,10 +1,14 @@
 /*=========================================================
-  ================= Residual Computation ==================
+  ========= Residual Computation (Frozen Fields) ==========
+  =========================================================
+
+  These kernels use precomputed eta, beta_eff, c_eff fields
+  instead of computing them from the current state. This
+  ensures operator consistency across multigrid levels.
   =========================================================*/
 
-
 extern "C" __global__
-void compute_residual(
+void compute_residual_frozen(
     float* __restrict__ r_u,
     float* __restrict__ r_v,
     float* __restrict__ r_H,
@@ -14,12 +18,14 @@ void compute_residual(
     const float* __restrict__ f_u,
     const float* __restrict__ f_v,
     const float* __restrict__ f_H,
+    const float* __restrict__ eta,
     const float* __restrict__ bed,
     const float* __restrict__ B,
-    const float* __restrict__ beta,
+    const float* __restrict__ alpha_u,
+    const float* __restrict__ alpha_v,
+    const float* __restrict__ c_eff,
     const float* __restrict__ mask,
     const float* __restrict__ gamma,
-    const PhysicsParams* params,
     float dx, float dt,
     int ny, int nx, int stride, int halo)
 {
@@ -36,7 +42,9 @@ void compute_residual(
 
     if (i > ny || j > nx) return;
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, B, params->n, params->eps_reg, dx, ny, nx);
+    eta_local[bi][bj] = get_cell(eta,i,j,ny,nx);
+
+    __syncthreads();
 
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
@@ -55,8 +63,8 @@ void compute_residual(
 
 	    float rH = H_c/dt - f_H_c;
 
-	    float bed_c = get_cell(bed,i,j,ny,nx);
-	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,params->calving_rate,params->gl_sigmoid_c,params->gl_derivatives},i, j, ny, nx);
+	    float c_eff_c = get_cell(c_eff,i,j,ny,nx);
+	    CellCalvingFrozenJacobian j_calve = get_cell_calving_frozen_jac({H_c,c_eff_c},i, j, ny, nx);
 	    rH -= j_calve.res;
 
 	    float H_l = get_cell(H,i,j-1,ny,nx);
@@ -167,13 +175,8 @@ void compute_residual(
 	
             {    
             float u_l    = get_vfacet(u,i,j,ny,nx);
-	    float H_l    = get_cell(H,i,j-1,ny,nx);
-	    float H_c    = get_cell(H,i,j,ny,nx);
-	    float bed_l  = get_cell(bed,i,j-1,ny,nx);
-	    float bed_c  = get_cell(bed,i,j,ny,nx);
-	    float beta_l = get_cell(beta,i,j-1,ny,nx);
-	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauBxJacobian tau_bx = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag,params->gl_sigmoid_c,params->gl_derivatives});
+	    float alpha_l = get_vfacet(alpha_u,i,j,ny,nx);
+	    TauBxFrozenJacobian tau_bx = get_tau_bx_frozen_jac({u_l,alpha_l});
 	    ru_l += tau_bx.res;
 	    }
 
@@ -186,11 +189,13 @@ void compute_residual(
 	    ru_l -= tau_dx.res;
 	    }
 
+
 	    if (j == 0 || j == nx) {
 		ru_l = get_vfacet(u,i,j,ny,nx);
 	    }	
-
 	    r_u[i * (nx + 1) + j] = ru_l;
+
+
 	}
 
 	if (has_v){
@@ -270,14 +275,9 @@ void compute_residual(
 
 	    {
 	    float v_t = get_hfacet(v,i,j,ny,nx);
-	    float H_t    = get_cell(H,i-1,j,ny,nx);
-	    float H_c    = get_cell(H,i,j,ny,nx);
-	    float bed_t = get_cell(bed,i-1,j,ny,nx);
-	    float bed_c = get_cell(bed,i,j,ny,nx);
-	    float beta_t = get_cell(beta,i-1,j,ny,nx);
-	    float beta_c = get_cell(beta,i,j,ny,nx);
+	    float alpha_t = get_hfacet(alpha_v,i,j,ny,nx);
 
-	    TauByJacobian tau_by = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag,params->gl_sigmoid_c,params->gl_derivatives});
+	    TauByFrozenJacobian tau_by = get_tau_by_frozen_jac({v_t,alpha_t});
 	    rv_t += tau_by.res;
 	    }
 
@@ -290,10 +290,11 @@ void compute_residual(
 	    TauDyJacobian tau_dy = get_tau_dy_jac({H_t,H_c,bed_t,bed_c},dx_inv,i,j,ny,nx);
 	    rv_t -= tau_dy.res;
 	    }
-
+	    
 	    if (i == 0 || i == ny) {
 		rv_t = get_hfacet(v,i,j,ny,nx);
 	    }	
+
 
 	    r_v[i * nx + j] = rv_t;
 	}
@@ -301,12 +302,13 @@ void compute_residual(
 }
 
 
+
 /*=========================================================
   ==================== JVP Computation ====================
   =========================================================*/
 
 extern "C" __global__
-void compute_jvp(
+void compute_jvp_frozen(
     float* __restrict__ jvp_u,
     float* __restrict__ jvp_v,
     float* __restrict__ jvp_H,
@@ -316,12 +318,17 @@ void compute_jvp(
     const float* __restrict__ d_u,
     const float* __restrict__ d_v,
     const float* __restrict__ d_H,
+    const float* __restrict__ eta,
+    const float* __restrict__ d_eta,
     const float* __restrict__ bed,
     const float* __restrict__ B,
-    const float* __restrict__ beta,
+    const float* __restrict__ alpha_u,
+    const float* __restrict__ alpha_v,
+    const float* __restrict__ d_alpha_u,
+    const float* __restrict__ d_alpha_v,
+    const float* __restrict__ c_eff,
     const float* __restrict__ mask,
     const float* __restrict__ gamma,
-    const PhysicsParams* params,
     float dx, float dt,
     int ny, int nx, int stride, int halo)
 {
@@ -338,7 +345,9 @@ void compute_jvp(
 
     if (i > ny || j > nx) return;
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, d_u, d_v, B, params->n, params->eps_reg, dx, ny, nx);
+    eta_local[bi][bj] = get_cell(eta,d_eta,i,j,ny,nx);
+
+    __syncthreads();
 
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
@@ -354,8 +363,8 @@ void compute_jvp(
 
 	    float d_rH = H_c.d/dt;
 
-	    float bed_c = get_cell(bed,i,j,ny,nx);
-	    DualFloat calve = get_cell_calving_dual({H_c,bed_c,params->calving_rate,params->gl_sigmoid_c,params->gl_derivatives},i, j, ny, nx);
+	    float c_eff_c = get_cell(c_eff,i,j,ny,nx);
+	    DualFloat calve = get_cell_calving_frozen_dual({H_c,c_eff_c},i, j, ny, nx);
 	    d_rH -= calve.d;
 
 	    DualFloat H_l = get_cell(H,d_H,i,j-1,ny,nx);
@@ -379,7 +388,8 @@ void compute_jvp(
             d_rH -= q_b.d*dx_inv;
 
 	    float masked = get_cell(mask,i,j,ny,nx);
-            jvp_H[i * nx + j] = (1.0f - masked) * d_rH + masked * H_c.d;
+	    if (masked > 0.5f) { d_rH = 0.0f; }
+            jvp_H[i * nx + j] = d_rH;
 
 	}
 
@@ -463,13 +473,8 @@ void compute_jvp(
 	
             {    
             DualFloat u_l    = get_vfacet(u,d_u,i,j,ny,nx);
-	    DualFloat H_l    = get_cell(H,d_H,i,j-1,ny,nx);
-	    DualFloat H_c    = get_cell(H,d_H,i,j,ny,nx);
-	    float bed_l  = get_cell(bed,i,j-1,ny,nx);
-	    float bed_c  = get_cell(bed,i,j,ny,nx);
-	    float beta_l = get_cell(beta,i,j-1,ny,nx);
-	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    DualFloat tau_bx = get_tau_bx_dual({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag,params->gl_sigmoid_c,params->gl_derivatives});
+	    DualFloat alpha_l = get_vfacet(alpha_u,d_alpha_u,i,j,ny,nx);
+	    DualFloat tau_bx = get_tau_bx_frozen_dual({u_l,alpha_l});
 	    d_ru_l += tau_bx.d;
 	    }
 
@@ -481,6 +486,9 @@ void compute_jvp(
 	    DualFloat tau_dx = get_tau_dx_dual({H_l,H_c,bed_l,bed_c},dx_inv,i,j,ny,nx);
 	    d_ru_l -= tau_dx.d;
 	    }
+
+	    if (j == 0 || j == nx) { d_ru_l = 0.0f;} 
+
 	    jvp_u[i * (nx + 1) + j] = d_ru_l;
 	
  	}
@@ -560,14 +568,9 @@ void compute_jvp(
 
 	    {
 	    DualFloat v_t    = get_hfacet(v,d_v,i,j,ny,nx);
-	    DualFloat H_t    = get_cell(H,d_H,i-1,j,ny,nx);
-	    DualFloat H_c    = get_cell(H,d_H,i,j,ny,nx);
-	    float bed_t      = get_cell(bed,i-1,j,ny,nx);
-	    float bed_c      = get_cell(bed,i,j,ny,nx);
-	    float beta_t     = get_cell(beta,i-1,j,ny,nx);
-	    float beta_c     = get_cell(beta,i,j,ny,nx);
+	    DualFloat alpha_t    = get_hfacet(alpha_v,d_alpha_v,i,j,ny,nx);
 
-	    DualFloat tau_by = get_tau_by_dual({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag,params->gl_sigmoid_c,params->gl_derivatives});
+	    DualFloat tau_by = get_tau_by_frozen_dual({v_t,alpha_t});
 	    d_rv_t += tau_by.d;
 	    }
 
@@ -581,6 +584,8 @@ void compute_jvp(
 	    d_rv_t -= tau_dy.d;
 	    }
 
+	    if (i == 0 || i == ny) { d_rv_t = 0.0f; };
+
 	    jvp_v[i * nx + j] = d_rv_t;
 
 	}
@@ -588,12 +593,13 @@ void compute_jvp(
 }
 
 
+
 /*=========================================================
   ==================== VJP Computation ====================
   =========================================================*/
 
 extern "C" __global__
-void compute_vjp(
+void compute_vjp_frozen(
     float* __restrict__ vjp_u,
     float* __restrict__ vjp_v,
     float* __restrict__ vjp_H,
@@ -603,12 +609,17 @@ void compute_vjp(
     const float* __restrict__ lambda_u,
     const float* __restrict__ lambda_v,
     const float* __restrict__ lambda_H,
+    const float* __restrict__ eta,
+    const float* __restrict__ lambda_eta,
     const float* __restrict__ bed,
     const float* __restrict__ B,
-    const float* __restrict__ beta,
+    const float* __restrict__ alpha_u,
+    const float* __restrict__ alpha_v,
+    const float* __restrict__ lambda_alpha_u,
+    const float* __restrict__ lambda_alpha_v,
+    const float* __restrict__ c_eff,
     const float* __restrict__ mask,
     const float* __restrict__ gamma,
-    const PhysicsParams* params,
     float dx, float dt,
     int ny, int nx, int stride, int halo)
 {
@@ -638,7 +649,9 @@ void compute_vjp(
 
     __shared__ DualFloat eta_local[bny][bnx];
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, lambda_u, lambda_v, B, params->n, params->eps_reg, dx, ny, nx);
+    eta_local[bi][bj] = get_cell(eta,lambda_eta,i,j,ny,nx);
+
+    __syncthreads();
 
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
@@ -657,8 +670,8 @@ void compute_vjp(
 	    // Mass matrix contribution
 	    atomicAdd(&s_adj_H[bi][bj], lambda_H_c/dt);
 
-	    float bed_c = get_cell(bed,i,j,ny,nx);
-	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,bed_c,params->calving_rate,params->gl_sigmoid_c,params->gl_derivatives},i, j, ny, nx);
+	    float c_eff_c = get_cell(c_eff,i,j,ny,nx);
+	    CellCalvingFrozenJacobian j_calve = get_cell_calving_frozen_jac({H_c,c_eff_c},i, j, ny, nx);
 	    atomicAdd(&s_adj_H[bi][bj] , -lambda_H_c*j_calve.d_H);
 
 	    float H_l = get_cell(H,i,j-1,ny,nx);
@@ -814,17 +827,13 @@ void compute_vjp(
             {
             float u_l    = get_vfacet(u,i,j,ny,nx);
             float lambda_u_l    = get_vfacet(lambda_u,i,j,ny,nx);
-	    float H_l    = get_cell(H,i,j-1,ny,nx);
-	    float H_c    = get_cell(H,i,j,ny,nx);
-	    float bed_l  = get_cell(bed,i,j-1,ny,nx);
-	    float bed_c  = get_cell(bed,i,j,ny,nx);
-	    float beta_l = get_cell(beta,i,j-1,ny,nx);
-	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauBxJacobian j_tau_bx = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag,params->gl_sigmoid_c,params->gl_derivatives});
+	    /// This is going to break the jvp/vjp a little bit - neglecting d_alpha terms here - need to treat like eta with jvp
+	    float alpha_l = get_vfacet(alpha_u,i,j,ny,nx);
+	    TauBxFrozenJacobian j_tau_bx = get_tau_bx_frozen_jac({u_l,alpha_l});
 
-	    atomicAdd(&s_adj_u[bi][bj],lambda_u_l * j_tau_bx.d_u);
-	    atomicAdd(&s_adj_H[bi][bj-1], lambda_u_l * j_tau_bx.d_H_l);
-	    atomicAdd(&s_adj_H[bi][bj],   lambda_u_l * j_tau_bx.d_H_r);
+	    atomicAdd(&s_adj_u[bi][bj],   lambda_u_l * j_tau_bx.d_u);
+	    //atomicAdd(&s_adj_H[bi][bj-1], lambda_u_l * j_tau_bx.d_H_l);
+	    //atomicAdd(&s_adj_H[bi][bj],   lambda_u_l * j_tau_bx.d_H_r);
 	    }
 
 	    {
@@ -839,6 +848,7 @@ void compute_vjp(
             atomicAdd(&s_adj_H[bi][bj-1],-lambda_u_l * j_tau_dx.d_H_l);
             atomicAdd(&s_adj_H[bi][bj],  -lambda_u_l * j_tau_dx.d_H_r);
 	    }
+
 	
  	}
 
@@ -956,17 +966,12 @@ void compute_vjp(
 	    {
 	    float v_t = get_hfacet(v,i,j,ny,nx);
 	    float lambda_v_t = get_hfacet(lambda_v,i,j,ny,nx);
-	    float H_t    = get_cell(H,i-1,j,ny,nx);
-	    float H_c    = get_cell(H,i,j,ny,nx);
-	    float bed_t = get_cell(bed,i-1,j,ny,nx);
-	    float bed_c = get_cell(bed,i,j,ny,nx);
-	    float beta_t = get_cell(beta,i-1,j,ny,nx);
-	    float beta_c = get_cell(beta,i,j,ny,nx);
+	    float alpha_t = get_hfacet(alpha_v,i,j,ny,nx);
 
-	    TauByJacobian j_tau_by = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag,params->gl_sigmoid_c,params->gl_derivatives});
-	    atomicAdd(&s_adj_v[bi][bj],lambda_v_t * j_tau_by.d_v);
-	    atomicAdd(&s_adj_H[bi-1][bj], lambda_v_t * j_tau_by.d_H_t);
-	    atomicAdd(&s_adj_H[bi][bj],   lambda_v_t * j_tau_by.d_H_b);
+	    TauByFrozenJacobian j_tau_by = get_tau_by_frozen_jac({v_t,alpha_t});
+	    atomicAdd(&s_adj_v[bi][bj],     lambda_v_t * j_tau_by.d_v);
+	    //atomicAdd(&s_adj_H[bi-1][bj], lambda_v_t * j_tau_by.d_H_t);
+	    //atomicAdd(&s_adj_H[bi][bj],   lambda_v_t * j_tau_by.d_H_b);
 	    }
 
 	    {
@@ -985,6 +990,7 @@ void compute_vjp(
 
     }
     __syncthreads();
+
 
     // Global Base indices for thread(0,0) of this block
     int g_base_y = blockIdx.y * stride - halo;
@@ -1030,3 +1036,4 @@ void compute_vjp(
     }
 
 }
+

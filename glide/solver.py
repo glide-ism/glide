@@ -171,7 +171,7 @@ def fascd_vcycle(grid, thklim, finest=False):
 
     grid.gamma.fill(thklim)
 
-def fascd_vcycle_frozen(grid, thklim, finest=False,verbose=False,omega=cp.float32(0.5),pre_steps=10,post_steps=10,coarse_steps=400,newton_iterations=10):
+def fascd_vcycle_frozen(grid, thklim, finest=False,verbose=False,omega=cp.float32(0.5),pre_steps=10,post_steps=20,coarse_steps=400,newton_iterations=10):
     """
     FASCD V-cycle for the coupled SSA + mass conservation system.
 
