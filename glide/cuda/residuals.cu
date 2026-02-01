@@ -21,6 +21,7 @@ void compute_residual(
     const float* __restrict__ eta,
     const float* __restrict__ bed,
     const float* __restrict__ B,
+    const float* __restrict__ grounded,
     const float* __restrict__ alpha_u,
     const float* __restrict__ alpha_v,
     const float* __restrict__ c_eff,
@@ -192,7 +193,9 @@ void compute_residual(
 	    float H_c    = get_cell(H,i,j,ny,nx);
 	    float bed_l  = get_cell(bed,i,j-1,ny,nx);
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
-	    TauDxJacobian tau_dx = get_tau_dx_jac({H_l,H_c,bed_l,bed_c},dx_inv,i,j,ny,nx);
+	    float grounded_l = get_cell(grounded,i,j-1,ny,nx);
+	    float grounded_c = get_cell(grounded,i,j,ny,nx);
+	    TauDxJacobian tau_dx = get_tau_dx_jac({H_l,H_c,bed_l,bed_c,grounded_l,grounded_c},dx_inv,i,j,ny,nx);
 	    ru_l -= tau_dx.res;
 	    }
 
@@ -300,8 +303,10 @@ void compute_residual(
 	    float H_c    = get_cell(H,i,j,ny,nx);
 	    float bed_t = get_cell(bed,i-1,j,ny,nx);
 	    float bed_c = get_cell(bed,i,j,ny,nx);
+	    float grounded_t = get_cell(grounded,i-1,j,ny,nx);
+	    float grounded_c = get_cell(grounded,i,j,ny,nx);
 
-	    TauDyJacobian tau_dy = get_tau_dy_jac({H_t,H_c,bed_t,bed_c},dx_inv,i,j,ny,nx);
+	    TauDyJacobian tau_dy = get_tau_dy_jac({H_t,H_c,bed_t,bed_c,grounded_t,grounded_c},dx_inv,i,j,ny,nx);
 	    rv_t -= tau_dy.res;
 	    }
 	    
@@ -336,6 +341,7 @@ void compute_jvp(
     const float* __restrict__ d_eta,
     const float* __restrict__ bed,
     const float* __restrict__ B,
+    const float* __restrict__ grounded,
     const float* __restrict__ alpha_u,
     const float* __restrict__ alpha_v,
     const float* __restrict__ d_alpha_u,
@@ -504,7 +510,9 @@ void compute_jvp(
 	    DualFloat H_c    = get_cell(H,d_H,i,j,ny,nx);
 	    float bed_l  = get_cell(bed,i,j-1,ny,nx);
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
-	    DualFloat tau_dx = get_tau_dx_dual({H_l,H_c,bed_l,bed_c},dx_inv,i,j,ny,nx);
+	    float grounded_l  = get_cell(grounded,i,j-1,ny,nx);
+	    float grounded_c  = get_cell(grounded,i,j,ny,nx);
+	    DualFloat tau_dx = get_tau_dx_dual({H_l,H_c,bed_l,bed_c,grounded_l,grounded_c},dx_inv,i,j,ny,nx);
 	    d_ru_l -= tau_dx.d;
 	    }
 
@@ -606,8 +614,10 @@ void compute_jvp(
 	    DualFloat H_c    = get_cell(H,d_H,i,j,ny,nx);
 	    float bed_t = get_cell(bed,i-1,j,ny,nx);
 	    float bed_c = get_cell(bed,i,j,ny,nx);
+	    float grounded_t = get_cell(grounded,i-1,j,ny,nx);
+	    float grounded_c = get_cell(grounded,i,j,ny,nx);
 
-	    DualFloat tau_dy = get_tau_dy_dual({H_t,H_c,bed_t,bed_c},dx_inv,i,j,ny,nx);
+	    DualFloat tau_dy = get_tau_dy_dual({H_t,H_c,bed_t,bed_c,grounded_t,grounded_c},dx_inv,i,j,ny,nx);
 	    d_rv_t -= tau_dy.d;
 	    }
 
@@ -640,6 +650,7 @@ void compute_vjp(
     const float* __restrict__ lambda_eta,
     const float* __restrict__ bed,
     const float* __restrict__ B,
+    const float* __restrict__ grounded,
     const float* __restrict__ alpha_u,
     const float* __restrict__ alpha_v,
     const float* __restrict__ lambda_alpha_u,
@@ -873,7 +884,9 @@ void compute_vjp(
 	    
 	    float bed_l  = get_cell(bed,i,j-1,ny,nx);
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
-	    TauDxJacobian j_tau_dx = get_tau_dx_jac({H_l,H_c,bed_l,bed_c},dx_inv,i,j,ny,nx);
+	    float grounded_l  = get_cell(grounded,i,j-1,ny,nx);
+	    float grounded_c  = get_cell(grounded,i,j,ny,nx);
+	    TauDxJacobian j_tau_dx = get_tau_dx_jac({H_l,H_c,bed_l,bed_c,grounded_l,grounded_c},dx_inv,i,j,ny,nx);
 
             atomicAdd(&s_adj_H[bi][bj-1],-lambda_u_l * j_tau_dx.d_H_l);
             atomicAdd(&s_adj_H[bi][bj],  -lambda_u_l * j_tau_dx.d_H_r);
@@ -1014,8 +1027,10 @@ void compute_vjp(
 	    float H_c    = get_cell(H,i,j,ny,nx);
 	    float bed_t = get_cell(bed,i-1,j,ny,nx);
 	    float bed_c = get_cell(bed,i,j,ny,nx);
+	    float grounded_t = get_cell(grounded,i-1,j,ny,nx);
+	    float grounded_c = get_cell(grounded,i,j,ny,nx);
 
-	    TauDyJacobian j_tau_dy = get_tau_dy_jac({H_t,H_c,bed_t,bed_c},dx_inv,i,j,ny,nx);
+	    TauDyJacobian j_tau_dy = get_tau_dy_jac({H_t,H_c,bed_t,bed_c,grounded_t,grounded_c},dx_inv,i,j,ny,nx);
 	    atomicAdd(&s_adj_H[bi-1][bj],-lambda_v_t * j_tau_dy.d_H_t);
 	    atomicAdd(&s_adj_H[bi][bj],  -lambda_v_t * j_tau_dy.d_H_b);
 	    }

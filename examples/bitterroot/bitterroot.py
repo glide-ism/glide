@@ -93,9 +93,6 @@ physics.set_parameters(B=B, beta=beta, smb=smb)
 
 # Access the grid hierarchy
 grid = physics.grid
-grid.compute_eta_field()
-grid.compute_alpha_fields()
-grid.compute_c_eff_field(relaxation=0.0)
 # =============================================================================
 # Set up output
 # =============================================================================
@@ -114,7 +111,7 @@ for step in range(N_STEPS):
     print(f"Step {step}: t = {t:.1f} yr, H_mean = {float(grid.H.mean()):.1f} m")
 
     # Forward solve
-    u, v, H = physics.forward(dt=DT, n_vcycles=N_VCYCLES, verbose=True)
+    u, v, H = physics.forward(dt=DT, n_vcycles=N_VCYCLES, verbose=True,grounded_relaxation=0.5)
     t += DT
 
     # Output

@@ -86,7 +86,7 @@ thickness = dataset.thickness.values
 beta = dataset.beta.values
 beta[:] = 2.5
 smb = dataset.smb.values
-#smb = (smb - 2.0)*1.3 + 2.0
+smb -= 1.0
 # =============================================================================
 # Initialize physics
 # =============================================================================
@@ -105,14 +105,12 @@ physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS,
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
-#physics.set_grid_level(3)
-#DT = 250.0
+physics.set_grid_level(0)
+DT = 50.0
 
 # Access the grid hierarchy
 grid = physics.grid
-grid.compute_eta_field()
-grid.compute_alpha_fields()
-grid.compute_c_eff_field(relaxation=0.0)
+grid.compute_frozen_fields()
 
 # =============================================================================
 # Set up output
@@ -132,7 +130,7 @@ for step in range(N_STEPS):
     print(f"Step {step}: t = {t:.1f} yr, H_mean = {float(grid.H.mean()):.1f} m")
 
     # Forward solve
-    u, v, H = physics.forward(dt=DT, n_vcycles=N_VCYCLES, verbose=True)
+    u, v, H = physics.forward(dt=DT, n_vcycles=N_VCYCLES, verbose=True, grounded_relaxation=0.5)
     t += DT
 
     # Output
@@ -142,7 +140,7 @@ for step in range(N_STEPS):
     writer.write_step(step, t, {
         'thk': H,
         'srf': surface,
-        'vel': [u_c, v_c]
+        'vel': [u_c * (1-grid.mask), v_c * (1-grid.mask)]
     })
     writer.write_pvd()
 

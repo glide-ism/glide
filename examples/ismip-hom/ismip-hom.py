@@ -18,7 +18,7 @@ from glide.io import VTIWriter, write_vti
 
 N_LEVELS = 6       # Multigrid levels
 N_VCYCLES = 10
-L = 80000
+L = 5000
 EXP = 'C'
 
 # Physical constants
@@ -30,7 +30,7 @@ N_GLEN = 3.0
 # Configure Domain
 # =============================================================================
 
-base_res = 128
+base_res = 256
 
 y_factr = 7
 x_factr = 7

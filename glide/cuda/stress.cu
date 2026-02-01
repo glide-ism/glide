@@ -301,20 +301,22 @@ DualFloat get_tau_by_frozen_dual(TauByFrozenStencilDual s) {
 struct TauDxStencil {
     float H_l, H_r;
     float bed_l, bed_r;
+    float grounded_l, grounded_r;
 };
 
 struct TauDxStencilDual {
     DualFloat H_l, H_r;
     float bed_l, bed_r;
+    float grounded_l, grounded_r;
 
     __device__ __forceinline__
     TauDxStencil get_primals() const {
-        return {H_l.v,H_r.v,bed_l,bed_r};
+        return {H_l.v,H_r.v,bed_l,bed_r,grounded_l,grounded_r};
     }
 
     __device__ __forceinline__
     TauDxStencil get_diffs() const {
-        return {H_l.d,H_r.d,0.0f,0.0f};
+        return {H_l.d,H_r.d,0.0f,0.0f,0.0f,0.0f};
     }
 
 };
@@ -347,11 +349,11 @@ TauDxJacobian get_tau_dx_jac(
 
     float H_avg = 0.5f*(s.H_l + s.H_r);
 
-    float base_l = fmaxf(s.bed_l,-0.917f*s.H_l);
-    float base_r = fmaxf(s.bed_r,-0.917f*s.H_r);
+    float base_l = s.grounded_l * s.bed_l - (1.0f - s.grounded_l)*0.917f*s.H_l;
+    float base_r = s.grounded_r * s.bed_r - (1.0f - s.grounded_r)*0.917f*s.H_r;
 
-    float dbase_dH_l = s.bed_l > -0.917f*s.H_l ? 0.0f : -0.917f;
-    float dbase_dH_r = s.bed_r > -0.917f*s.H_r ? 0.0f : -0.917f;
+    float dbase_dH_l = -(1.0f - s.grounded_l)*0.917f;
+    float dbase_dH_r = -(1.0f - s.grounded_r)*0.917f;
 
     float S_l = base_l + s.H_l;
     float S_r = base_r + s.H_r;
@@ -377,20 +379,22 @@ DualFloat get_tau_dx_dual(
 struct TauDyStencil {
     float H_t, H_b;
     float bed_t, bed_b;
+    float grounded_t, grounded_b;
 };
 
 struct TauDyStencilDual {
     DualFloat H_t, H_b;
     float bed_t, bed_b;
+    float grounded_t, grounded_b;
 
     __device__ __forceinline__
     TauDyStencil get_primals() const {
-        return {H_t.v,H_b.v,bed_t,bed_b};
+        return {H_t.v,H_b.v,bed_t,bed_b,grounded_t,grounded_b};
     }
 
     __device__ __forceinline__
     TauDyStencil get_diffs() const {
-        return {H_t.d,H_b.d,0.0f,0.0f};
+        return {H_t.d,H_b.d,0.0f,0.0f,0.0f,0.0f};
     }
 
 };
@@ -420,11 +424,11 @@ TauDyJacobian get_tau_dy_jac(
 
     float H_avg = 0.5f*(s.H_t + s.H_b);
 
-    float base_t = fmaxf(s.bed_t,-0.917f*s.H_t);
-    float base_b = fmaxf(s.bed_b,-0.917f*s.H_b);
+    float base_t = s.grounded_t * s.bed_t - (1.0f - s.grounded_t)*0.917f*s.H_t;
+    float base_b = s.grounded_b * s.bed_b - (1.0f - s.grounded_b)*0.917f*s.H_b;
 
-    float dbase_dH_t = s.bed_t > -0.917f*s.H_t ? 0.0f : -0.917f;
-    float dbase_dH_b = s.bed_b > -0.917f*s.H_b ? 0.0f : -0.917f;
+    float dbase_dH_t = -(1.0f - s.grounded_t)*0.917f;
+    float dbase_dH_b = -(1.0f - s.grounded_b)*0.917f;
 
     float S_t = base_t + s.H_t;
     float S_b = base_b + s.H_b;

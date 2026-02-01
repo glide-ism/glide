@@ -146,7 +146,7 @@ class IcePhysics:
             restrict_cell_centered(parent.H_prev, self.kernels, f_coarse=child.H_prev)
             child.gamma.fill(self.thklim)
 
-    def forward(self, dt, n_vcycles=3, verbose=False, update_geometry=True, c_eff_relaxation=0.66):
+    def forward(self, dt, n_vcycles=3, verbose=False, update_geometry=True, grounded_relaxation=0.66):
         """
         Perform one forward time step using frozen Picard coefficients.
 
@@ -185,7 +185,7 @@ class IcePhysics:
         # Set up RHS for mass equation
         self.grid.f_H[:, :] = self.grid.H_prev / self.grid.dt + self.grid.smb
 
-        #self.grid.compute_frozen_fields()
+        self.grid.compute_frozen_fields()
         # Compute initial residual for convergence tracking
 
         if verbose:
@@ -204,9 +204,7 @@ class IcePhysics:
         restrict_parameters_to_hierarchy(self.grid)
         # Solve using frozen coefficients
         for i in range(n_vcycles):
-            self.grid.compute_eta_field()
-            self.grid.compute_alpha_fields()
-            self.grid.compute_c_eff_field(relaxation=c_eff_relaxation)
+            self.grid.compute_frozen_fields(relaxation=grounded_relaxation)
             restrict_frozen_fields_to_hierarchy(self.grid)
 
             # Run frozen V-cycle

@@ -217,9 +217,7 @@ class Grid:
             mask = self.Z_H
 
         if recompute_frozen_fields:
-            self.compute_eta_field()
-            self.compute_alpha_fields()
-            self.compute_c_eff_field()
+            self.compute_frozen_fields()
             
         kernel = self.kernels.ice.get_function('compute_residual')
 
@@ -228,7 +226,8 @@ class Grid:
             self.u, self.v, self.H,
             self.f_u, self.f_v, self.f_H,
             self.eta,
-            self.bed, self.B, self.alpha_u, self.alpha_v, self.c_eff,
+            self.bed, self.B, self.grounded,
+            self.alpha_u, self.alpha_v, self.c_eff,
             mask, self.gamma,
             self.dx, self.dt,
             self.ny, self.nx, stride, halo))
@@ -255,7 +254,8 @@ class Grid:
             self.u, self.v, self.H,
             self.Z_u, self.Z_v, self.Z_H,
             self.eta,
-            self.bed, self.B, self.alpha_u, self.alpha_v, self.c_eff,
+            self.bed, self.B, self.grounded, 
+            self.alpha_u, self.alpha_v, self.c_eff,
             mask, self.gamma,
             self.dx, self.dt,
             self.ny, self.nx, stride, halo))
@@ -277,7 +277,7 @@ class Grid:
             self.u, self.v, self.H,
             self.d_u, self.d_v, self.d_H,
             self.eta, self.d_eta,
-            self.bed, self.B, 
+            self.bed, self.B, self.grounded,
             self.alpha_u, self.alpha_v,
             self.d_alpha_u,self.d_alpha_v,
             self.c_eff,
@@ -301,7 +301,7 @@ class Grid:
             self.u, self.v, self.H,
             self.lambda_u, self.lambda_v, self.lambda_H,
             self.eta, self.lambda_eta,
-            self.bed, self.B, 
+            self.bed, self.B, self.grounded,
             self.alpha_u,self.alpha_v, 
             self.lambda_alpha_u,self.lambda_alpha_v, 
             self.c_eff,
@@ -326,7 +326,8 @@ class Grid:
             self.u, self.v, self.H,
             self.f_u, self.f_v, self.f_H,
             self.eta,
-            self.bed, self.B, self.alpha_u,self.alpha_v, self.c_eff, 
+            self.bed, self.B, self.grounded, 
+            self.alpha_u,self.alpha_v, self.c_eff, 
             self.gamma,
             self.dx, self.dt,
             self.ny, self.nx, stride, halo,
@@ -344,7 +345,8 @@ class Grid:
             self.mask,
             self.r_adj_u, self.r_adj_v, self.r_adj_H,
             self.u, self.v, self.H, self.eta,
-            self.bed, self.B, self.alpha_u,self.alpha_v, self.c_eff, 
+            self.bed, self.B, self.grounded,
+            self.alpha_u,self.alpha_v, self.c_eff, 
             self.gamma,
             self.dx, self.dt,
             self.ny, self.nx, stride, halo,
@@ -460,43 +462,48 @@ class Grid:
         if mode=='dual':
             kernel = self.kernels.ice.get_function('compute_alpha_with_dual')
             kernel((grid_size,), (block_size,),
-               (self.alpha_u, self.alpha_v, self.d_alpha_u, self.d_alpha_v, 
-                   self.u, self.v, self.d_u, self.d_v, self.H, self.bed, self.beta,
-                self._m, self._eps_sliding, self._water_drag, self._gl_sigmoid_c,
+               (self.alpha_u, self.alpha_v, 
+                   self.d_alpha_u, self.d_alpha_v, 
+                   self.u, self.v, 
+                   self.d_u, self.d_v, 
+                   self.beta,
+                   self.grounded,
+                self._m, self._eps_sliding, self._water_drag,
                 self.ny, self.nx))
         
         if mode=='adjoint':
             kernel = self.kernels.ice.get_function('compute_alpha_with_dual')
             kernel((grid_size,), (block_size,),
-               (self.alpha_u, self.alpha_v, self.lambda_alpha_u, self.lambda_alpha_v, 
-                   self.u, self.v, self.lambda_u, self.lambda_v, self.H, self.bed, self.beta,
-                self._m, self._eps_sliding, self._water_drag, self._gl_sigmoid_c,
+               (self.alpha_u, self.alpha_v, 
+                   self.lambda_alpha_u, self.lambda_alpha_v, 
+                   self.u, self.v, 
+                   self.lambda_u, self.lambda_v, 
+                   self.beta,
+                   self.grounded,
+                self._m, self._eps_sliding, self._water_drag, 
                 self.ny, self.nx))
 
         else:
             kernel = self.kernels.ice.get_function('compute_alpha')
             kernel((grid_size,), (block_size,),
-               (self.alpha_u, self.alpha_v, self.u, self.v, self.H, self.bed, self.beta,
-                self._m, self._eps_sliding, self._water_drag, self._gl_sigmoid_c,
+               (self.alpha_u, self.alpha_v, 
+                   self.u, self.v,
+                   self.beta,
+                   self.grounded,
+                self._m, self._eps_sliding, self._water_drag,
                 self.ny, self.nx))
 
-    def compute_c_eff_field(self,relaxation=0.0):
+    def compute_c_eff_field(self):
         """Compute frozen effective calving rate field."""
         kernel = self.kernels.ice.get_function('compute_c_eff')
         total_work = self.ny * self.nx
         block_size = 256
         grid_size = (total_work + block_size - 1) // block_size
 
-        if relaxation > 0.0:
-            c_eff_old = cp.array(self.c_eff)
-
         kernel((grid_size,), (block_size,),
-               (self.c_eff, self.H, self.bed,
-                self._calving_rate, self._gl_sigmoid_c,
+               (self.c_eff, self.grounded,
+                self._calving_rate,
                 self.ny, self.nx))
-
-        if relaxation > 0.0:
-            self.c_eff[:] = (1 - relaxation) * self.c_eff + relaxation * c_eff_old
 
     def compute_grounded(self,relaxation=0.0):
         kernel = self.kernels.ice.get_function('compute_grounded')
@@ -509,8 +516,9 @@ class Grid:
                 self._gl_sigmoid_c, cp.float32(relaxation),
                 self.ny, self.nx))
 
-    def compute_frozen_fields(self,mode='residual'):
+    def compute_frozen_fields(self,mode='residual',relaxation=0.0):
         """Compute all frozen fields (eta, beta_eff, c_eff) for Picard linearization."""
+        self.compute_grounded(relaxation=relaxation)
         self.compute_eta_field(mode=mode)
         self.compute_alpha_fields(mode=mode)
         self.compute_c_eff_field()

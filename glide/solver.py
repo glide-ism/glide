@@ -74,6 +74,7 @@ def restrict_frozen_fields(grid,restrict_adjoint_parameters=False):
     restrict_vfacet(grid.alpha_u, kernels, u_coarse=child.alpha_u)
     restrict_hfacet(grid.alpha_v, kernels, v_coarse=child.alpha_v)
     restrict_cell_centered(grid.c_eff, kernels, f_coarse=child.c_eff)
+    restrict_cell_centered(grid.grounded, kernels, f_coarse=child.grounded)
     if restrict_adjoint_parameters:
         restrict_cell_centered(grid.lambda_eta,kernels,f_coarse=child.lambda_eta)
         restrict_vfacet(grid.lambda_alpha_u,kernels,u_coarse=child.lambda_alpha_u)
@@ -84,94 +85,6 @@ def restrict_frozen_fields_to_hierarchy(grid,restrict_adjoint_parameters=False):
     if grid.child is not None:
         restrict_frozen_fields(grid,restrict_adjoint_parameters=restrict_adjoint_parameters)
         restrict_frozen_fields_to_hierarchy(grid.child,restrict_adjoint_parameters=restrict_adjoint_parameters)
-
-def fascd_vcycle(grid, thklim, finest=False):
-    """
-    FASCD V-cycle for the coupled SSA + mass conservation system.
-
-    Full Approximation Scheme with Constrained Descent handles the
-    thickness inequality constraint H >= gamma via an active set method.
-
-    Parameters
-    ----------
-    grid : Grid
-        Finest grid level for this V-cycle
-    thklim : float
-        Minimum thickness constraint
-    finest : bool
-        Whether this is the finest level (entry point)
-    """
-    kernels = grid.kernels
-
-    if finest:
-        grid.w[:] = grid.U[:]
-        grid.chi[:] = grid.gamma - grid.H
-
-    if grid.child is None:
-        # Coarsest level: direct solve
-        grid.gamma[:] = grid.w_H + grid.chi[:]
-        grid.vanka_sweep(500)
-        grid.gamma.fill(thklim)
-        return
-
-    # Restrict constraint defect
-    restrict_max_pool(grid.chi, kernels, f_coarse=grid.child.chi)
-
-    # Prolongate and compute local constraint adjustment
-    prolongate_cell_centered(-grid.child.chi, kernels, H_fine=grid.phi, smooth=False)
-    grid.phi[:] += grid.chi
-
-    # Pre-smooth with local constraint
-    grid.gamma[:, :] = grid.w_H + grid.phi
-    grid.vanka_sweep(20)
-    grid.gamma.fill(thklim)
-
-    # Compute coarse grid correction
-    grid.y[:] = grid.U - grid.w
-
-    # Restrict solution to child
-    restrict_solution(grid)
-    grid.child.w[:] = grid.child.U[:]
-
-    # Compute and restrict residual
-    grid.compute_residual()
-    restrict_residual(grid)
-
-    # Form coarse grid RHS: f_c = F_c(I_h^H u_h) - I_h^H r_h
-    grid.child.compute_F()
-    grid.child.f[:] = grid.child.F - grid.child.r
-
-    # Recursive call
-    fascd_vcycle(grid.child, thklim)
-
-    # Compute coarse correction
-    grid.child.z[:] = grid.child.U - grid.child.w
-
-    # Prolongate correction
-    prolongate_vfacet(grid.child.z_u, kernels, u_fine=grid.z_u)
-    prolongate_hfacet(grid.child.z_v, kernels, v_fine=grid.z_v)
-    prolongate_cell_centered(grid.child.z_H, kernels, H_fine=grid.z_H, smooth=False)
-
-    # Apply correction
-    grid.z[:] += grid.y
-    grid.U[:] = grid.w + grid.z
-
-    # Post-smooth
-    grid.gamma[:, :] = grid.w_H + grid.chi
-    grid.vanka_sweep(20)
-
-    # Local error-based smoothing
-    for _ in range(10):
-        grid.compute_residual()
-        a = grid.r_H
-        b = grid.H - grid.gamma
-        rss_H = a + b - cp.sqrt(a**2 + b**2)
-        total_error = (abs(grid.r_u[:, 1:]) + abs(grid.r_u[:, :-1]) +
-                       abs(grid.r_v[1:]) + abs(grid.r_v[:-1]) + abs(rss_H))
-        grid.error_mask[:] = (total_error > 0.01).astype(cp.float32)
-        grid.vanka_sweep_local(10)
-
-    grid.gamma.fill(thklim)
 
 def fascd_vcycle(grid, thklim, finest=False,verbose=False,omega=cp.float32(0.5),pre_steps=10,post_steps=20,coarse_steps=400,newton_iterations=10):
     """
