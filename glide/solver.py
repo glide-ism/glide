@@ -66,7 +66,7 @@ def restrict_parameters_to_hierarchy(grid):
         restrict_parameters_to_hierarchy(grid.child)
 
 
-def restrict_frozen_fields(grid,restrict_adjoint_viscosity=False):
+def restrict_frozen_fields(grid,restrict_adjoint_parameters=False):
     """Restrict frozen fields (eta, beta_eff, c_eff) from grid to child."""
     child = grid.child
     kernels = grid.kernels
@@ -74,14 +74,16 @@ def restrict_frozen_fields(grid,restrict_adjoint_viscosity=False):
     restrict_vfacet(grid.alpha_u, kernels, u_coarse=child.alpha_u)
     restrict_hfacet(grid.alpha_v, kernels, v_coarse=child.alpha_v)
     restrict_cell_centered(grid.c_eff, kernels, f_coarse=child.c_eff)
-    if restrict_adjoint_viscosity:
+    if restrict_adjoint_parameters:
         restrict_cell_centered(grid.lambda_eta,kernels,f_coarse=child.lambda_eta)
+        restrict_vfacet(grid.lambda_alpha_u,kernels,u_coarse=child.lambda_alpha_u)
+        restrict_hfacet(grid.lambda_alpha_v,kernels,v_coarse=child.lambda_alpha_v)
 
-def restrict_frozen_fields_to_hierarchy(grid,restrict_adjoint_viscosity=False):
+def restrict_frozen_fields_to_hierarchy(grid,restrict_adjoint_parameters=False):
     """Recursively restrict frozen fields through entire hierarchy."""
     if grid.child is not None:
-        restrict_frozen_fields(grid,restrict_adjoint_viscosity=restrict_adjoint_viscosity)
-        restrict_frozen_fields_to_hierarchy(grid.child,restrict_adjoint_viscosity=restrict_adjoint_viscosity)
+        restrict_frozen_fields(grid,restrict_adjoint_parameters=restrict_adjoint_parameters)
+        restrict_frozen_fields_to_hierarchy(grid.child,restrict_adjoint_parameters=restrict_adjoint_parameters)
 
 def fascd_vcycle(grid, thklim, finest=False):
     """
@@ -278,10 +280,6 @@ def adjoint_vcycle(grid,verbose=False,omega=cp.float32(1.0),pre_steps=10,post_st
     grid.compute_vjp()
     grid.r_adj[:] -= grid.l
 
-    # Restrict to child
-    #restrict_solution(grid, adjoint=True)
-    #restrict_parameters(grid)
-
     # Set up coarse RHS
     restrict_vfacet(grid.r_adj_u, kernels, u_coarse=grid.child.f_adj_u)
     restrict_hfacet(grid.r_adj_v, kernels, v_coarse=grid.child.f_adj_v)
@@ -294,7 +292,7 @@ def adjoint_vcycle(grid,verbose=False,omega=cp.float32(1.0),pre_steps=10,post_st
     grid.z.fill(0.0)
     prolongate_vfacet(grid.child.lambda_u, kernels, u_fine=grid.z_u)
     prolongate_hfacet(grid.child.lambda_v, kernels, v_fine=grid.z_v)
-    prolongate_cell_centered(grid.child.lambda_H, kernels, H_fine=grid.z_H, smooth=True)
+    prolongate_cell_centered(grid.child.lambda_H, kernels, H_fine=grid.z_H, smooth=False)
 
     # Apply correction
     grid.lambda_u[:] += grid.z_u

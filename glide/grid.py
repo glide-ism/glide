@@ -153,6 +153,8 @@ class Grid:
         self.error_mask = cp.zeros((ny, nx), dtype=cp.float32)
         self.gamma = cp.zeros((ny, nx), dtype=cp.float32)
 
+        self.grounded = cp.zeros((ny, nx), dtype=cp.float32)
+
         # Frozen fields for Picard linearization (precomputed before V-cycle)
         # These are restricted to coarser grids rather than recomputed
         self.eta = cp.zeros((ny, nx), dtype=cp.float32)      # Viscosity
@@ -367,11 +369,13 @@ class Grid:
         """Perform n_iter adjoint Vanka smoothing sweeps."""
         for _ in range(n_iter):
             self.r_adj[:] = self.f_adj[:]
+            self.compute_frozen_fields(mode='adjoint')
             self.compute_vjp()
             self.r_adj[:] -= self.l
             self.vanka_smooth_adjoint(0, omega=omega)
 
             self.r_adj[:] = self.f_adj[:]
+            self.compute_frozen_fields(mode='adjoint')
             self.compute_vjp()
             self.r_adj[:] -= self.l
             self.vanka_smooth_adjoint(1, omega=omega)
@@ -399,6 +403,24 @@ class Grid:
 
         self.mask.fill(0.0)
         return grad_beta
+
+    def compute_grad_alpha(self):
+        """Compute gradient of objective w.r.t. beta via adjoint."""
+        kernel = self.kernels.ice.get_function('compute_grad_alpha')
+        grid_size, block_size, stride, halo = self._kernel_config()
+
+        grad_alpha_u = cp.zeros((self.ny, self.nx + 1), dtype=cp.float32)
+        grad_alpha_v = cp.zeros((self.ny + 1, self.nx), dtype=cp.float32)
+
+        kernel(grid_size, block_size,
+               (grad_alpha_u, grad_alpha_v,
+                self.u, self.v, self.H,
+                self.lambda_u, self.lambda_v, self.lambda_H,
+                self.alpha_u, self.alpha_v,
+                self.dx, self.dt,
+                self.ny, self.nx, stride, halo))
+
+        return grad_alpha_u,grad_alpha_v
 
     def compute_eta_field(self,mode='residual'):
         """Compute frozen viscosity field from current velocity state."""
@@ -475,7 +497,17 @@ class Grid:
 
         if relaxation > 0.0:
             self.c_eff[:] = (1 - relaxation) * self.c_eff + relaxation * c_eff_old
-            
+
+    def compute_grounded(self,relaxation=0.0):
+        kernel = self.kernels.ice.get_function('compute_grounded')
+        total_work = self.ny * self.nx
+        block_size = 256
+        grid_size = (total_work + block_size - 1) // block_size
+
+        kernel((grid_size,), (block_size,),
+               (self.grounded, self.H, self.bed,
+                self._gl_sigmoid_c, cp.float32(relaxation),
+                self.ny, self.nx))
 
     def compute_frozen_fields(self,mode='residual'):
         """Compute all frozen fields (eta, beta_eff, c_eff) for Picard linearization."""

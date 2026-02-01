@@ -791,32 +791,58 @@ void vanka_smooth_adjoint(
 	J[19] += sigma_xy_br.d_eta_H * eta_H_br.d_H_tl * dx_inv;
 	}
 	
-	
 	// Basal shear stress for left momentum
 	{
-	float alpha_l = get_vfacet(alpha_u,i,j,ny,nx);
-	TauBxFrozenJacobian tau_bx_l = get_tau_bx_frozen_jac({u_l,alpha_l});
+	float alpha_u_l = get_vfacet(alpha_u,i,j,ny,nx);
+	float alpha_v_tl = get_hfacet(alpha_v,i,j-1,ny,nx);
+	float alpha_v_tr = get_hfacet(alpha_v,i,j,ny,nx);
+	float alpha_v_bl = get_hfacet(alpha_v,i+1,j-1,ny,nx);
+	float alpha_v_br = get_hfacet(alpha_v,i+1,j,ny,nx);
+
+	AlphaBarUJacobian alpha_bar_u_l = get_alpha_bar_u_jac({alpha_u_l,alpha_v_tl,alpha_v_tr,alpha_v_bl,alpha_v_br});
+	TauBxFrozenJacobian tau_bx_l = get_tau_bx_frozen_jac({u_l,alpha_bar_u_l.res});
 	J[0] += tau_bx_l.d_u;
 	}
 
 	// Basal shear stress for right momentum
 	{
-	float alpha_r = get_vfacet(alpha_u,i,j+1,ny,nx);
-	TauBxFrozenJacobian tau_bx_r = get_tau_bx_frozen_jac({u_r,alpha_r});
+	float alpha_u_r = get_vfacet(alpha_u,i,j+1,ny,nx);
+	float alpha_v_tl = get_hfacet(alpha_v,i,j,ny,nx);
+	float alpha_v_tr = get_hfacet(alpha_v,i,j+1,ny,nx);
+	float alpha_v_bl = get_hfacet(alpha_v,i+1,j,ny,nx);
+	float alpha_v_br = get_hfacet(alpha_v,i+1,j+1,ny,nx);
+
+	AlphaBarUJacobian alpha_bar_u_r = get_alpha_bar_u_jac({alpha_u_r,alpha_v_tl,alpha_v_tr,alpha_v_bl,alpha_v_br});
+
+	TauBxFrozenJacobian tau_bx_r = get_tau_bx_frozen_jac({u_r,alpha_bar_u_r.res});
 	J[6] += tau_bx_r.d_u;
 	}
 
 	// Basal shear stress for top momentum
 	{
-	float alpha_t = get_hfacet(alpha_v,i,j,ny,nx);
-	TauByFrozenJacobian tau_by_t = get_tau_by_frozen_jac({v_t,alpha_t});
+	float alpha_v_t = get_hfacet(alpha_v,i,j,ny,nx);
+	float alpha_u_tl = get_vfacet(alpha_u,i-1,j,ny,nx);
+	float alpha_u_tr = get_vfacet(alpha_u,i-1,j+1,ny,nx);
+	float alpha_u_bl = get_vfacet(alpha_u,i,j,ny,nx);
+	float alpha_u_br = get_vfacet(alpha_u,i,j+1,ny,nx);
+
+	AlphaBarVJacobian alpha_bar_v_t = get_alpha_bar_v_jac({alpha_v_t,alpha_u_tl,alpha_u_tr,alpha_u_bl,alpha_u_br});
+
+	TauByFrozenJacobian tau_by_t = get_tau_by_frozen_jac({v_t,alpha_bar_v_t.res});
 	J[12] += tau_by_t.d_v;
 	}
 
 	// Basal shear stress for bottom momentum
 	{
-	float alpha_b = get_hfacet(alpha_v,i+1,j,ny,nx);
-	TauByFrozenJacobian tau_by_b = get_tau_by_frozen_jac({v_b,alpha_b});
+	float alpha_v_b = get_hfacet(alpha_v,i+1,j,ny,nx);
+	float alpha_u_tl = get_vfacet(alpha_u,i,j,ny,nx);
+	float alpha_u_tr = get_vfacet(alpha_u,i,j+1,ny,nx);
+	float alpha_u_bl = get_vfacet(alpha_u,i+1,j,ny,nx);
+	float alpha_u_br = get_vfacet(alpha_u,i+1,j+1,ny,nx);
+
+	AlphaBarVJacobian alpha_bar_v_b = get_alpha_bar_v_jac({alpha_v_b,alpha_u_tl,alpha_u_tr,alpha_u_bl,alpha_u_br});
+
+	TauByFrozenJacobian tau_by_b = get_tau_by_frozen_jac({v_b,alpha_bar_v_b.res});
 	J[18] += tau_by_b.d_v;
 	}
 	
@@ -855,6 +881,12 @@ void vanka_smooth_adjoint(
 	TauDyJacobian tau_dy_b = get_tau_dy_jac({H_c,H_b,bed_c,bed_b},dx_inv,i+1,j,ny,nx);
 	J[19] -= tau_dy_b.d_H_t;
 	}
+
+	//J[0]  -= 1.0f;
+        //J[6]  -= 1.0f;
+        //J[12] -= 1.0f;
+        //J[18] -= 1.0f;
+        //J[24] += 1.0f;
 
         float J_T[25];
         #pragma unroll

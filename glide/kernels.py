@@ -23,7 +23,7 @@ class Kernels:
         # Concatenate ice kernel files in dependency order
         # grad.cu currently commented out for debug
         ice_files = ['common.cu', 'viscosity.cu', 'stress.cu', 'flux.cu',
-                          'coefficients.cu',
+                          'coefficients.cu', 'grad.cu',
                           'residuals.cu', 'vanka.cu']
         ice_source = '\n'.join(
             (cuda_dir / f).read_text() for f in ice_files

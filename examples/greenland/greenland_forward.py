@@ -101,7 +101,7 @@ physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS,
         n=3.0,eps_reg=1e-6,
         m=0.333,eps_sliding=1e-6,
         thklim=0.1,water_drag=1e-3,
-        calving_rate=2.0,gl_sigmoid_c=0.5,gl_derivatives=False)
+        calving_rate=2.0,gl_sigmoid_c=0.1,gl_derivatives=False)
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 

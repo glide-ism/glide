@@ -256,12 +256,11 @@ class IcePhysics:
         self.grid.f_adj_v[:] = cp.asarray(-dL_dv, dtype=cp.float32)
         self.grid.f_adj_H[:] = cp.asarray(-dL_dH, dtype=cp.float32)
 
-        self.grid.compute_frozen_fields()
-        restrict_frozen_fields_to_hierarchy(self.grid,restrict_adjoint_viscosity=True)
-
         # Solve adjoint system
         for j in range(n_vcycles):
-            adjoint_vcycle(self.grid,frozen=True)
+            #self.grid.compute_frozen_fields(mode='adjoint')
+            #restrict_frozen_fields_to_hierarchy(self.grid,restrict_adjoint_parameters=True)
+            adjoint_vcycle(self.grid,omega=cp.float32(1.0))
             print(j,cp.linalg.norm((self.grid.l - self.grid.f_adj)))
 
         # Compute parameter gradient

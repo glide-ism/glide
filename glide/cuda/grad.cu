@@ -1,18 +1,15 @@
 extern "C" __global__
-void compute_grad_beta(
-    float* __restrict__ grad_beta,
+void compute_grad_alpha(
+    float* __restrict__ grad_alpha_u,
+    float* __restrict__ grad_alpha_v,
     const float* __restrict__ u,
     const float* __restrict__ v,
     const float* __restrict__ H,
     const float* __restrict__ lambda_u,
     const float* __restrict__ lambda_v,
     const float* __restrict__ lambda_H,
-    const float* __restrict__ bed,
-    const float* __restrict__ B,
-    const float* __restrict__ beta,
-    const float* __restrict__ mask,
-    const float* __restrict__ gamma,
-    const PhysicsParams* params,
+    const float* __restrict__ alpha_u,
+    const float* __restrict__ alpha_v,
     float dx, float dt,
     int ny, int nx, int stride, int halo)
 {
@@ -39,36 +36,47 @@ void compute_grad_beta(
 	
 	if (has_u){
 
-            float u_l    = get_vfacet(u,i,j,ny,nx);
-            float lambda_u_l    = get_vfacet(lambda_u,i,j,ny,nx);
-	    float H_l    = get_cell(H,i,j-1,ny,nx);
-	    float H_c    = get_cell(H,i,j,ny,nx);
-	    float bed_l  = get_cell(bed,i,j-1,ny,nx);
-	    float bed_c  = get_cell(bed,i,j,ny,nx);
-	    float beta_l = get_cell(beta,i,j-1,ny,nx);
-	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauBxJacobian j_tau_bx = get_tau_bx_jac({u_l,H_l,H_c,bed_l,bed_c,beta_l,beta_c,params->water_drag,params->gl_sigmoid_c,params->gl_derivatives});
+	    float alpha_u_l = get_vfacet(alpha_u,i,j,ny,nx);
+	    float alpha_v_tl = get_hfacet(alpha_v,i,j-1,ny,nx);
+	    float alpha_v_tr = get_hfacet(alpha_v,i,j,ny,nx);
+	    float alpha_v_bl = get_hfacet(alpha_v,i+1,j-1,ny,nx);
+	    float alpha_v_br = get_hfacet(alpha_v,i+1,j,ny,nx);
 
-	    if (j>0     )  {atomicAdd(&grad_beta[i * nx + j - 1],lambda_u_l * j_tau_bx.d_beta_l);}
-	    if (j<(nx-1))  {atomicAdd(&grad_beta[i * nx + j]    ,lambda_u_l * j_tau_bx.d_beta_r);}
+	    AlphaBarUJacobian alpha_bar_u_l = get_alpha_bar_u_jac({alpha_u_l,alpha_v_tl,alpha_v_tr,alpha_v_bl,alpha_v_br});
+
+            float u_l    = get_vfacet(u,i,j,ny,nx);
+            float lambda_u_l = get_vfacet(lambda_u,i,j,ny,nx);
+	    TauBxFrozenJacobian tau_bx = get_tau_bx_frozen_jac({u_l,alpha_bar_u_l.res});
+
+	    atomicAdd(&grad_alpha_u[i * (nx + 1) + j], lambda_u_l * tau_bx.d_alpha * alpha_bar_u_l.d_alpha_u);
+	    atomicAdd(&grad_alpha_v[i * nx + max(j-1,0)], lambda_u_l * tau_bx.d_alpha * alpha_bar_u_l.d_alpha_v_tl);
+	    atomicAdd(&grad_alpha_v[i * nx + min(j,nx-1)], lambda_u_l * tau_bx.d_alpha * alpha_bar_u_l.d_alpha_v_tr);
+	    atomicAdd(&grad_alpha_v[(i + 1) * nx + max(j-1,0)], lambda_u_l * tau_bx.d_alpha * alpha_bar_u_l.d_alpha_v_bl); 
+	    atomicAdd(&grad_alpha_v[(i + 1) * nx + min(j,nx-1)], lambda_u_l * tau_bx.d_alpha * alpha_bar_u_l.d_alpha_v_br); 
 
  	}
 
 	if (has_v){
 
+	    float alpha_v_t = get_hfacet(alpha_v,i,j,ny,nx);
+	    float alpha_u_tl = get_vfacet(alpha_u,i-1,j,ny,nx);
+	    float alpha_u_tr = get_vfacet(alpha_u,i-1,j+1,ny,nx);
+	    float alpha_u_bl = get_vfacet(alpha_u,i,j,ny,nx);
+	    float alpha_u_br = get_vfacet(alpha_u,i,j+1,ny,nx);
+
+	    AlphaBarVJacobian alpha_bar_v_t = get_alpha_bar_v_jac({alpha_v_t,alpha_u_tl,alpha_u_tr,alpha_u_bl,alpha_u_br});
+
 	    float v_t = get_hfacet(v,i,j,ny,nx);
 	    float lambda_v_t = get_hfacet(lambda_v,i,j,ny,nx);
-	    float H_t    = get_cell(H,i-1,j,ny,nx);
-	    float H_c    = get_cell(H,i,j,ny,nx);
-	    float bed_t = get_cell(bed,i-1,j,ny,nx);
-	    float bed_c = get_cell(bed,i,j,ny,nx);
-	    float beta_t = get_cell(beta,i-1,j,ny,nx);
-	    float beta_c = get_cell(beta,i,j,ny,nx);
 
-	    TauByJacobian j_tau_by = get_tau_by_jac({v_t,H_t,H_c,bed_t,bed_c,beta_t,beta_c,params->water_drag,params->gl_sigmoid_c,params->gl_derivatives});
+	    TauByFrozenJacobian tau_by = get_tau_by_frozen_jac({v_t,alpha_bar_v_t.res});	    
 	    
-	    if (i>0     ) {atomicAdd(&grad_beta[(i-1) * nx + j],lambda_v_t * j_tau_by.d_beta_t);}
-	    if (i<(ny-1)) {atomicAdd(&grad_beta[i * nx + j]    ,lambda_v_t * j_tau_by.d_beta_b);}
+	    atomicAdd(&grad_alpha_v[i * nx + j], lambda_v_t * tau_by.d_alpha * alpha_bar_v_t.d_alpha_v);
+	    atomicAdd(&grad_alpha_u[max(i - 1,0) * nx + j], lambda_v_t * tau_by.d_alpha * alpha_bar_v_t.d_alpha_u_tl);
+	    atomicAdd(&grad_alpha_u[max(i - 1,0) * nx + j + 1], lambda_v_t * tau_by.d_alpha * alpha_bar_v_t.d_alpha_u_tr);
+	    atomicAdd(&grad_alpha_u[min(i,ny-1) * nx + j], lambda_v_t * tau_by.d_alpha * alpha_bar_v_t.d_alpha_u_bl);
+	    atomicAdd(&grad_alpha_u[min(i,ny-1) * nx + j + 1], lambda_v_t * tau_by.d_alpha * alpha_bar_v_t.d_alpha_u_br);
 	}
     }
 }
+
