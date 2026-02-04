@@ -72,11 +72,65 @@ void compute_grad_alpha(
 	    TauByFrozenJacobian tau_by = get_tau_by_frozen_jac({v_t,alpha_bar_v_t.res});	    
 	    
 	    atomicAdd(&grad_alpha_v[i * nx + j], lambda_v_t * tau_by.d_alpha * alpha_bar_v_t.d_alpha_v);
-	    atomicAdd(&grad_alpha_u[max(i - 1,0) * nx + j], lambda_v_t * tau_by.d_alpha * alpha_bar_v_t.d_alpha_u_tl);
-	    atomicAdd(&grad_alpha_u[max(i - 1,0) * nx + j + 1], lambda_v_t * tau_by.d_alpha * alpha_bar_v_t.d_alpha_u_tr);
-	    atomicAdd(&grad_alpha_u[min(i,ny-1) * nx + j], lambda_v_t * tau_by.d_alpha * alpha_bar_v_t.d_alpha_u_bl);
-	    atomicAdd(&grad_alpha_u[min(i,ny-1) * nx + j + 1], lambda_v_t * tau_by.d_alpha * alpha_bar_v_t.d_alpha_u_br);
+	    atomicAdd(&grad_alpha_u[max(i - 1,0) * (nx + 1) + j], lambda_v_t * tau_by.d_alpha * alpha_bar_v_t.d_alpha_u_tl);
+	    atomicAdd(&grad_alpha_u[max(i - 1,0) * (nx + 1) + j + 1], lambda_v_t * tau_by.d_alpha * alpha_bar_v_t.d_alpha_u_tr);
+	    atomicAdd(&grad_alpha_u[min(i,ny-1) * (nx + 1) + j], lambda_v_t * tau_by.d_alpha * alpha_bar_v_t.d_alpha_u_bl);
+	    atomicAdd(&grad_alpha_u[min(i,ny-1) * (nx + 1) + j + 1], lambda_v_t * tau_by.d_alpha * alpha_bar_v_t.d_alpha_u_br);
 	}
     }
 }
+
+extern "C" __global__ void compute_grad_beta(
+    float* __restrict__ grad_beta,     // Output: (ny, nx + 1)
+    const float* __restrict__ grad_alpha_u,
+    const float* __restrict__ grad_alpha_v,
+    const float* __restrict__ u,      // u - velocity (ny, nx + 1)
+    const float* __restrict__ v,      // v - velocity: (ny + 1, nx)
+    const float* __restrict__ grounded,      // Thickness: (ny, nx)
+    float m,
+    float eps_sliding,
+    int ny, int nx)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx < ny * (nx+1)) {
+	int i = idx / (nx + 1);
+	int j = idx % (nx + 1);
+
+	float grounded_l = get_cell(grounded,i,j-1,ny,nx);
+        float grounded_r = get_cell(grounded,i,j,ny,nx);
+
+        float u_c = get_vfacet(u,i,j,ny,nx);
+        float v_tl = get_hfacet(v,i,j-1,ny,nx);
+        float v_tr = get_hfacet(v,i,j,ny,nx);
+        float v_bl = get_hfacet(v,i+1,j-1,ny,nx);
+        float v_br = get_hfacet(v,i+1,j,ny,nx);
+        
+	float unorm_sq = u_c * u_c + 0.25f*(v_tl * v_tl + v_tr * v_tr + v_bl * v_bl + v_br * v_br);
+        float g_alpha_u = get_vfacet(grad_alpha_u,i,j,ny,nx);
+
+        atomicAdd(&grad_beta[i * nx + max(j - 1,  0)], 0.5f * g_alpha_u * __powf(unorm_sq + eps_sliding,(m - 1.0f)/2.0f) * grounded_l);	
+        atomicAdd(&grad_beta[i * nx + min(j, nx - 1)], 0.5f * g_alpha_u * __powf(unorm_sq + eps_sliding,(m - 1.0f)/2.0f) * grounded_r);	
+    } else if ( idx >= ny * (nx + 1) && idx < ny * (nx + 1) + (ny + 1) * nx ) {
+        int idx_v = idx - ( ny * (nx + 1));
+	int i = idx_v / nx;
+	int j = idx_v % nx;
+
+        float grounded_t = get_cell(grounded,i-1,j,ny,nx);
+        float grounded_b = get_cell(grounded,i,j,ny,nx);
+
+        float v_c = get_hfacet(v,i,j,ny,nx);
+	float u_tl = get_vfacet(u,i-1,j,ny,nx);
+	float u_tr = get_vfacet(u,i-1,j+1,ny,nx);
+	float u_bl = get_vfacet(u,i,j,ny,nx);
+	float u_br = get_vfacet(u,i,j+1,ny,nx);
+
+	float unorm_sq = v_c * v_c + 0.25f*(u_tl * u_tl + u_tr * u_tr + u_bl * u_bl + u_br * u_br);
+        float g_alpha_v = get_hfacet(grad_alpha_v,i,j,ny,nx);
+
+        atomicAdd(&grad_beta[max(i - 1,  0) * nx + j], 0.5f * g_alpha_v * __powf(unorm_sq + eps_sliding,(m - 1.0f)/2.0f) * grounded_t);	
+        atomicAdd(&grad_beta[min(i, ny - 1) * nx + j], 0.5f * g_alpha_v * __powf(unorm_sq + eps_sliding,(m - 1.0f)/2.0f) * grounded_b);	
+    }
+}
+
 

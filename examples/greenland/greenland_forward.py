@@ -40,13 +40,28 @@ N_GLEN = 3.0
 M = 1./3.
 
 # =============================================================================
+# Load data - From prepackaged
+# =============================================================================
+
+dataset = load_greenland_preprocessed()
+ny,nx = dataset.ny,dataset.nx
+dx = dataset.dx
+bed = dataset.bed.values
+bed = gaussian_filter(bed,1)
+surface = dataset.surface.values
+thickness = dataset.thickness.values
+beta = dataset.beta.values
+beta[:] = 2.5
+smb = dataset.smb.values
+smb -= 2.0
+
+# =============================================================================
 # Load data - from source files
 # =============================================================================
 
 """
 GEOMETRY_PATH = "./data/BedMachineGreenland-v5.nc"
 SMB_PATH = "./data/MARv3.9-yearly-MIROC5-rcp85-ltm1995-2014.nc"
-BETA_PATH = "./inverse_output/beta_level_0.p"
 
 print("Loading geometry...")
 geometry = load_bedmachine(GEOMETRY_PATH, skip=SKIP, thklim=0.1)
@@ -67,26 +82,12 @@ smb = interpolate_to_grid(
     smb_data['smb'], smb_data['x'], smb_data['y'],
     x, y
 )
-
-print("Loading beta...")
-beta = cp.array(pickle.load(open(BETA_PATH, 'rb')))
 """
+print("Loading beta...")
+BETA_PATH = "./inverse_output/beta_level_0.p"
+beta = cp.array(pickle.load(open(BETA_PATH, 'rb')))
 
-# =============================================================================
-# Load data - From prepackaged
-# =============================================================================
 
-dataset = load_greenland_preprocessed()
-ny,nx = dataset.ny,dataset.nx
-dx = dataset.dx
-bed = dataset.bed.values
-bed = gaussian_filter(bed,1)
-surface = dataset.surface.values
-thickness = dataset.thickness.values
-beta = dataset.beta.values
-beta[:] = 2.5
-smb = dataset.smb.values
-smb -= 1.0
 # =============================================================================
 # Initialize physics
 # =============================================================================
@@ -105,8 +106,8 @@ physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS,
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
-physics.set_grid_level(0)
-DT = 50.0
+#physics.set_grid_level(0)
+#DT = 50.0
 
 # Access the grid hierarchy
 grid = physics.grid

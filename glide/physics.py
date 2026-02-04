@@ -8,8 +8,8 @@ computations into a clean interface.
 import cupy as cp
 from .grid import Grid
 from .kernels import get_kernels, restrict_cell_centered
-from .solver import (fascd_vcycle, adjoint_vcycle,
-                     restrict_parameters_to_hierarchy, restrict_frozen_fields_to_hierarchy)
+from .solver import (fascd_vcycle, adjoint_vcycle_fas,
+                     restrict_parameters_to_hierarchy, restrict_frozen_fields_to_hierarchy, restrict_solution_to_hierarchy)
 
 
 # Physical constants
@@ -230,7 +230,7 @@ class IcePhysics:
 
         return self.grid.u, self.grid.v, self.grid.H
 
-    def adjoint(self, dL_du, dL_dv, dL_dH,n_vcycles=2):
+    def adjoint(self, dL_du, dL_dv, dL_dH,n_vcycles=2,verbose=False):
         """
         Compute adjoint (reverse-mode AD) for gradient computation.
 
@@ -254,12 +254,14 @@ class IcePhysics:
         self.grid.f_adj_v[:] = cp.asarray(-dL_dv, dtype=cp.float32)
         self.grid.f_adj_H[:] = cp.asarray(-dL_dH, dtype=cp.float32)
 
+        restrict_frozen_fields_to_hierarchy(self.grid)
+        restrict_solution_to_hierarchy(self.grid)
+
         # Solve adjoint system
         for j in range(n_vcycles):
-            #self.grid.compute_frozen_fields(mode='adjoint')
-            #restrict_frozen_fields_to_hierarchy(self.grid,restrict_adjoint_parameters=True)
-            adjoint_vcycle(self.grid,omega=cp.float32(1.0))
-            print(j,cp.linalg.norm((self.grid.l - self.grid.f_adj)))
+            adjoint_vcycle_fas(self.grid,omega=cp.float32(0.5))
+            if verbose:
+                print(j,cp.linalg.norm(self.grid.r_adj))
 
         # Compute parameter gradient
         #return self.grid.compute_grad_beta()
@@ -340,7 +342,7 @@ def huber_grad(u, v, u_obs, v_obs, eps=10.0):
     dL_dv = delta_v / cp.sqrt(delta_v**2 + eps) / n
     return dL_du, dL_dv
 
-def abs_loss(u, v, u_obs, v_obs):
+def abs_loss(u, v, u_obs, v_obs,mask_threshold=1.0):
     """
     Compute Huber-like loss for velocity misfit.
 
@@ -360,16 +362,29 @@ def abs_loss(u, v, u_obs, v_obs):
     """
     u = u.astype(cp.float64)
     v = v.astype(cp.float64)
+    
     u_obs = u_obs.astype(cp.float64)
     v_obs = v_obs.astype(cp.float64)
+    
+    n_u = u.size
+    n_v = v.size
+    
+    mask_u = abs(u_obs) < mask_threshold
+    mask_v = abs(v_obs) < mask_threshold
+    
     delta_u = u - u_obs
-    mask_u = cp.isnan(delta_u)
-    delta_u[mask_u] = 0.0
     delta_v = v - v_obs
-    mask_v = cp.isnan(delta_v)
-    delta_v[mask_v] = 0.0
-    return abs(delta_u).mean() + abs(delta_v).mean()
-    #return abs(delta_u).sum() + abs(delta_v).sum()
+    
+    L = abs(delta_u[~mask_u]).sum()/n_u + abs(delta_v[~mask_v]).sum()/n_v
+
+    dLdu = cp.sign(delta_u)/n_u
+    dLdu[mask_u] = 0.0
+    
+    dLdv = cp.sign(delta_v)/n_v
+    dLdv[mask_v] = 0.0
+
+
+    return L, dLdu, dLdv
 
 
 def abs_grad(u, v, u_obs, v_obs, eps=10.0):

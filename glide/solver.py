@@ -13,18 +13,20 @@ from .kernels import (
 )
 
 
-def restrict_solution(grid, adjoint=False):
+def restrict_solution(grid):
     """Restrict solution from grid to child."""
     child = grid.child
     kernels = grid.kernels
-    if adjoint:
-        restrict_vfacet(grid.lambda_u, kernels, u_coarse=child.lambda_u)
-        restrict_hfacet(grid.lambda_v, kernels, v_coarse=child.lambda_v)
-        restrict_cell_centered(grid.lambda_H, kernels, f_coarse=child.lambda_H)
-    else:
-        restrict_vfacet(grid.u, kernels, u_coarse=child.u)
-        restrict_hfacet(grid.v, kernels, v_coarse=child.v)
-        restrict_cell_centered(grid.H, kernels, f_coarse=child.H)
+    restrict_vfacet(grid.u, kernels, u_coarse=child.u)
+    restrict_hfacet(grid.v, kernels, v_coarse=child.v)
+    restrict_cell_centered(grid.H, kernels, f_coarse=child.H)
+    restrict_cell_centered(grid.mask,kernels, f_coarse=child.mask)
+
+def restrict_solution_to_hierarchy(grid):
+    """Recursively restrict frozen fields through entire hierarchy."""
+    if grid.child is not None:
+        restrict_solution(grid)
+        restrict_solution_to_hierarchy(grid.child)
 
 
 def restrict_residual(grid, adjoint=False):
@@ -162,6 +164,129 @@ def fascd_vcycle(grid, thklim, finest=False,verbose=False,omega=cp.float32(0.5),
     grid.vanka_sweep(post_steps,n_inner=newton_iterations,verbose=verbose,omega=omega)
     grid.gamma.fill(thklim)
 
+def adjoint_vcycle_fas(grid,
+                       verbose=False,
+                       omega=cp.float32(1.0),
+                       pre_steps=10,
+                       post_steps=10,
+                       coarse_steps=400):
+    """
+    FAS (Full Approximation Scheme) adjoint V-cycle.
+
+    Solves (possibly nonlinear) adjoint equation:
+        N_h(lambda_h) = f_h
+
+    where N_h(lambda_h) is produced by compute_vjp() into grid.l, i.e.
+        grid.l := N_h(grid.lambda)
+
+    Notes
+    -----
+    - For linear operators with consistent restriction/prolongation, FAS collapses to a
+      correction scheme (up to algebraic equivalence).
+    - For nonlinear or strongly state-dependent operators (e.g. coefficients from a nonlinear
+      primal), FAS can be more robust since it explicitly incorporates coarse-grid
+      rediscretization error via tau.
+    """
+    kernels = grid.kernels
+
+    # --- Coarsest level ---
+    if grid.child is None:
+        grid.vanka_sweep_adjoint(coarse_steps, omega=omega,verbose=verbose)
+        return
+
+    # =========================
+    # 1) Pre-smooth on fine
+    # =========================
+    grid.vanka_sweep_adjoint(pre_steps, omega=omega,verbose=verbose)
+
+    # =========================
+    # 2) Fine residual: r_h = f_h - N_h(lambda_h)
+    # =========================
+    # Evaluate N_h(lambda_h) into grid.l
+    grid.compute_vjp(use_mask=True)     # requires: uses grid.lambda_* as input, writes grid.l_*
+    # Residual storage (you already have r_adj_* arrays)
+    grid.r_adj_u[:] = grid.f_adj_u - grid.l_u
+    grid.r_adj_v[:] = grid.f_adj_v - grid.l_v
+    grid.r_adj_H[:] = grid.f_adj_H - grid.l_H
+
+    # =========================
+    # 3) Restrict lambda to coarse as INITIAL GUESS: lambda_2h^0 = R lambda_h
+    # =========================
+    # (This is the key FAS difference vs CS; you must not start coarse solve from 0 unless you intend to.)
+    restrict_vfacet(grid.lambda_u, kernels, u_coarse=grid.child.lambda_u)
+    restrict_hfacet(grid.lambda_v, kernels, v_coarse=grid.child.lambda_v)
+    restrict_cell_centered(grid.lambda_H, kernels, f_coarse=grid.child.lambda_H)
+
+    grid.child.Lambda0[:] = grid.child.Lambda[:]
+
+    # =========================
+    # 4) Build coarse RHS via tau-correction:
+    #    f_2h = R f_h + tau_2h
+    #    tau_2h = N_2h(R lambda_h) - R N_h(lambda_h)
+    # =========================
+
+    # 4a) Compute R f_h
+    restrict_vfacet(grid.f_adj_u, kernels, u_coarse=grid.child.f_adj_u)
+    restrict_hfacet(grid.f_adj_v, kernels, v_coarse=grid.child.f_adj_v)
+    restrict_cell_centered(grid.f_adj_H, kernels, f_coarse=grid.child.f_adj_H)
+
+    # 4b) Compute R N_h(lambda_h) = R l_h
+    #     (we already computed l_h above)
+    #     store into child scratch arrays (need scratch!)
+    #     We'll call them child.Rl_* here.
+    restrict_vfacet(grid.l_u, kernels, u_coarse=grid.child.Rl_u)
+    restrict_hfacet(grid.l_v, kernels, v_coarse=grid.child.Rl_v)
+    restrict_cell_centered(grid.l_H, kernels, f_coarse=grid.child.Rl_H)
+
+    # 4c) Compute N_2h(R lambda_h) on coarse, using the coarse operator:
+    #     child.compute_vjp() uses child.lambda_* and writes child.l_*
+    grid.child.compute_vjp(use_mask=False)   # writes child.l_* = N_2h(child.lambda_*)  [IMPORTANT]
+
+    # 4d) tau_2h = child.l - child.Rl
+    #     then f_2h += tau_2h
+    grid.child.f_adj_u[:] += (grid.child.l_u - grid.child.Rl_u)
+    grid.child.f_adj_v[:] += (grid.child.l_v - grid.child.Rl_v)
+    grid.child.f_adj_H[:] += (grid.child.l_H - grid.child.Rl_H)
+
+    # =========================
+    # 5) Recurse on coarse: solve N_2h(lambda_2h) = f_2h
+    # =========================
+    adjoint_vcycle_fas(grid.child,
+                       verbose=verbose,
+                       omega=omega,
+                       pre_steps=pre_steps,
+                       post_steps=post_steps,
+                       coarse_steps=coarse_steps)
+
+    # =========================
+    # 6) Prolongate CORRECTION (difference) and apply:
+    #    lambda_h <- lambda_h + P( lambda_2h - R lambda_h )
+    # =========================
+
+    # Form coarse correction delta_2h = lambda_2h(new) - lambda_2h^0
+    # Need coarse scratch arrays for delta_* (or reuse existing)
+    grid.child.delta_u[:] = grid.child.lambda_u - grid.child.lambda_u0
+    grid.child.delta_v[:] = grid.child.lambda_v - grid.child.lambda_v0
+    grid.child.delta_H[:] = grid.child.lambda_H - grid.child.lambda_H0
+
+    # Prolongate delta_2h to fine into grid.z_*
+    grid.z_u.fill(0.0); grid.z_v.fill(0.0); grid.z_H.fill(0.0)
+    prolongate_vfacet(grid.child.delta_u, kernels, u_fine=grid.z_u)
+    prolongate_hfacet(grid.child.delta_v, kernels, v_fine=grid.z_v)
+    prolongate_cell_centered(grid.child.delta_H, kernels, H_fine=grid.z_H, smooth=True)
+
+    # Apply fine correction
+    grid.lambda_u[:] += grid.z_u
+    grid.lambda_v[:] += grid.z_v
+    grid.lambda_H[:] += grid.z_H
+
+    # =========================
+    # 7) Post-smooth
+    # =========================
+    grid.vanka_sweep_adjoint(post_steps, omega=omega, verbose=verbose)
+
+
+
 def adjoint_vcycle(grid,verbose=False,omega=cp.float32(1.0),pre_steps=10,post_steps=10,coarse_steps=400):
     """
     Adjoint V-cycle for computing gradients via reverse-mode AD.
@@ -178,34 +303,33 @@ def adjoint_vcycle(grid,verbose=False,omega=cp.float32(1.0),pre_steps=10,post_st
 
     if grid.child is None:
         # Coarsest level: direct solve
-        grid.compute_mask()
-        grid.vanka_sweep_adjoint(coarse_steps, omega=omega)
-        grid.mask.fill(0)
+        grid.vanka_sweep_adjoint(coarse_steps, omega=omega,verbose=verbose)
         return
 
     # Pre-smooth
-    grid.compute_mask()
-    grid.vanka_sweep_adjoint(pre_steps, omega=omega)
-    grid.mask.fill(0)
+    grid.vanka_sweep_adjoint(pre_steps, omega=omega,verbose=verbose)
 
     # Compute adjoint residual
     grid.r_adj[:] = grid.f_adj[:]
-    grid.compute_vjp()
+    grid.compute_vjp(use_mask=False)
     grid.r_adj[:] -= grid.l
 
+    restrict_solution(grid)
+
     # Set up coarse RHS
+    grid.child.f_adj.fill(0.0)
     restrict_vfacet(grid.r_adj_u, kernels, u_coarse=grid.child.f_adj_u)
     restrict_hfacet(grid.r_adj_v, kernels, v_coarse=grid.child.f_adj_v)
     restrict_cell_centered(grid.r_adj_H, kernels, f_coarse=grid.child.f_adj_H)
 
     # Recursive call
-    adjoint_vcycle(grid.child)
+    adjoint_vcycle(grid.child,verbose=verbose,omega=omega,pre_steps=pre_steps,post_steps=post_steps,coarse_steps=coarse_steps)
 
     # Prolongate correction
     grid.z.fill(0.0)
     prolongate_vfacet(grid.child.lambda_u, kernels, u_fine=grid.z_u)
     prolongate_hfacet(grid.child.lambda_v, kernels, v_fine=grid.z_v)
-    prolongate_cell_centered(grid.child.lambda_H, kernels, H_fine=grid.z_H, smooth=False)
+    prolongate_cell_centered(grid.child.lambda_H, kernels, H_fine=grid.z_H, smooth=True)
 
     # Apply correction
     grid.lambda_u[:] += grid.z_u
@@ -213,7 +337,5 @@ def adjoint_vcycle(grid,verbose=False,omega=cp.float32(1.0),pre_steps=10,post_st
     grid.lambda_H[:] += grid.z_H
 
     # Post-smooth
-    grid.compute_mask()
-    grid.vanka_sweep_adjoint(post_steps, omega=omega)
-    grid.mask.fill(0)
+    grid.vanka_sweep_adjoint(post_steps, omega=omega, verbose=verbose)
     

@@ -459,10 +459,6 @@ void vanka_smooth(
 		masked = 1.0f;
 		for(int k=0; k<5; ++k) J[20 + k] = 0.0f;
 		J[24] = 1.0f;
-		//J[4] = 0.0f;
-		//J[9] = 0.0f;
-		//J[14] = 0.0f;
-		//J[19] = 0.0f;
 		r[4] = H_c - thklim;
 	    } else {
 	        masked = 0.0f;
@@ -570,7 +566,7 @@ void vanka_smooth_adjoint(
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
 
-    if ( is_active && ((i + j) % 2 == color)) {
+    if ( is_active ) {
 	float dx_inv = 1.0f/dx;
 
 	float masked = get_cell(mask, i, j, ny, nx);
@@ -856,55 +852,55 @@ void vanka_smooth_adjoint(
 	J[18] += tau_by_b.d_v;
 	}
 	
-            // Driving stress for left momentum (u)
-	    {
-	    float H_l    = get_cell(H,i,j-1,ny,nx);
-	    float bed_l  = get_cell(bed,i,j-1,ny,nx);
-	    float bed_c  = get_cell(bed,i,j,ny,nx);
-	    float grounded_l  = get_cell(grounded,i,j-1,ny,nx);
-	    float grounded_c  = get_cell(grounded,i,j,ny,nx);
-	    TauDxJacobian tau_dx_l = get_tau_dx_jac({H_l,H_c,bed_l,bed_c,grounded_l,grounded_c},dx_inv,i,j,ny,nx);
-	    J[4] -= tau_dx_l.d_H_r;
+	// Driving stress for left momentum (u)
+	{
+	float H_l    = get_cell(H,i,j-1,ny,nx);
+	float bed_l  = get_cell(bed,i,j-1,ny,nx);
+	float bed_c  = get_cell(bed,i,j,ny,nx);
+	float grounded_l  = get_cell(grounded,i,j-1,ny,nx);
+	float grounded_c  = get_cell(grounded,i,j,ny,nx);
+	TauDxJacobian tau_dx_l = get_tau_dx_jac({H_l,H_c,bed_l,bed_c,grounded_l,grounded_c},dx_inv,i,j,ny,nx);
+	J[4] -= tau_dx_l.d_H_r;
+	}
+
+	// Driving stress for right momentum (u)
+	{
+	float H_r    = get_cell(H,i,j+1,ny,nx);
+	float bed_c  = get_cell(bed,i,j,ny,nx);
+	float bed_r  = get_cell(bed,i,j+1,ny,nx);
+	float grounded_c  = get_cell(grounded,i,j,ny,nx);
+	float grounded_r  = get_cell(grounded,i,j+1,ny,nx);
+	TauDxJacobian tau_dx_r = get_tau_dx_jac({H_c,H_r,bed_c,bed_r,grounded_c,grounded_r},dx_inv,i,j+1,ny,nx);
+	J[9] -= tau_dx_r.d_H_l;
+	}
+
+	// Driving stress for top momentum (v)
+	{
+	float H_t    = get_cell(H,i-1,j,ny,nx);
+	float bed_t  = get_cell(bed,i-1,j,ny,nx);
+	float bed_c  = get_cell(bed,i,j,ny,nx);
+	float grounded_t  = get_cell(grounded,i-1,j,ny,nx);
+	float grounded_c  = get_cell(grounded,i,j,ny,nx);
+	TauDyJacobian tau_dy_t = get_tau_dy_jac({H_t,H_c,bed_t,bed_c,grounded_t,grounded_c},dx_inv,i,j,ny,nx);
+	J[14] -= tau_dy_t.d_H_b;
+	}
+
+	// Driving stress for bottom momentum (v)
+	{
+	float H_b    = get_cell(H,i+1,j,ny,nx);
+	float bed_c  = get_cell(bed,i,j,ny,nx);
+	float bed_b  = get_cell(bed,i+1,j,ny,nx);
+	float grounded_c  = get_cell(grounded,i,j,ny,nx);
+	float grounded_b  = get_cell(grounded,i+1,j,ny,nx);
+	TauDyJacobian tau_dy_b = get_tau_dy_jac({H_c,H_b,bed_c,bed_b,grounded_c,grounded_b},dx_inv,i+1,j,ny,nx);
+	J[19] -= tau_dy_b.d_H_t;
 	    }
 
-	    // Driving stress for right momentum (u)
-	    {
-	    float H_r    = get_cell(H,i,j+1,ny,nx);
-	    float bed_c  = get_cell(bed,i,j,ny,nx);
-	    float bed_r  = get_cell(bed,i,j+1,ny,nx);
-	    float grounded_c  = get_cell(grounded,i,j,ny,nx);
-	    float grounded_r  = get_cell(grounded,i,j+1,ny,nx);
-	    TauDxJacobian tau_dx_r = get_tau_dx_jac({H_c,H_r,bed_c,bed_r,grounded_c,grounded_r},dx_inv,i,j+1,ny,nx);
-	    J[9] -= tau_dx_r.d_H_l;
-	    }
-
-	    // Driving stress for top momentum (v)
-	    {
-	    float H_t    = get_cell(H,i-1,j,ny,nx);
-	    float bed_t  = get_cell(bed,i-1,j,ny,nx);
-	    float bed_c  = get_cell(bed,i,j,ny,nx);
-	    float grounded_t  = get_cell(grounded,i-1,j,ny,nx);
-	    float grounded_c  = get_cell(grounded,i,j,ny,nx);
-	    TauDyJacobian tau_dy_t = get_tau_dy_jac({H_t,H_c,bed_t,bed_c,grounded_t,grounded_c},dx_inv,i,j,ny,nx);
-	    J[14] -= tau_dy_t.d_H_b;
-	    }
-
-	    // Driving stress for bottom momentum (v)
-	    {
-	    float H_b    = get_cell(H,i+1,j,ny,nx);
-	    float bed_c  = get_cell(bed,i,j,ny,nx);
-	    float bed_b  = get_cell(bed,i+1,j,ny,nx);
-	    float grounded_c  = get_cell(grounded,i,j,ny,nx);
-	    float grounded_b  = get_cell(grounded,i+1,j,ny,nx);
-	    TauDyJacobian tau_dy_b = get_tau_dy_jac({H_c,H_b,bed_c,bed_b,grounded_c,grounded_b},dx_inv,i+1,j,ny,nx);
-	    J[19] -= tau_dy_b.d_H_t;
-	    }
-
-	//J[0]  -= 1.0f;
-        //J[6]  -= 1.0f;
-        //J[12] -= 1.0f;
-        //J[18] -= 1.0f;
-        //J[24] += 1.0f;
+	J[0]  -= 1.0f;
+        J[6]  -= 1.0f;
+        J[12] -= 1.0f;
+        J[18] -= 1.0f;
+        J[24] += 1.0f;
 
         float J_T[25];
         #pragma unroll
@@ -950,17 +946,11 @@ void vanka_smooth_adjoint(
 	float delta_lambda[5] = {0};
 	lu_5x5_solve(J_T,rhs,delta_lambda);
 
-	float l_u_l = get_vfacet(lambda_u, i, j, ny, nx);
-	float l_u_r = get_vfacet(lambda_u, i, j + 1, ny, nx);
-	float l_v_t = get_hfacet(lambda_v, i, j, ny, nx);
-	float l_v_b = get_hfacet(lambda_v, i + 1, j, ny, nx);
-	float l_H_c = get_cell(lambda_H, i, j, ny, nx);
-
-	lambda_u_out[i * (nx + 1) + j]     = l_u_l + 0.5f*omega*delta_lambda[0];
-	lambda_u_out[i * (nx + 1) + j + 1] = l_u_r + 0.5f*omega*delta_lambda[1];
-	lambda_v_out[i * nx + j]           = l_v_t + 0.5f*omega*delta_lambda[2];
-	lambda_v_out[(i + 1) * nx + j ]    = l_v_b + 0.5f*omega*delta_lambda[3];
-	lambda_H_out[i * nx + j]           = l_H_c +      omega*delta_lambda[4];
+	atomicAdd(&lambda_u_out[i * (nx + 1) + j],      0.5f*delta_lambda[0]);
+	atomicAdd(&lambda_u_out[i * (nx + 1) + j + 1],  0.5f*delta_lambda[1]);
+	atomicAdd(&lambda_v_out[i * nx + j],            0.5f*delta_lambda[2]);
+	atomicAdd(&lambda_v_out[(i + 1) * nx + j ],     0.5f*delta_lambda[3]);
+	atomicAdd(&lambda_H_out[i * nx + j],                 delta_lambda[4]);
     }
 }
 
