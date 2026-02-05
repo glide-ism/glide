@@ -417,7 +417,7 @@ def abs_grad(u, v, u_obs, v_obs, eps=10.0):
     #return cp.sign(delta_u), cp.sign(delta_v)
 
 
-def tikhonov_regularization(field):
+def tikhonov_regularization(field,weight=cp.float32(1.0)):
     """
     Compute Tikhonov (gradient smoothness) regularization.
 
@@ -446,4 +446,4 @@ def tikhonov_regularization(field):
     grad[0, :] -= (field[1, :] - field[0, :])
     grad[-1, :] -= (field[-2, :] - field[-1, :])
 
-    return float(loss), grad
+    return float(loss*cp.float32(weight)), grad*cp.float32(weight)

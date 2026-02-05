@@ -78,8 +78,8 @@ thickness = dataset.thickness.values
 beta = dataset.beta.values
 beta[:] = 2.5
 smb = dataset.smb.values
-#BETA_PATH = "./inverse_output/beta_level_0.p"
-#beta = cp.array(pickle.load(open(BETA_PATH, 'rb')))
+BETA_PATH = "./inverse_output/beta_level_0.p"
+beta = cp.array(pickle.load(open(BETA_PATH, 'rb')))
 # =============================================================================
 # Initialize physics
 # =============================================================================
@@ -100,8 +100,8 @@ physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS,
 physics.set_geometry(bed, thickness)
 physics.set_parameters(B=B, beta=beta, smb=smb)
 
-physics.set_grid_level(1)
-DT = 50.0
+#physics.set_grid_level(0)
+#DT = 50.0
 
 # Access the grid hierarchy
 grid = physics.grid

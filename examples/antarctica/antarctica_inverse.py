@@ -44,7 +44,7 @@ OUTPUT_DIR = "./inverse_output"
 SKIP = 4              # Geometry downsampling factor
 DT = 1.0             # Time step (years)
 N_LEVELS = 5          # Multigrid levels
-REG_WEIGHT = 1e-4     # Tikhonov regularization weight
+REG_WEIGHT = 1e-5     # Tikhonov regularization weight
 
 # Physical constants
 RHO_ICE = 917.0
@@ -110,6 +110,8 @@ v_obs[cp.isnan(v_obs)] = 0.0
 # Initialize physics
 # =============================================================================
 
+smb[surface == 0] = -50
+
 # Compute B (rate factor)
 B_scalar = cp.float32(1e-17 ** (-1.0 / N_GLEN) / (RHO_ICE * G))
 
@@ -122,7 +124,7 @@ physics = IcePhysics(ny, nx, dx, n_levels=N_LEVELS,
         thklim=0.1,calving_rate=0.0,
         water_drag=1e-5,gl_sigmoid_c=0.1)
 physics.set_geometry(bed, thickness)
-physics.set_parameters(B=B, beta=2.5, smb=smb)
+physics.set_parameters(B=B, beta=0.5, smb=smb)
 
 grid = physics.grid
 
@@ -165,7 +167,7 @@ for level_idx in range(N_LEVELS - 1, -1, -1):
 
     counter = [0]
 
-    u_ref,v_ref,H_ref = physics.forward(dt=10.0,n_vcycles=20,verbose=True,update_geometry=False)
+    u_ref,v_ref,H_ref = physics.forward(dt=1.0,n_vcycles=20,verbose=True,update_geometry=False)
     u_ref = cp.array(u_ref)
     v_ref = cp.array(v_ref)
     H_ref = cp.array(H_ref)
@@ -179,22 +181,31 @@ for level_idx in range(N_LEVELS - 1, -1, -1):
         current_grid.u[:] = u_ref
         current_grid.v[:] = v_ref
         current_grid.H[:] = H_ref
-        u, v, H = physics.forward(dt=10.0, n_vcycles=10, verbose=True,update_geometry=False)
+        u, v, H = physics.forward(dt=1.0, n_vcycles=10, verbose=True,update_geometry=False)
 
         # Compute loss
         J, dJdu, dJdv = abs_loss(current_grid.u, current_grid.v, u_obs_level, v_obs_level)
+
+
         #dJdu, dJdv = abs_grad(current_grid.u, current_grid.v, u_obs_level, v_obs_level)
         dJdH = cp.zeros_like(H)
     
         current_grid.Lambda.fill(0)
-        physics.adjoint(dJdu,dJdv,dJdH,n_vcycles=2,verbose=True)
+        physics.adjoint(dJdu,dJdv,dJdH,n_vcycles=3,verbose=True)
         current_grid.compute_grad_beta()
-        grad_beta = cp.array(current_grid.grad_beta)
+
+
+        J_tikh, grad_tikh = tikhonov_regularization(current_grid.beta,weight=REG_WEIGHT)
+
+        J_total = J + J_tikh
+
+        grad_beta = current_grid.grad_beta + grad_tikh
+        
         grad_log_beta = current_grid.beta*grad_beta
 
-        print(f"Level: {level_idx},  Loss: {J:.4f}")
+        print(f"Level: {level_idx}, Loss: {J_total:.4f}, Data Loss: {J:.4f}, Tikh Loss: {J_tikh:.4f}")
 
-        return float(J),grad_log_beta.ravel().get().astype(np.float64)
+        return float(J_total),grad_log_beta.ravel().get().astype(np.float64)
 
     def callback(log_beta_flat):
         """Callback for visualization."""
@@ -219,7 +230,7 @@ for level_idx in range(N_LEVELS - 1, -1, -1):
         callback=callback,
         factr=1e11,
         m=10,
-        maxiter=40
+        maxiter=200
     )
 
     current_grid.beta[:] = cp.exp(cp.array(result[0].reshape((current_grid.ny, current_grid.nx))).astype(cp.float32))     # Prolongate to finer grid for next level
