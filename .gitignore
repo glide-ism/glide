@@ -41,6 +41,7 @@ output/
 viz/
 inverse_output/
 inverse_results/
+forward/
 
 # Data files (download separately)
 *.nc

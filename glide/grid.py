@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field, fields
-import cupy as cp
+from glide.backend import xp as cp, NDArray
 import xarray as xr
-from cupy.typing import NDArray
 from .field import Field, SubgridField, Constant, GridEntity
 from .operators import ForwardOperators, AdjointOperators
 

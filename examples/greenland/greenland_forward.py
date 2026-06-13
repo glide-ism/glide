@@ -4,9 +4,10 @@ Greenland forward simulation example.
 Run interactively or execute as a script. Modify the paths and parameters
 below to match your setup.
 """
-import cupy as cp
+from glide.backend import xp as cp
 import numpy as np
 import pyproj
+import time
 
 from scipy.ndimage import gaussian_filter
 
@@ -103,8 +104,9 @@ zarr_writer = ZarrWriter('forward/example_run.zarr',
 zarr_writer.initialize(mg[0],overwrite=True)
 
 # Run simulation
+run_start = time.perf_counter()
 t = cp.float32(0.0)
-t_end = cp.float32(1000.0)
+t_end = cp.float32(100.0)
 dt = cp.float32(25.0)
 while t < t_end:
     print(f"Solving forward problem at t={t} with dt={dt:.2f}")
@@ -118,6 +120,10 @@ while t < t_end:
 
 # Finalize zarr for fast xarray reading
 zarr_writer.consolidate_metadata()
+
+elapsed = time.perf_counter() - run_start
+print(f"Simulation finished in {elapsed:.2f} s "
+      f"({elapsed / 60:.2f} min)")
 
 # If you want a netcdf of the simulation, uncomment:
 #import xarray as xr

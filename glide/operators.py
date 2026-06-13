@@ -1,7 +1,12 @@
-import cupy as cp
+from glide.backend import xp as cp
+from .kernels import KernelLibrary
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Callable
+
+# Kernel source files, in dependency order, shared by the forward and adjoint
+# operators.  KernelLibrary loads the .cu (cupy) or .metal (macmetalpy) variant.
+_ICE_KERNELS = ['common', 'viscosity', 'stress', 'flux',
+                'residuals', 'vanka', 'grad']
 
 class ForwardOperators:
     def __init__(self,grid,
@@ -9,28 +14,16 @@ class ForwardOperators:
 
         self.grid = grid
 
-        cuda_dir = Path(__file__).parent / "cuda"
-
-        # Concatenate ice kernel files in dependency order
-        cuda_files = ['common.cu', 'viscosity.cu', 'stress.cu', 'flux.cu',
-                          'residuals.cu', 'vanka.cu', 'grad.cu']
-        cuda_source = '\n'.join((cuda_dir / f).read_text() for f in cuda_files)
-        
-        if use_fast_math:
-            options=("--use_fast_math",)
-        else:
-            options=()
-
-        self.kernels = cp.RawModule(code=cuda_source, options=options)
+        self.kernels = KernelLibrary(_ICE_KERNELS, use_fast_math=use_fast_math)
 
         self.r_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.r_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.r_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
-        
+
         self.f_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.f_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.f_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
-        
+
         self.F_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.F_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.F_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
@@ -320,28 +313,16 @@ class AdjointOperators:
 
         self.grid = grid
 
-        cuda_dir = Path(__file__).parent / "cuda"
-
-        # Concatenate ice kernel files in dependency order
-        cuda_files = ['common.cu', 'viscosity.cu', 'stress.cu', 'flux.cu',
-                          'residuals.cu', 'vanka.cu', 'grad.cu']
-        cuda_source = '\n'.join((cuda_dir / f).read_text() for f in cuda_files)
-        
-        if use_fast_math:
-            options=("--use_fast_math",)
-        else:
-            options=()
-
-        self.kernels = cp.RawModule(code=cuda_source, options=options)
+        self.kernels = KernelLibrary(_ICE_KERNELS, use_fast_math=use_fast_math)
 
         self.r_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.r_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.r_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
-        
+
         self.f_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.f_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.f_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
-        
+
         self.vjp_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.vjp_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.vjp_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)

@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields
 from typing import Any, TYPE_CHECKING
 from enum import Enum
-import cupy as cp
+from glide.backend import xp as cp, asnumpy
 import numpy as np
 import xarray as xr
 
@@ -17,7 +17,7 @@ class GridEntity(str, Enum):
 def _to_numpy(a: Any) -> np.ndarray:
     """Convert NumPy/CuPy-like input to a NumPy array for xarray."""
     if cp is not None and isinstance(a, cp.ndarray):
-        return cp.asnumpy(a)
+        return asnumpy(a)
     return np.asarray(a)
 
 def _maybe_scalar(a: Any) -> bool:

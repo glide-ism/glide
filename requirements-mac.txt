@@ -1,0 +1,12 @@
+numpy
+scipy
+xarray
+h5py
+h5netcdf
+zarr
+pyproj
+geopandas
+gdown
+macmetalpy
+torch
+torchvision

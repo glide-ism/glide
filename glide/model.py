@@ -5,7 +5,7 @@ Provides the IcePhysics class that wraps the forward model and adjoint
 computations into a clean interface.
 """
 
-import cupy as cp
+from glide.backend import xp as cp
 from .grid import Grid
 from .multigrid import Multigrid, FASCDSolver,FASAdjointSolver
 

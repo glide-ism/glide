@@ -1,0 +1,9 @@
+name: glide
+channels:
+  - conda-forge
+dependencies:
+  - cmake
+  - python
+  - pip
+  - pip:
+      - -r requirements-mac.txt

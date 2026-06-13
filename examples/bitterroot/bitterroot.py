@@ -6,7 +6,7 @@ Mountains in western Montana
 Run interactively or execute as a script. Modify the paths and parameters
 below to match your setup.
 """
-import cupy as cp
+from glide.backend import xp as cp
 import numpy as np
 import pyproj
 

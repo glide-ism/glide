@@ -5,7 +5,7 @@ Infers basal friction (beta) from observed surface velocities using
 adjoint-based optimization. Run interactively or as a script.
 """
 
-import cupy as cp
+from glide.backend import xp as cp
 import numpy as np
 import torch
 import pyproj
