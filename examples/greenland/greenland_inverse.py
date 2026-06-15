@@ -17,6 +17,14 @@ from glide.data import load_greenland_preprocessed
 from glide.torch import GlideStep
 from glide.io import VTIWriter
 
+# glide's heavy forward/adjoint solve runs on its own GPU backend (CUDA via
+# CuPy, or Metal via macmetalpy); torch here only drives the lightweight
+# optimization loop. On CUDA the GlideStep bridge is zero-copy, so torch lives
+# on the GPU too. Elsewhere (e.g. Apple Silicon) the bridge crosses host memory
+# and torch stays on the CPU -- mps would break the macmetalpy conversions
+# (`cp.asarray` can't read an mps tensor), so we deliberately avoid it.
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 ### Load a dataset (here a preprocessed greenland dataset)
 dataset = load_greenland_preprocessed()
 
@@ -99,7 +107,7 @@ n_level_epochs = 50
 
 # Index of coarsest grid to start solving inverse problem at
 coarsest_level = 5
-log_beta = torch.log(torch.tensor(mg[coarsest_level].sliding.beta.data,device='cuda'))
+log_beta = torch.log(torch.tensor(mg[coarsest_level].sliding.beta.data,device=device))
 
 # Solve the inverse problem at progressively coarser levels
 for level in range(coarsest_level,-1,-1):
@@ -110,9 +118,9 @@ for level in range(coarsest_level,-1,-1):
     log_beta.requires_grad_()
 
     # These can be differentiated wrt - but we don't in this simple problem
-    H_prev = torch.tensor(mg[level].state.H_prev.data,device='cuda')
-    bed = torch.tensor(mg[level].geometry.bed.data,device='cuda')
-    smb = torch.tensor(mg[level].forcing.smb.data,device='cuda')
+    H_prev = torch.tensor(mg[level].state.H_prev.data,device=device)
+    bed = torch.tensor(mg[level].geometry.bed.data,device=device)
+    smb = torch.tensor(mg[level].forcing.smb.data,device=device)
 
     u_obs,v_obs = (torch.as_tensor(t) for t in observation_levels[level])
     u_mask = abs(u_obs) > 0.01
