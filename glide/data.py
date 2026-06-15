@@ -434,20 +434,23 @@ def interpolate_to_grid(data, x_data, y_data, x_target, y_target):
     ndarray
         Interpolated data on target grid
     """
-    try:
-        import cupy as cp
-        from cupyx.scipy.interpolate import RegularGridInterpolator
-        use_gpu = True
-    except ImportError:
-        from scipy.interpolate import RegularGridInterpolator
-        use_gpu = False
+    # The CuPy backend has a GPU RegularGridInterpolator (cupyx); macmetalpy does
+    # not, so fall back to SciPy on the host there.
+    from glide.backend import BACKEND, asnumpy
+    use_gpu = BACKEND == "cupy"
 
     if use_gpu:
+        import cupy as cp
+        from cupyx.scipy.interpolate import RegularGridInterpolator
         x_data = cp.asarray(x_data)
         y_data = cp.asarray(y_data)
         data = cp.asarray(data)
         x_target = cp.asarray(x_target)
         y_target = cp.asarray(y_target)
+    else:
+        from scipy.interpolate import RegularGridInterpolator
+        x_data, y_data, data, x_target, y_target = (
+            asnumpy(a) for a in (x_data, y_data, data, x_target, y_target))
 
     X, Y = (cp.meshgrid if use_gpu else np.meshgrid)(x_target, y_target)
 

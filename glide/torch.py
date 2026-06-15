@@ -1,5 +1,5 @@
 import torch
-import cupy as cp
+from glide.backend import xp as cp
 
 class GlideStep(torch.autograd.Function):
 

@@ -6,7 +6,7 @@ Provides VTI (ParaView) and HDF5 output writers for visualization and analysis.
 from __future__ import annotations
 
 import numpy as np
-import cupy as cp
+from glide.backend import xp as cp, asnumpy
 import xarray as xr
 import zarr
 import xml.etree.ElementTree as ET
@@ -56,12 +56,12 @@ def write_vti(filename, data, dx, dy=None, origin=(0.0, 0.0), time_value=None, f
 
     for name, value in data.items():
         if isinstance(value, list):
-            components = [cp.asnumpy(c).astype(np.float32) for c in value]
+            components = [asnumpy(c).astype(np.float32) for c in value]
             if flip_y:
                 components = [np.flip(c, axis=0) for c in components]
             vectors[name] = components
         else:
-            arr = cp.asnumpy(value).astype(np.float32)
+            arr = asnumpy(value).astype(np.float32)
             if flip_y:
                 arr = np.flip(arr, axis=0)
             scalars[name] = arr

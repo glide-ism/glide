@@ -9,7 +9,7 @@ Saves results to NetCDF in the style of make_pancarra_vars.py.
 import calendar
 import datetime
 
-import cupy as cp
+from glide.backend import xp as cp
 import numpy as np
 import xarray as xr
 

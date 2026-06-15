@@ -1,7 +1,7 @@
-import cupy as cp
+from glide.backend import xp as cp
 from dataclasses import dataclass, fields, is_dataclass
-from pathlib import Path
 from .grid import Grid
+from .kernels import KernelLibrary
 from .operators import VankaConfig,NewtonConfig
 from .field import LocalOption,BroadcastOption
 
@@ -11,18 +11,9 @@ class Multigrid:
             x0=cp.float32(0.0),y0=cp.float32(0.0),crs=None,
             use_fast_math=True):
 
-        cuda_dir = Path(__file__).parent / "cuda"
-
-        # Concatenate ice kernel files in dependency order
-        cuda_files = ['common.cu', 'transfer.cu']
-        cuda_source = '\n'.join((cuda_dir / f).read_text() for f in cuda_files)
-        
-        if use_fast_math:
-            options=("--use_fast_math",)
-        else:
-            options=()
-
-        self.kernels = cp.RawModule(code=cuda_source, options=options)
+        # Grid-transfer (restriction/prolongation) kernels.
+        self.kernels = KernelLibrary(['common', 'transfer'],
+                                     use_fast_math=use_fast_math)
 
         if finest_grid is not None:
             print("Instantiating multigrid from existing grid")
@@ -526,7 +517,7 @@ class FASCDSolver:
         relative_residual_norm = cp.float32(1.0)
 
         if self._fas_config.report_norms:
-            print(f"  Initial:   |r0|     = {initial_residual_norm:.2e}, "
+            print(f"  Initial:   |r0|     = {float(initial_residual_norm):.2e}, "
                   f"|r_u| = {float(ru_init):.2e}, "
                   f"|r_v| = {float(rv_init):.2e}, "
                   f"|r_H| = {float(rH_init):.2e}")
@@ -542,7 +533,7 @@ class FASCDSolver:
             absolute_residual_norm = cp.sqrt(ru**2 + rv**2 + rH**2)
             relative_residual_norm = absolute_residual_norm / initial_residual_norm
             if self._fas_config.report_norms:
-                print(f"  V-cycle {iteration}: |r|/|r0| = {relative_residual_norm:.2e}, "
+                print(f"  V-cycle {iteration}: |r|/|r0| = {float(relative_residual_norm):.2e}, "
                       f"|r_u| = {float(ru):.2e}, "
                       f"|r_v| = {float(rv):.2e}, "
                       f"|r_H| = {float(rH):.2e}")
@@ -899,7 +890,7 @@ class FASAdjointSolver:
         relative_residual_norm = cp.float32(1.0)
 
         if self._fas_config.report_norms:
-            print(f"  Initial:   |r0|     = {initial_residual_norm:.2e}, "
+            print(f"  Initial:   |r0|     = {float(initial_residual_norm):.2e}, "
                   f"|r_u| = {float(ru_init):.2e}, "
                   f"|r_v| = {float(rv_init):.2e}, "
                   f"|r_H| = {float(rH_init):.2e}")
@@ -916,7 +907,7 @@ class FASAdjointSolver:
             absolute_residual_norm = cp.sqrt(ru**2 + rv**2 + rH**2)
             relative_residual_norm = absolute_residual_norm / initial_residual_norm
             if self._fas_config.report_norms:
-                print(f"  V-cycle {iteration}: |r|/|r0| = {relative_residual_norm:.2e}, "
+                print(f"  V-cycle {iteration}: |r|/|r0| = {float(relative_residual_norm):.2e}, "
                       f"|r_u| = {float(ru):.2e}, "
                       f"|r_v| = {float(rv):.2e}, "
                       f"|r_H| = {float(rH):.2e}")

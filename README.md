@@ -6,7 +6,7 @@ A CUDA-accelerated ice sheet model implementing the shallow shelf approximation 
 
 ## Features
 
-- **GPU-accelerated**: All computations run on NVIDIA GPUs via CuPy and custom CUDA kernels
+- **GPU-accelerated**: All computations run on the GPU via custom kernels — NVIDIA/CUDA (CuPy) or Apple Silicon/Metal (macmetalpy), selectable at runtime
 - **FASCD multigrid solver**: Full Approximation Scheme with Constrained Descent, using a Vanka smoother and Newton linearization to coupled-solve momentum and mass conservation
 - **Coupled physics**: Simultaneous solution of velocity and ice thickness, with a sigmoid grounding-line treatment and non-conservative calving
 - **Built-in adjoint**: A matching FAS adjoint solver computes gradients with respect to basal friction, bed, initial thickness, and surface mass balance
@@ -31,11 +31,29 @@ pip install -e ".[examples]"   # adds torch, matplotlib, polars, rioxarray, shap
 ### Requirements
 
 - Python >= 3.9
-- NVIDIA GPU with CUDA support
-- CuPy — the dependency pins `cupy-cuda13x` (CUDA 13.x). Install the wheel matching
-  your CUDA toolkit if different (e.g. `pip install cupy-cuda12x`).
+- A GPU backend (see below)
 - NumPy, SciPy, xarray, h5py, h5netcdf, zarr, pyproj, geopandas
 - gdown (automatic download of preprocessed datasets)
+
+### GPU backend
+
+glide runs on either of two array backends, selected at runtime by the
+`GLIDE_BACKEND` environment variable (`cupy` or `macmetalpy`). If unset, it
+auto-detects: CuPy when importable, otherwise macmetalpy.
+
+**NVIDIA / CUDA (CuPy)** — runs the `glide/cuda/*.cu` kernels:
+
+```bash
+pip install -e ".[cuda13]"     # or cuda12 / cuda11 to match your toolkit
+```
+
+**Apple Silicon / Metal (macmetalpy)** — runs the `glide/metal/*.metal` kernels:
+
+```bash
+pip install -e ".[metal]"
+python -m metalgpu build        # one-time: build the native Metal library (needs cmake)
+GLIDE_BACKEND=macmetalpy python your_script.py
+```
 
 ## Quick Start
 

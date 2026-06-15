@@ -1,4 +1,4 @@
-import cupy as cp
+from glide.backend import xp as cp
 import numpy as np
 import matplotlib.pyplot as plt
 
