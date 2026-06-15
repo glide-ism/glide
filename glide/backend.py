@@ -58,13 +58,23 @@ else:
 
 
 def _patch_macmetalpy():
-    """Work around a macmetalpy bug in ``linalg._get_np``.
+    """Apply in-memory work-arounds for upstream macmetalpy bugs.
 
-    macmetalpy.linalg defines ``_get_np`` twice; the second (shadowing)
-    definition recurses into itself when an array is GPU-resident
-    (``_np_data is None``) instead of synchronizing — so ``cp.linalg.norm`` on
-    any kernel-output array hits ``RecursionError``.  We reinstall a correct
-    version that syncs and returns the host view.
+    All four are still present in the latest macmetalpy and are patched at
+    runtime (not by editing site-packages) so they survive a reinstall of
+    either glide or macmetalpy:
+
+    1. ``linalg._get_np`` is defined twice; the shadowing definition recurses
+       into itself when an array is GPU-resident (``_np_data is None``) instead
+       of synchronizing, so ``cp.linalg.norm`` on a kernel-output array hits
+       ``RecursionError``.  Reinstall a correct version.
+    2. ``random.randn`` lacks CuPy's ``dtype=`` kwarg that glide passes.
+    3. ndarray has no ``__format__``, so f-string formatting of a 0-d array
+       (e.g. ``f"{x:.2e}"``) raises ``TypeError``.
+    4. The ``nextafter`` ufunc emits MSL ``nextafter()``, which Metal does not
+       provide — that broken kernel poisons the whole element-wise GPU library
+       (CPU fallback below the GPU threshold, ``Segmentation fault: 11`` above
+       it).  Inject a correct ``nextafter`` into every shader header instead.
     """
     try:
         from macmetalpy import linalg as _linalg
@@ -111,37 +121,60 @@ def _patch_macmetalpy():
         pass
 
     # macmetalpy's `nextafter` ufunc emits MSL `nextafter()`, which the Metal
-    # shading language does not provide (compile error: "use of undeclared
-    # identifier 'nextafter'").  Post-process the elementwise shader to use an
-    # emulated `metal_nextafter` (bit-increment toward the target).
+    # Shading Language does not provide (compile error: "use of undeclared
+    # identifier 'nextafter'").  Upstream this one broken kernel poisons the
+    # whole element-wise GPU library: small arrays silently fall back to CPU,
+    # while arrays above macmetalpy's GPU threshold crash with
+    # ``Segmentation fault: 11`` (the library fails to compile and the null
+    # result is dereferenced instead of raising).
+    #
+    # The fix is to define a correct float ``nextafter`` (ULP bit-step) in the
+    # ``_MSL_HEADER`` that macmetalpy prepends to every generated shader.  We
+    # patch the header in-memory for *all three* code generators —
+    # ``_kernels`` (element-wise), ``_kernel_cache`` (cached inline) and
+    # ``_fusion`` (fused ops) — because each emits ``nextafter()`` through its
+    # own header.  Doing it here, in glide, keeps the fix alive across a
+    # ``pip install``/reinstall of either package (unlike editing macmetalpy's
+    # site-packages files directly, which any reinstall silently wipes).
+    _nextafter_def = (
+        "// Injected by glide: Metal stdlib has no nextafter(); ULP bit-step.\n"
+        "inline float nextafter(float from, float to) {\n"
+        "    if (isnan(from) || isnan(to)) return NAN;\n"
+        "    if (from == to) return to;\n"
+        "    if (from == 0.0f) return copysign(as_type<float>(1), to);\n"
+        "    int i = as_type<int>(from);\n"
+        "    i += ((to > from) == (from > 0.0f)) ? 1 : -1;\n"
+        "    return as_type<float>(i);\n"
+        "}\n"
+    )
+    _anchor = "using namespace metal;\n"
+    import importlib
+
+    for _modname in ("_kernels", "_kernel_cache", "_fusion"):
+        try:
+            _mod = importlib.import_module(f"macmetalpy.{_modname}")
+        except Exception:
+            continue
+        _hdr = getattr(_mod, "_MSL_HEADER", None)
+        if not isinstance(_hdr, str) or "nextafter" in _hdr:
+            # Header missing, or upstream already provides nextafter -> leave it.
+            continue
+        if _anchor in _hdr:
+            _mod._MSL_HEADER = _hdr.replace(_anchor, _anchor + _nextafter_def, 1)
+        else:
+            _mod._MSL_HEADER = _nextafter_def + _hdr
+
+    # Invalidate any shader sources cached (singleton dict + lru_cache'd inline
+    # generators) before the header was patched, so they regenerate with it.
     try:
-        from macmetalpy import _kernel_cache, _kernels
+        from macmetalpy import _kernel_cache as _kc, _kernels as _kn
 
-        _helper = (
-            "\ninline float metal_nextafter(float a, float b) {\n"
-            "    if (isnan(a) || isnan(b)) return a + b;\n"
-            "    if (a == b) return b;\n"
-            "    if (a == 0.0f) { uint i = 1u; if (b < 0.0f) i |= 0x80000000u; return as_type<float>(i); }\n"
-            "    uint i = as_type<uint>(a);\n"
-            "    bool toward_larger_mag = (b > a) == (a > 0.0f);\n"
-            "    if (toward_larger_mag) i += 1u; else i -= 1u;\n"
-            "    return as_type<float>(i);\n"
-            "}\n"
-        )
-        _orig_elementwise = _kernels.elementwise_shader
-
-        def _patched_elementwise(metal_type, fast_math=False):
-            src = _orig_elementwise(metal_type, fast_math=fast_math)
-            if "nextafter(" in src and "metal_nextafter" not in src:
-                src = src.replace("kernel void nextafter_op",
-                                  _helper + "\nkernel void nextafter_op", 1)
-                src = src.replace("out[id] = nextafter(",
-                                  "out[id] = metal_nextafter(")
-            return src
-
-        _kernels.elementwise_shader = _patched_elementwise
-        _kernel_cache._GENERATORS["elementwise"] = _patched_elementwise
-        _kernel_cache.KernelCache().clear()
+        _kc.KernelCache().clear()
+        for _m in (_kc, _kn):
+            for _name in dir(_m):
+                _fn = getattr(_m, _name, None)
+                if hasattr(_fn, "cache_clear"):
+                    _fn.cache_clear()
     except Exception:
         pass
 
