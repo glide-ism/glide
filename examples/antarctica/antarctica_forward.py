@@ -49,8 +49,8 @@ mg.rheology.eps_reg.set(1e-6)
 mg.rheology.n.set(3.0)
 
 ### Initialize sliding
-BETA_PATH = None
-#BETA_PATH = "./inverse/level_0/beta_opt.nc"
+#BETA_PATH = None
+BETA_PATH = "./inverse/level_0/beta_opt.nc"
 if BETA_PATH:
     import xarray as xr
     beta = cp.array(xr.load_dataarray(BETA_PATH))
@@ -59,7 +59,7 @@ else:
     beta.fill(2.5)
 
 mg.sliding.beta.set(beta)
-mg.sliding.m.set(1./3.)
+mg.sliding.m.set(1.0)
 mg.sliding.u_reg.set(1.0)
 mg.sliding.water_drag.set(1e-5)
 
@@ -88,7 +88,7 @@ model.forward_solver.fas_options.set(
         report_norms=True)
 
 # Antarctica likes it if we damp the transition between floating and grounded
-model.forward_solver.vanka_options.relax_phi.set(cp.float32(0.5))
+model.forward_solver.vanka_options.relax_phi.set(cp.float32(0.99))
 
 # Examples of different writing utilities - First writes to vti/pvd
 vti_writer = VTIWriter('forward/vti/', base='antarctica', dx=mg[0].dx,
@@ -97,7 +97,8 @@ vti_writer = VTIWriter('forward/vti/', base='antarctica', dx=mg[0].dx,
         dynamic_fields={'H':mg[0].state.H,
                         'U':[mg[0].state.u, mg[0].state.v],
                         'mask':mg[0].state.mask,
-                        'phi':mg[0].state.phi}
+                        'phi':mg[0].state.phi,
+                        'xi':mg[0].state.xi}
         )
 vti_writer.initialize(mg[0])
 
@@ -116,7 +117,7 @@ zarr_writer.initialize(mg[0],overwrite=True)
 # Run simulation
 t = cp.float32(0.0)
 t_end = cp.float32(250.0)
-dt = cp.float32(20.0)
+dt = cp.float32(10.0)
 while t < t_end:
     print(f"Solving forward problem at t={t} with dt={dt:.2f}")
     model.forward(t,dt)

@@ -53,10 +53,10 @@ mg.rheology.n.set(3.0)
 
 ### Initialize sliding
 beta = cp.zeros((ny,nx), dtype=cp.float32)
-beta.fill(1.0)
+beta.fill(0.1)
 
 mg.sliding.beta.set(beta)
-mg.sliding.m.set(1./3.)
+mg.sliding.m.set(1.0)#/3.)
 mg.sliding.water_drag.set(1e-5)
 
 ### Initialize calving
@@ -131,7 +131,8 @@ for level in range(coarsest_level,-1,-1):
     vti_writer = VTIWriter(f'inverse/level_{level}/vti', base='antarctica', dx=mg[level].dx,
             static_fields={'U_obs':[u_obs,v_obs]},
             dynamic_fields={'beta':mg[level].sliding.beta,
-                            'U':[mg[level].state.u, mg[level].state.v]}
+                            'U':[mg[level].state.u, mg[level].state.v],
+                            'xi':mg[level].state.xi}
         )
 
     vti_writer.initialize(mg[level])
@@ -159,13 +160,13 @@ for level in range(coarsest_level,-1,-1):
         gx = torch.diff(log_beta,dim=1)/dx
         
         # Tikhonov Regularization
-        J_L2 = 1e-5*((gy**2).sum() + (gx**2).sum())*dx**2
+        J_L2 = 1e-4*((gy**2).sum() + (gx**2).sum())*dx**2
         
         # TV Regularization
         gy_ = gy[:,:-1]
         gx_ = gx[:-1]
         eps = 1e-6
-        J_L1 = 1e-8*(torch.sqrt(gy_**2 + gx_**2 + eps**2).sum())*dx**2
+        J_L1 = 0*(torch.sqrt(gy_**2 + gx_**2 + eps**2).sum())*dx**2
         
         # Combined objective - elastic net regularization
         J = J_data + J_L1 + J_L2
