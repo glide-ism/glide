@@ -58,8 +58,10 @@ else:
     beta = cp.zeros((ny,nx), dtype=cp.float32)
     beta.fill(2.5)
 
+beta[beta>50] = 50.0
+
 mg.sliding.beta.set(beta)
-mg.sliding.m.set(1.0)
+mg.sliding.m.set(1./3.)
 mg.sliding.u_reg.set(1.0)
 mg.sliding.water_drag.set(1e-5)
 
@@ -88,7 +90,7 @@ model.forward_solver.fas_options.set(
         report_norms=True)
 
 # Antarctica likes it if we damp the transition between floating and grounded
-model.forward_solver.vanka_options.relax_phi.set(cp.float32(0.99))
+model.forward_solver.vanka_options.relax_phi.set(cp.float32(0.5))
 
 # Examples of different writing utilities - First writes to vti/pvd
 vti_writer = VTIWriter('forward/vti/', base='antarctica', dx=mg[0].dx,
@@ -116,7 +118,7 @@ zarr_writer.initialize(mg[0],overwrite=True)
 
 # Run simulation
 t = cp.float32(0.0)
-t_end = cp.float32(250.0)
+t_end = cp.float32(1000.0)
 dt = cp.float32(10.0)
 while t < t_end:
     print(f"Solving forward problem at t={t} with dt={dt:.2f}")

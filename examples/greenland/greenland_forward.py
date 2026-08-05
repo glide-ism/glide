@@ -55,6 +55,8 @@ else:
     beta = cp.zeros((ny,nx), dtype=cp.float32)
     beta.fill(2.5)
 
+beta[beta>50] = 50
+
 mg.sliding.beta.set(beta)
 mg.sliding.m.set(1./3.)
 mg.sliding.water_drag.set(1e-4)
@@ -66,7 +68,7 @@ mg.calving.calving_rate.set(2000.0)
 
 ### Initialize forcing
 smb = dataset.smb.values
-smb += 1.0
+smb -= 1.0
 mg.forcing.smb.set(smb)
 
 ### Set multigrid solver parameters ###

@@ -30,7 +30,7 @@ model = IceDynamics(n_levels=n_levels,ny=ny,nx=nx,dx=dx,
 mg = model.mg
 
 grid = mg.levels[0]
-dt = cp.float32(10.0)
+dt = cp.float32(20.0)
 
 ### Initialize state
 thk = gaussian_filter(dataset.thickness.values,1)
@@ -53,10 +53,10 @@ mg.rheology.n.set(3.0)
 
 ### Initialize sliding
 beta = cp.zeros((ny,nx), dtype=cp.float32)
-beta.fill(0.1)
+beta.fill(1.0)
 
 mg.sliding.beta.set(beta)
-mg.sliding.m.set(1.0)#/3.)
+mg.sliding.m.set(1./3.)
 mg.sliding.water_drag.set(1e-5)
 
 ### Initialize calving
@@ -104,7 +104,7 @@ t = cp.float32(0.0) # Dummy time, which we don't use here
 n_level_epochs = 100
 
 # Index of coarsest grid to start solving inverse problem at
-coarsest_level = 5
+coarsest_level = 3
 log_beta = torch.log(torch.tensor(mg[coarsest_level].sliding.beta.data,device='cuda'))
 
 # Solve the inverse problem at progressively coarser levels
