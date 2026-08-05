@@ -66,7 +66,7 @@ mg.calving.calving_rate.set(2000.0)
 
 ### Initialize forcing
 smb = dataset.smb.values
-smb += -1.0
+smb += 1.0
 mg.forcing.smb.set(smb)
 
 ### Set multigrid solver parameters ###
@@ -86,7 +86,8 @@ vti_writer = VTIWriter('forward/vti/', base='greenland', dx=mg[0].dx,
                        'beta':mg[0].sliding.beta,},
         dynamic_fields={'H':mg[0].state.H,
                         'U':[mg[0].state.u, mg[0].state.v],
-                        'mask':mg[0].state.mask,}
+                        'mask':mg[0].state.mask,
+                        'xi':mg[0].state.xi}
         )
 vti_writer.initialize(mg[0])
 
@@ -105,7 +106,7 @@ zarr_writer.initialize(mg[0],overwrite=True)
 # Run simulation
 t = cp.float32(0.0)
 t_end = cp.float32(1000.0)
-dt = cp.float32(25.0)
+dt = cp.float32(10.0)
 while t < t_end:
     print(f"Solving forward problem at t={t} with dt={dt:.2f}")
     model.forward(t,dt)

@@ -58,11 +58,11 @@ class GlideStep(torch.autograd.Function):
         g_beta = torch.tensor(model.mg[level].sliding.beta.grad)
         g_smb = torch.tensor(model.mg[level].forcing.smb.grad)
         
-        if not converged:
-            g_H_prev[:,:] = 0.0
-            g_bed[:,:] = 0.0
-            g_beta[:,:] = 0.0
-            g_smb[:,:] = 0.0
+        #if not converged:
+        #    g_H_prev[:,:] = 0.0
+        #    g_bed[:,:] = 0.0
+        #    g_beta[:,:] = 0.0
+        #    g_smb[:,:] = 0.0
 
         return None, None, None, None, g_H_prev, g_bed, g_beta, g_smb
 

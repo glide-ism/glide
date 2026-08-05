@@ -51,7 +51,11 @@ class Field:
 
     def set(self, value) -> None:
         if hasattr(value, "shape"):
-            self.data[...] = cp.array(value,dtype=cp.float32)
+            # asarray, not array: a float32 device array (cupy, or torch via
+            # __cuda_array_interface__) passes through as a view instead of
+            # materializing a full intermediate copy before the assignment —
+            # on (nt, ny, nx) forcing fields that transient is substantial.
+            self.data[...] = cp.asarray(value, dtype=cp.float32)
         else:
             self.data.fill(value)
 

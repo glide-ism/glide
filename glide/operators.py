@@ -52,8 +52,6 @@ class ForwardOperators:
 
         self.vanka_config = VankaConfig()
 
-
-
     @property
     def _kernel_config(self):
         block_size = (16, 16)
@@ -87,6 +85,7 @@ class ForwardOperators:
 
         if not freeze_phi:
             self.compute_phi()
+            self.compute_xi()
 
         if operator_only:
             out_u = self.F_u
@@ -102,7 +101,7 @@ class ForwardOperators:
         kernel(grid_size, block_size,
                (out_u, out_v, out_H,
                 state.u.data, state.v.data, state.H.data, 
-                state.phi.data, state.mask.data,
+                state.phi.data, state.xi.data, state.mask.data,
                 self.f_u, self.f_v, self.f_H,
                 geometry.bed.data, 
                 rheology.B.data, 
@@ -144,12 +143,13 @@ class ForwardOperators:
 
         if not freeze_phi:
             self.compute_phi()
+            self.compute_xi()
 
         kernel(grid_size, block_size,
                (self.jvp_u, self.jvp_v, self.jvp_H,
                 state.u.data, state.v.data, state.H.data, 
                 self.var_u, self.var_v, self.var_H, 
-                state.phi.data, state.mask.data,
+                state.phi.data, state.xi.data, state.mask.data,
                 self.f_u, self.f_v, self.f_H,
                 geometry.bed.data, 
                 rheology.B.data, 
@@ -171,6 +171,20 @@ class ForwardOperators:
         grid = self.grid
         kernel(grid_size, block_size,
                    (grid.state.phi.data,
+                    grid.state.H.data, grid.geometry.depth.data, 
+                    grid.geometry.sigmoid_c.value,
+                    grid.geometry.sigmoid_k.value,
+                    relaxation,
+                    grid.ny, grid.nx, 
+                    stride, halo))
+
+    def compute_xi(self, relaxation=cp.float32(0.0)):
+        kernel = self.kernels.get_function('compute_flotation_fraction')
+        grid_size, block_size, stride, halo = self._kernel_config
+            
+        grid = self.grid
+        kernel(grid_size, block_size,
+                   (grid.state.xi.data,
                     grid.state.H.data, grid.geometry.depth.data, 
                     grid.geometry.sigmoid_c.value,
                     grid.geometry.sigmoid_k.value,
@@ -200,6 +214,7 @@ class ForwardOperators:
 
         if not freeze_phi:
             self.compute_phi(relaxation=self.vanka_config.relax_phi)
+            self.compute_xi(relaxation=self.vanka_config.relax_phi)
 
         self.delta_u.fill(0.0)
         self.delta_v.fill(0.0)
@@ -208,7 +223,7 @@ class ForwardOperators:
                (self.delta_u, self.delta_v, self.delta_H, 
                 state.mask.data,
                 state.u.data, state.v.data, state.H.data, 
-                state.phi.data,
+                state.phi.data, state.xi.data,
                 self.f_u, self.f_v, self.f_H,
                 geometry.bed.data, rheology.B.data, sliding.beta.data, 
                 self.gamma,
@@ -246,7 +261,7 @@ class ForwardOperators:
         r = cp.zeros((self.grid.ny*self.grid.nx,5),dtype=cp.float32)
         kernel(grid_size, block_size,
                (J,r,
-                grid.state.u.data, grid.state.v.data, grid.state.H.data, grid.state.phi.data,
+                grid.state.u.data, grid.state.v.data, grid.state.H.data, grid.state.phi.data, grid.state.xi.data,
                 self.f_u, self.f_v, self.f_H,
                 grid.geometry.bed.data, grid.rheology.B.data, grid.sliding.beta.data, self.gamma,
                 grid.rheology.n.value, grid.rheology.eps_reg.value, grid.geometry.sigmoid_c.value,
@@ -393,7 +408,7 @@ class AdjointOperators:
                (self.r_u, self.r_v, self.r_H,
                 state.u.data, state.v.data, state.H.data, 
                 adjoint.lambda_u.data, adjoint.lambda_v.data, adjoint.lambda_H.data, 
-                state.phi.data, state.mask.data,
+                state.phi.data, state.xi.data, state.mask.data,
                 self.f_u, self.f_v, self.f_H,
                 geometry.bed.data, 
                 rheology.B.data, 
@@ -443,7 +458,7 @@ class AdjointOperators:
                (self.vjp_u, self.vjp_v, self.vjp_H,
                 state.u.data, state.v.data, state.H.data, 
                 adjoint.lambda_u.data, adjoint.lambda_v.data, adjoint.lambda_H.data, 
-                state.phi.data, state.mask.data,
+                state.phi.data, state.xi.data, state.mask.data,
                 self.f_u, self.f_v, self.f_H,
                 geometry.bed.data, 
                 rheology.B.data, 
@@ -484,7 +499,7 @@ class AdjointOperators:
         kernel(grid_size, block_size,
                (self.delta_lambda_u, self.delta_lambda_v, self.delta_lambda_H, 
                 state.u.data, state.v.data, state.H.data, 
-                state.phi.data, state.mask.data,
+                state.phi.data, state.xi.data, state.mask.data,
                 self.r_u, self.r_v, self.r_H,
                 geometry.bed.data, rheology.B.data, sliding.beta.data, 
                 self.gamma,
@@ -528,7 +543,7 @@ class AdjointOperators:
                (sliding.beta.grad,
                 state.u.data, state.v.data, state.H.data, 
                 adjoint.lambda_u.data, adjoint.lambda_v.data, adjoint.lambda_H.data, 
-                state.phi.data, state.mask.data,
+                state.phi.data, state.xi.data, state.mask.data,
                 geometry.bed.data, 
                 rheology.B.data, 
                 sliding.beta.data,
@@ -559,7 +574,7 @@ class AdjointOperators:
                (geometry.bed.grad,
                 state.u.data, state.v.data, state.H.data, 
                 adjoint.lambda_u.data, adjoint.lambda_v.data, adjoint.lambda_H.data, 
-                state.phi.data, state.mask.data,
+                state.phi.data, state.xi.data, state.mask.data,
                 geometry.bed.data, 
                 rheology.B.data, 
                 sliding.beta.data,

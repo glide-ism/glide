@@ -12,6 +12,7 @@ class State:
     H: Field | None = None
     H_prev: Field | None = None
     phi: Field | None = None
+    xi: Field | None = None
     mask: Field | None = None
 
     def __repr__(self):
@@ -290,7 +291,17 @@ class Grid:
             grid=self,
             name='phi',
             units='m',
-            attrs={'long_name':'Potential Head'})
+            attrs={'long_name':'Potential head'})
+
+        xi = Field(
+            data=cp.zeros((self.ny,self.nx),dtype=cp.float32),
+            grid_entity=GridEntity.CELL,
+            dx=self.dx,
+            grid=self,
+            name='phi',
+            units='m',
+            attrs={'long_name':'Flotation fraction'})
+
 
         mask = Field(
             data=cp.zeros((self.ny,self.nx),dtype=cp.float32),
@@ -302,7 +313,7 @@ class Grid:
             attrs={'long_name':'''Active set mask - if unity, thickness is 
                          set to thklim in Dirichlet BC fashion'''})
 
-        return State(u=u,v=v,H=H,H_prev=H_prev,phi=phi,mask=mask)
+        return State(u=u,v=v,H=H,H_prev=H_prev,phi=phi,xi=xi,mask=mask)
 
     def _allocate_adjoint_state(self):
         lambda_u = Field(

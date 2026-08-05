@@ -84,6 +84,7 @@ class Multigrid:
         self.restrict_cell(fine_grid.state.H.data,coarse_grid.state.H.data)
         self.restrict_cell(fine_grid.state.H_prev.data,coarse_grid.state.H_prev.data)
         self.restrict_cell(fine_grid.state.phi.data,coarse_grid.state.phi.data)
+        self.restrict_cell(fine_grid.state.xi.data,coarse_grid.state.xi.data)
         self.restrict_cell(fine_grid.state.mask.data,coarse_grid.state.mask.data,method='max')
 
     def restrict_geometry(self,fine_grid,coarse_grid):
@@ -320,6 +321,12 @@ class MGStateManager:
             getter=lambda g: g.state.phi,
             restrict=lambda f,c: mg.restrict_cell(f.data,c.data,method='avg'),
             name="phi",
+        )
+        self.xi = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.state.xi,
+            restrict=lambda f,c: mg.restrict_cell(f.data,c.data,method='avg'),
+            name="xi",
         )
 
         self.mask = HierarchyFieldManager(

@@ -99,6 +99,7 @@ __device__ void build_5x5_vanka(
     const float* __restrict__ H,
     const float (&eta_local)[height][width], 
     const float* __restrict__ phi,
+    const float* __restrict__ xi,
     const float* __restrict__ bed,
     const float* __restrict__ B,
     const float* __restrict__ beta,
@@ -377,7 +378,10 @@ __device__ void build_5x5_vanka(
     float H_l    = get_cell(H,i,j-1,ny,nx);
     float beta_l = get_cell(beta,i,j-1,ny,nx);
     float beta_c = get_cell(beta,i,j,ny,nx);
-    TauBxJacobian tau_bx_l = get_tau_bx_jac({u_l,v_tl,v_t,v_bl,v_b,H_l,H_c,phi_l,phi_c,beta_l,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
+    float xi_l = get_cell(xi,i,j-1,ny,nx);
+    float xi_c = get_cell(xi,i,j,ny,nx);
+
+    TauBxJacobian tau_bx_l = get_tau_bx_jac({u_l,v_tl,v_t,v_bl,v_b,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
     r[0] += tau_bx_l.res;
     J[0] += tau_bx_l.d_u;
     J[2] += tau_bx_l.d_v_tr;
@@ -393,7 +397,10 @@ __device__ void build_5x5_vanka(
     float H_r    = get_cell(H,i,j+1,ny,nx);
     float beta_c = get_cell(beta,i,j,ny,nx);
     float beta_r = get_cell(beta,i,j+1,ny,nx);
-    TauBxJacobian tau_bx_r = get_tau_bx_jac({u_r,v_t,v_tr,v_b,v_br,H_c,H_r,phi_c,phi_r,beta_c,beta_r,m,u_reg,water_drag,flotation_reg_sliding});
+    float xi_c = get_cell(xi,i,j,ny,nx);
+    float xi_r = get_cell(xi,i,j+1,ny,nx);
+
+    TauBxJacobian tau_bx_r = get_tau_bx_jac({u_r,v_t,v_tr,v_b,v_br,H_c,H_r,xi_c,xi_r,beta_c,beta_r,m,u_reg,water_drag,flotation_reg_sliding});
     r[1] += tau_bx_r.res;
     J[6] += tau_bx_r.d_u;
     J[7] += tau_bx_r.d_v_tl;
@@ -409,7 +416,10 @@ __device__ void build_5x5_vanka(
     float H_t    = get_cell(H,i-1,j,ny,nx);
     float beta_t = get_cell(beta,i-1,j,ny,nx);
     float beta_c = get_cell(beta,i,j,ny,nx);
-    TauByJacobian tau_by_t = get_tau_by_jac({v_t,u_tl,u_tr,u_l,u_r,H_t,H_c,phi_t,phi_c,beta_t,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
+    float xi_t = get_cell(xi,i-1,j,ny,nx);
+    float xi_c = get_cell(xi,i,j,ny,nx);
+
+    TauByJacobian tau_by_t = get_tau_by_jac({v_t,u_tl,u_tr,u_l,u_r,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
     r[2]  += tau_by_t.res;
     J[12] += tau_by_t.d_v;
     J[10] += tau_by_t.d_u_bl;
@@ -425,7 +435,10 @@ __device__ void build_5x5_vanka(
     float H_b    = get_cell(H,i+1,j,ny,nx);
     float beta_c = get_cell(beta,i,j,ny,nx);
     float beta_b = get_cell(beta,i+1,j,ny,nx);
-    TauByJacobian tau_by_b = get_tau_by_jac({v_b,u_l,u_r,u_bl,u_br,H_c,H_b,phi_c,phi_b,beta_c,beta_b,m,u_reg,water_drag,flotation_reg_sliding});
+    float xi_c = get_cell(xi,i,j,ny,nx);
+    float xi_b = get_cell(xi,i+1,j,ny,nx);
+
+    TauByJacobian tau_by_b = get_tau_by_jac({v_b,u_l,u_r,u_bl,u_br,H_c,H_b,xi_c,xi_b,beta_c,beta_b,m,u_reg,water_drag,flotation_reg_sliding});
     r[3]  += tau_by_b.res;
     J[18] += tau_by_b.d_v;
     J[15] += tau_by_b.d_u_tl;
@@ -484,6 +497,7 @@ void vanka_smooth(
     const float* __restrict__ v,
     const float* __restrict__ H,
     const float* __restrict__ phi,
+    const float* __restrict__ xi,
     const float* __restrict__ f_u,
     const float* __restrict__ f_v,
     const float* __restrict__ f_H,
@@ -547,7 +561,7 @@ void vanka_smooth(
 
 	    build_5x5_vanka(J, r,
 		    u_l, u_r, v_t, v_b, H_c,
-		    u, v, H, eta_local, phi,
+		    u, v, H, eta_local, phi, xi,
                     bed, B, beta, gamma,
 		    n, eps_reg, flotation_reg_driving,
                     m, u_reg, water_drag, flotation_reg_sliding, 
@@ -668,6 +682,7 @@ void vanka_smooth_adjoint(
     const float* __restrict__ v,
     const float* __restrict__ H,
     const float* __restrict__ phi,
+    const float* __restrict__ xi,
     const float* __restrict__ mask,
     const float* __restrict__ r_adj_u,  
     const float* __restrict__ r_adj_v,
@@ -721,7 +736,7 @@ void vanka_smooth_adjoint(
 	// discarded.  
 	build_5x5_vanka(J, rhs,
 		u_l, u_r, v_t, v_b, H_c,
-		u, v, H, eta_local, phi,
+		u, v, H, eta_local, phi, xi,
 		bed, B, beta, gamma,
 		n, eps_reg, flotation_reg_driving,
 		m, u_reg, water_drag, flotation_reg_sliding, 
@@ -805,6 +820,7 @@ void vanka_dump(
     const float* __restrict__ v,
     const float* __restrict__ H,
     const float* __restrict__ phi,
+    const float* __restrict__ xi,
     const float* __restrict__ f_u,
     const float* __restrict__ f_v,
     const float* __restrict__ f_H,
@@ -852,7 +868,7 @@ void vanka_dump(
 
         build_5x5_vanka(J, r,
 	    u_l, u_r, v_t, v_b, H_c,
-	    u, v, H, eta_local, phi,
+	    u, v, H, eta_local, phi, xi,
 	    bed, B, beta, gamma,
 	    n, eps_reg, flotation_reg_driving,
 	    m, u_reg, water_drag, flotation_reg_sliding, 
