@@ -372,6 +372,7 @@ __device__ void build_5x5_vanka(
     
     // Basal shear stress for left momentum
     {
+    float u_ll   = get_vfacet(u,i,j-1,ny,nx);
     float v_tl   = get_hfacet(v,i,j-1,ny,nx);
     float v_bl   = get_hfacet(v,i+1,j-1,ny,nx);
 
@@ -381,9 +382,10 @@ __device__ void build_5x5_vanka(
     float xi_l = get_cell(xi,i,j-1,ny,nx);
     float xi_c = get_cell(xi,i,j,ny,nx);
 
-    TauBxJacobian tau_bx_l = get_tau_bx_jac({u_l,v_tl,v_t,v_bl,v_b,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
+    TauBxJacobian tau_bx_l = get_tau_bx_jac({u_l,u_ll,u_r,v_tl,v_t,v_bl,v_b,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
     r[0] += tau_bx_l.res;
-    J[0] += tau_bx_l.d_u;
+    J[0] += tau_bx_l.d_u_c;
+    J[1] += tau_bx_l.d_u_r;
     J[2] += tau_bx_l.d_v_tr;
     J[3] += tau_bx_l.d_v_br;
     J[4] += tau_bx_l.d_H_r;
@@ -391,6 +393,7 @@ __device__ void build_5x5_vanka(
 
     // Basal shear stress for right momentum
     {
+    float u_rr   = get_vfacet(u,i,j+2,ny,nx);
     float v_tr   = get_hfacet(v,i,j+1,ny,nx);
     float v_br   = get_hfacet(v,i+1,j+1,ny,nx);
     
@@ -400,9 +403,10 @@ __device__ void build_5x5_vanka(
     float xi_c = get_cell(xi,i,j,ny,nx);
     float xi_r = get_cell(xi,i,j+1,ny,nx);
 
-    TauBxJacobian tau_bx_r = get_tau_bx_jac({u_r,v_t,v_tr,v_b,v_br,H_c,H_r,xi_c,xi_r,beta_c,beta_r,m,u_reg,water_drag,flotation_reg_sliding});
+    TauBxJacobian tau_bx_r = get_tau_bx_jac({u_r,u_l,u_rr,v_t,v_tr,v_b,v_br,H_c,H_r,xi_c,xi_r,beta_c,beta_r,m,u_reg,water_drag,flotation_reg_sliding});
     r[1] += tau_bx_r.res;
-    J[6] += tau_bx_r.d_u;
+    J[5] += tau_bx_r.d_u_l;
+    J[6] += tau_bx_r.d_u_c;
     J[7] += tau_bx_r.d_v_tl;
     J[8] += tau_bx_r.d_v_bl;
     J[9] += tau_bx_r.d_H_l;
@@ -410,6 +414,7 @@ __device__ void build_5x5_vanka(
 
     // Basal shear stress for top momentum
     {
+    float v_tt = get_hfacet(v,i-1,j,ny,nx);
     float u_tl = get_vfacet(u,i-1,j,ny,nx);
     float u_tr = get_vfacet(u,i-1,j+1,ny,nx);
 
@@ -419,9 +424,10 @@ __device__ void build_5x5_vanka(
     float xi_t = get_cell(xi,i-1,j,ny,nx);
     float xi_c = get_cell(xi,i,j,ny,nx);
 
-    TauByJacobian tau_by_t = get_tau_by_jac({v_t,u_tl,u_tr,u_l,u_r,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
+    TauByJacobian tau_by_t = get_tau_by_jac({v_t,v_tt,v_b,u_tl,u_tr,u_l,u_r,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
     r[2]  += tau_by_t.res;
-    J[12] += tau_by_t.d_v;
+    J[12] += tau_by_t.d_v_c;
+    J[13] += tau_by_t.d_v_b;
     J[10] += tau_by_t.d_u_bl;
     J[11] += tau_by_t.d_u_br;
     J[14] += tau_by_t.d_H_b;
@@ -429,6 +435,7 @@ __device__ void build_5x5_vanka(
 
     // Basal shear stress for bottom momentum
     {
+    float v_bb = get_hfacet(v,i+2,j,ny,nx);
     float u_bl = get_vfacet(u,i+1,j,ny,nx);
     float u_br = get_vfacet(u,i+1,j+1,ny,nx);
 
@@ -438,9 +445,10 @@ __device__ void build_5x5_vanka(
     float xi_c = get_cell(xi,i,j,ny,nx);
     float xi_b = get_cell(xi,i+1,j,ny,nx);
 
-    TauByJacobian tau_by_b = get_tau_by_jac({v_b,u_l,u_r,u_bl,u_br,H_c,H_b,xi_c,xi_b,beta_c,beta_b,m,u_reg,water_drag,flotation_reg_sliding});
+    TauByJacobian tau_by_b = get_tau_by_jac({v_b,v_t,v_bb,u_l,u_r,u_bl,u_br,H_c,H_b,xi_c,xi_b,beta_c,beta_b,m,u_reg,water_drag,flotation_reg_sliding});
     r[3]  += tau_by_b.res;
-    J[18] += tau_by_b.d_v;
+    J[18] += tau_by_b.d_v_c;
+    J[17] += tau_by_b.d_v_t;
     J[15] += tau_by_b.d_u_tl;
     J[16] += tau_by_b.d_u_tr;
     J[19] += tau_by_b.d_H_t;

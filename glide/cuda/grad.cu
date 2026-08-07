@@ -44,6 +44,8 @@ void compute_gradient_beta(
 	if (has_u){
 
             float u_l    = get_vfacet(u,i,j,ny,nx);
+            float u_ll    = get_vfacet(u,i,j-1,ny,nx);
+            float u_r    = get_vfacet(u,i,j+1,ny,nx);
             float v_tl   = get_hfacet(v,i,j-1,ny,nx);
 	    float v_tr   = get_hfacet(v,i,j,ny,nx);
 	    float v_bl   = get_hfacet(v,i+1,j-1,ny,nx);
@@ -57,7 +59,7 @@ void compute_gradient_beta(
 	    float xi_c  = get_cell(xi,i,j,ny,nx);
 	    float beta_l = get_cell(beta,i,j-1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauBxJacobian j_tau_bx = get_tau_bx_jac({u_l,v_tl,v_tr,v_bl,v_br,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
+	    TauBxJacobian j_tau_bx = get_tau_bx_jac({u_l,u_ll,u_r,v_tl,v_tr,v_bl,v_br,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
 
 	    float lambda_u_l = get_vfacet(lambda_u,i,j,ny,nx);
 
@@ -68,6 +70,8 @@ void compute_gradient_beta(
 	if (has_v){
 
 	    float v_t  = get_hfacet(v,i,j,ny,nx);
+	    float v_tt  = get_hfacet(v,i-1,j,ny,nx);
+	    float v_b  = get_hfacet(v,i+1,j,ny,nx);
             float u_tl = get_vfacet(u,i-1,j,ny,nx);
             float u_tr = get_vfacet(u,i-1,j+1,ny,nx);
             float u_bl = get_vfacet(u,i,j,ny,nx);
@@ -82,7 +86,7 @@ void compute_gradient_beta(
 	    float beta_t = get_cell(beta,i-1,j,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
 
-	    TauByJacobian j_tau_by = get_tau_by_jac({v_t,u_tl,u_tr,u_bl,u_br,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
+	    TauByJacobian j_tau_by = get_tau_by_jac({v_t,v_tt,v_b,u_tl,u_tr,u_bl,u_br,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
 	    
 	    float lambda_v_t = get_hfacet(lambda_v,i,j,ny,nx);
 	    
