@@ -528,14 +528,16 @@ class FASCDSolver:
         start_level_ = self.multigrid.levels[start_level]
         start_level_.forward_operators.set_rhs(dt)
         
-        ru_init,rv_init,rH_init = start_level_.forward_operators.compute_residual(dt,return_norms=True)
-        initial_residual_norm = cp.sqrt(ru_init**2 + rv_init**2 + rH_init**2)
+        ru_init,rv_init,rud_init,rvd_init,rH_init = start_level_.forward_operators.compute_residual(dt,return_norms=True)
+        initial_residual_norm = cp.sqrt(ru_init**2 + rv_init**2 + 0*rud_init**2 + 0*rvd_init**2 + rH_init**2)
         relative_residual_norm = cp.float32(1.0)
 
         if self._fas_config.report_norms:
             print(f"  Initial:   |r0|     = {initial_residual_norm:.2e}, "
                   f"|r_u| = {float(ru_init):.2e}, "
                   f"|r_v| = {float(rv_init):.2e}, "
+                  f"|r_u| = {float(rud_init):.2e}, "
+                  f"|r_v| = {float(rvd_init):.2e}, "
                   f"|r_H| = {float(rH_init):.2e}")
 
         absolute_residual_norm = initial_residual_norm
@@ -544,14 +546,16 @@ class FASCDSolver:
                 and absolute_residual_norm > self._fas_config.absolute_tolerance
                 and iteration < self._fas_config.maximum_vcycles):
             self.vcycle(start_level,finest=True)
-            ru,rv,rH = start_level_.forward_operators.compute_residual(dt,freeze_phi=True,return_norms=True)
+            ru,rv,rud,rvd,rH = start_level_.forward_operators.compute_residual(dt,freeze_phi=True,return_norms=True)
 
-            absolute_residual_norm = cp.sqrt(ru**2 + rv**2 + rH**2)
+            absolute_residual_norm = cp.sqrt(ru**2 + rv**2 + 0*rud**2 + 0*rvd**2 + rH**2)
             relative_residual_norm = absolute_residual_norm / initial_residual_norm
             if self._fas_config.report_norms:
                 print(f"  V-cycle {iteration}: |r|/|r0| = {relative_residual_norm:.2e}, "
                       f"|r_u| = {float(ru):.2e}, "
                       f"|r_v| = {float(rv):.2e}, "
+                      f"|r_ud| = {float(rud):.2e}, "
+                      f"|r_vd| = {float(rvd):.2e}, "
                       f"|r_H| = {float(rH):.2e}")
             iteration += 1
 

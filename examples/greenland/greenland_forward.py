@@ -107,8 +107,8 @@ zarr_writer.initialize(mg[0],overwrite=True)
 
 # Run simulation
 t = cp.float32(0.0)
-t_end = cp.float32(1000.0)
-dt = cp.float32(25.0)
+t_end = cp.float32(200.0)
+dt = cp.float32(10.0)
 while t < t_end:
     print(f"Solving forward problem at t={t} with dt={dt:.2f}")
     model.forward(t,dt)

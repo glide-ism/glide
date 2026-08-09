@@ -25,26 +25,38 @@ class ForwardOperators:
 
         self.r_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.r_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.r_ud = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.r_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.r_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
         
         self.f_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.f_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.f_ud = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.f_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.f_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
         
         self.F_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.F_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.F_ud = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.F_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.F_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
 
         self.delta_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.delta_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.delta_ud = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.delta_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.delta_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
 
         self._var_u = None
         self._var_v = None
+        self._var_ud = None
+        self._var_vd = None
         self._var_H = None
 
         self._jvp_u = None
         self._jvp_v = None
+        self._jvp_ud = None
+        self._jvp_vd = None
         self._jvp_H = None
 
         self.gamma = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
@@ -90,19 +102,23 @@ class ForwardOperators:
         if operator_only:
             out_u = self.F_u
             out_v = self.F_v
+            out_ud = self.F_ud
+            out_vd = self.F_vd
             out_H = self.F_H
             use_forcing = False
         else:
             out_u = self.r_u
             out_v = self.r_v
+            out_ud = self.r_ud
+            out_vd = self.r_vd
             out_H = self.r_H
             use_forcing = True
 
         kernel(grid_size, block_size,
-               (out_u, out_v, out_H,
-                state.u.data, state.v.data, state.H.data, 
+               (out_u, out_v, out_ud, out_vd, out_H,
+                state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data, 
                 state.phi.data, state.xi.data, state.mask.data,
-                self.f_u, self.f_v, self.f_H,
+                self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
                 geometry.bed.data, 
                 rheology.B.data, 
                 sliding.beta.data,
@@ -117,7 +133,7 @@ class ForwardOperators:
                 grid.ny, grid.nx, stride, halo)) 
 
         if return_norms:
-            return cp.linalg.norm(out_u),cp.linalg.norm(out_v),cp.linalg.norm(out_H)
+            return cp.linalg.norm(out_u),cp.linalg.norm(out_v),cp.linalg.norm(out_ud),cp.linalg.norm(out_vd),cp.linalg.norm(out_H)
 
     def compute_jvp(self, dt, 
             use_mask=True, 
@@ -146,11 +162,11 @@ class ForwardOperators:
             self.compute_xi()
 
         kernel(grid_size, block_size,
-               (self.jvp_u, self.jvp_v, self.jvp_H,
-                state.u.data, state.v.data, state.H.data, 
-                self.var_u, self.var_v, self.var_H, 
+               (self.jvp_u, self.jvp_v, self.jvp_ud, self.jvp_vd, self.jvp_H,
+                state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data, 
+                self.var_u, self.var_v, self.var_ud, self.var_vd, self.var_H, 
                 state.phi.data, state.xi.data, state.mask.data,
-                self.f_u, self.f_v, self.f_H,
+                self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
                 geometry.bed.data, 
                 rheology.B.data, 
                 sliding.beta.data,
@@ -218,13 +234,15 @@ class ForwardOperators:
 
         self.delta_u.fill(0.0)
         self.delta_v.fill(0.0)
+        self.delta_ud.fill(0.0)
+        self.delta_vd.fill(0.0)
         self.delta_H.fill(0.0)
         kernel(grid_size, block_size,
-               (self.delta_u, self.delta_v, self.delta_H, 
+               (self.delta_u, self.delta_v, self.delta_ud, self.delta_vd, self.delta_H, 
                 state.mask.data,
-                state.u.data, state.v.data, state.H.data, 
+                state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data, 
                 state.phi.data, state.xi.data,
-                self.f_u, self.f_v, self.f_H,
+                self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
                 geometry.bed.data, rheology.B.data, sliding.beta.data, 
                 self.gamma,
                 rheology.n.value, rheology.eps_reg.value, 
@@ -249,6 +267,9 @@ class ForwardOperators:
             self.vanka_smooth(dt,freeze_calving=freeze_calving,freeze_phi=freeze_phi)
             self.grid.state.u.data[:] += self.vanka_config.omega * self.delta_u
             self.grid.state.v.data[:] += self.vanka_config.omega * self.delta_v
+            self.grid.state.ud.data[:] += self.vanka_config.omega * self.delta_ud
+            self.grid.state.vd.data[:] += self.vanka_config.omega * self.delta_vd
+
             self.grid.state.H.data[:] += self.vanka_config.omega * self.delta_H
             self.vanka_config.hook_func(i)
 
@@ -261,8 +282,8 @@ class ForwardOperators:
         r = cp.zeros((self.grid.ny*self.grid.nx,5),dtype=cp.float32)
         kernel(grid_size, block_size,
                (J,r,
-                grid.state.u.data, grid.state.v.data, grid.state.H.data, grid.state.phi.data, grid.state.xi.data,
-                self.f_u, self.f_v, self.f_H,
+                grid.state.u.data, grid.state.v.data, grid.state.ud.data, grid.state.vd.data, grid.state.H.data, grid.state.phi.data, grid.state.xi.data,
+                self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
                 grid.geometry.bed.data, grid.rheology.B.data, grid.sliding.beta.data, self.gamma,
                 grid.rheology.n.value, grid.rheology.eps_reg.value, grid.geometry.sigmoid_c.value,
                 grid.sliding.m.value, grid.sliding.u_reg.value, grid.sliding.water_drag.value, grid.sliding.flotation_reg_sliding.value,
@@ -288,6 +309,19 @@ class ForwardOperators:
         if self._var_v is None:
             self._var_v = cp.zeros((self.grid.ny+1,self.grid.nx),dtype=cp.float32)
         return self._var_v
+
+    @property
+    def var_ud(self):
+        if self._var_ud is None:
+            self._var_ud = cp.zeros((self.grid.ny,self.grid.nx+1),dtype=cp.float32)
+        return self._var_ud
+    
+    @property
+    def var_vd(self):
+        if self._var_vd is None:
+            self._var_vd = cp.zeros((self.grid.ny+1,self.grid.nx),dtype=cp.float32)
+        return self._var_vd
+
     
     @property
     def var_H(self):
@@ -306,6 +340,18 @@ class ForwardOperators:
         if self._jvp_v is None:
             self._jvp_v = cp.zeros((self.grid.ny+1,self.grid.nx),dtype=cp.float32)
         return self._jvp_v
+
+    @property
+    def jvp_ud(self):
+        if self._jvp_ud is None:
+            self._jvp_ud = cp.zeros((self.grid.ny,self.grid.nx+1),dtype=cp.float32)
+        return self._jvp_ud
+    
+    @property
+    def jvp_vd(self):
+        if self._jvp_vd is None:
+            self._jvp_vd = cp.zeros((self.grid.ny+1,self.grid.nx),dtype=cp.float32)
+        return self._jvp_vd
     
     @property
     def jvp_H(self):
@@ -351,18 +397,26 @@ class AdjointOperators:
 
         self.r_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.r_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.r_ud = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.r_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.r_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
         
         self.f_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.f_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.f_ud = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.f_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.f_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
         
         self.vjp_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.vjp_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.vjp_ud = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.vjp_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.vjp_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
         
         self.delta_lambda_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.delta_lambda_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.delta_lambda_ud = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.delta_lambda_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.delta_lambda_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
 
         self.gamma = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
@@ -402,6 +456,8 @@ class AdjointOperators:
 
         self.r_u.fill(0)
         self.r_v.fill(0)
+        self.r_ud.fill(0)
+        self.r_vd.fill(0)
         self.r_H.fill(0)
         use_forcing=True
         kernel(grid_size, block_size,
@@ -453,6 +509,8 @@ class AdjointOperators:
         use_forcing=False
         self.vjp_u.fill(0)
         self.vjp_v.fill(0)
+        self.vjp_ud.fill(0)
+        self.vjp_vd.fill(0)
         self.vjp_H.fill(0)
         kernel(grid_size, block_size,
                (self.vjp_u, self.vjp_v, self.vjp_H,
@@ -495,6 +553,8 @@ class AdjointOperators:
 
         self.delta_lambda_u.fill(0.0)
         self.delta_lambda_v.fill(0.0)
+        self.delta_lambda_ud.fill(0.0)
+        self.delta_lambda_vd.fill(0.0)
         self.delta_lambda_H.fill(0.0)
         kernel(grid_size, block_size,
                (self.delta_lambda_u, self.delta_lambda_v, self.delta_lambda_H, 

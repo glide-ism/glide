@@ -6,15 +6,21 @@ extern "C" __global__
 void compute_residual(
     float* __restrict__ r_u,
     float* __restrict__ r_v,
+    float* __restrict__ r_ud,
+    float* __restrict__ r_vd,
     float* __restrict__ r_H,
     const float* __restrict__ u,
     const float* __restrict__ v,
+    const float* __restrict__ ud,
+    const float* __restrict__ vd,
     const float* __restrict__ H,
     const float* __restrict__ phi,
     const float* __restrict__ xi,
     const float* __restrict__ mask,
     const float* __restrict__ f_u,
     const float* __restrict__ f_v,
+    const float* __restrict__ f_ud,
+    const float* __restrict__ f_vd,
     const float* __restrict__ f_H,
     const float* __restrict__ bed,
     const float* __restrict__ B,
@@ -109,8 +115,16 @@ void compute_residual(
 	
 	if (has_u){
 
+            float K_1 = 1.0f / (2.0f * n + 3.0f);
+            float S_1 = (n + 2.0f) * (n + 2.0f) / (2.0f * n + 1.0f);
+            float c_1 = __powf(1.0f / (n + 2.0f),2.0f * n / (n + 1.0f)) * (2.0f * n + 1.0f);
+
 	    float ru_l = 0.0f;
-	    if (use_forcing) ru_l -= get_vfacet(f_u,i,j,ny,nx);
+            float rud_l = 0.0f;
+	    if (use_forcing) {
+                ru_l -= get_vfacet(f_u,i,j,ny,nx);
+                rud_l -= get_vfacet(f_ud,i,j,ny,nx);
+            }
 
 	    {
 	    float eta_c = eta_local[bi][bj];
@@ -124,6 +138,14 @@ void compute_residual(
             SigmaNormalJacobian sigma_xx_c = get_sigma_xx_jac({u_l,u_r,v_t,v_b,eta_H_c.res},dx_inv,i,j,ny,nx);
             
 	    ru_l += sigma_xx_c.res * dx_inv;
+
+            float ud_l = get_vfacet(ud,i,j,ny,nx);
+	    float ud_r = get_vfacet(ud,i,j+1,ny,nx);
+	    float vd_t = get_hfacet(vd,i,j,ny,nx);
+	    float vd_b = get_hfacet(vd,i+1,j,ny,nx);
+            SigmaNormalJacobian sigmad_xx_c = get_sigma_xx_jac({ud_l,ud_r,vd_t,vd_b,eta_H_c.res},dx_inv,i,j,ny,nx);
+            
+	    rud_l += K_1 * sigmad_xx_c.res * dx_inv;
 	    }
 
 	    {
@@ -138,6 +160,15 @@ void compute_residual(
             SigmaNormalJacobian sigma_xx_l = get_sigma_xx_jac({u_ll,u_l,v_lt,v_lb,eta_H_l.res},dx_inv,i,j - 1,ny,nx);
 
 	    ru_l -= sigma_xx_l.res * dx_inv;
+
+            float ud_l    = get_vfacet(ud,i,j,ny,nx);
+	    float ud_ll   = get_vfacet(ud,i,j-1,ny,nx);
+	    float vd_lt   = get_hfacet(vd,i,j-1,ny,nx);
+	    float vd_lb   = get_hfacet(vd,i+1,j-1,ny,nx);
+            SigmaNormalJacobian sigmad_xx_l = get_sigma_xx_jac({ud_ll,ud_l,vd_lt,vd_lb,eta_H_l.res},dx_inv,i,j - 1,ny,nx);
+
+	    rud_l -= K_1 * sigmad_xx_l.res * dx_inv;
+
 	    }
 	    
 	    {
@@ -161,6 +192,17 @@ void compute_residual(
 	    SigmaShearJacobian sigma_xy_tl = get_sigma_xy_jac({u_tl,u_l,v_lt,v_t,eta_H_tl.res},dx_inv,i,j,ny,nx);
 
 	    ru_l += sigma_xy_tl.res * dx_inv;
+
+	    float ud_tl = get_vfacet(ud,i-1,j,ny,nx);
+	    float ud_l = get_vfacet(ud,i,j,ny,nx);
+	    float vd_lt = get_hfacet(vd,i,j-1,ny,nx);
+	    float vd_t = get_hfacet(vd,i,j,ny,nx);
+	    
+	    SigmaShearJacobian sigmad_xy_tl = get_sigma_xy_jac({ud_tl,ud_l,vd_lt,vd_t,eta_H_tl.res},dx_inv,i,j,ny,nx);
+
+	    rud_l += K_1 * sigmad_xy_tl.res * dx_inv;
+
+
 	    }
 
 	    {
@@ -183,16 +225,56 @@ void compute_residual(
 	    SigmaShearJacobian sigma_xy_bl = get_sigma_xy_jac({u_l,u_bl,v_lb,v_b,eta_H_bl.res},dx_inv,i + 1,j,ny,nx);
     
 	    ru_l -= sigma_xy_bl.res * dx_inv;
+
+	    float ud_l    = get_vfacet(ud,i,j,ny,nx);
+	    float ud_bl   = get_vfacet(ud,i+1,j,ny,nx);
+	    float vd_lb   = get_hfacet(vd,i+1,j-1,ny,nx);
+	    float vd_b    = get_hfacet(vd,i+1,j,ny,nx);
+	    SigmaShearJacobian sigmad_xy_bl = get_sigma_xy_jac({ud_l,ud_bl,vd_lb,vd_b,eta_H_bl.res},dx_inv,i + 1,j,ny,nx);
+    
+	    rud_l -= K_1 * sigmad_xy_bl.res * dx_inv;
+
 	    }
+
+            {
+            float eta_l = eta_local[bi][bj-1];
+            float eta_c = eta_local[bi][bj];
+            float H_l = get_cell(H,i,j-1,ny,nx);
+            float H_c = get_cell(H,i,j,ny,nx);
+            float ud_l = get_vfacet(ud,i,j,ny,nx);
+            SigmaVertXZJacobian sigmad_xz_l = get_sigma_xz_jac({ud_l,eta_l,eta_c,H_l,H_c},c_1,S_1,i,j,ny,nx);
+            
+            rud_l += sigmad_xz_l.res;
+            }
 	
             {    
             float u_l    = get_vfacet(u,i,j,ny,nx);
-            float u_ll    = get_vfacet(u,i,j-1,ny,nx);
+            float ud_l   = get_vfacet(ud,i,j,ny,nx);
+            float ub_l   = u_l - ud_l;
+
+            float u_ll   = get_vfacet(u,i,j-1,ny,nx);
+            float ud_ll  = get_vfacet(ud,i,j-1,ny,nx);
+            float ub_ll  = u_ll - ud_ll; 
+
             float u_r    = get_vfacet(u,i,j+1,ny,nx);
+            float ud_r   = get_vfacet(ud,i,j+1,ny,nx);
+            float ub_r   = u_r - ud_r;
+ 
             float v_tl   = get_hfacet(v,i,j-1,ny,nx);
-	    float v_tr   = get_hfacet(v,i,j,ny,nx);
-	    float v_bl   = get_hfacet(v,i+1,j-1,ny,nx);
+            float vd_tl  = get_hfacet(vd,i,j-1,ny,nx);
+	    float vb_tl  = v_tl - vd_tl;
+
+            float v_tr   = get_hfacet(v,i,j,ny,nx);
+            float vd_tr  = get_hfacet(vd,i,j,ny,nx);
+            float vb_tr  = v_tr - vd_tr;
+	    
+            float v_bl   = get_hfacet(v,i+1,j-1,ny,nx);
+            float vd_bl  = get_hfacet(vd,i+1,j-1,ny,nx);
+            float vb_bl  = v_bl - vd_bl;
+
 	    float v_br   = get_hfacet(v,i+1,j,ny,nx);
+	    float vd_br  = get_hfacet(vd,i+1,j,ny,nx);
+            float vb_br  = vd_br - vd_br;
 
 	    float H_l    = get_cell(H,i,j-1,ny,nx);
 	    float H_c    = get_cell(H,i,j,ny,nx);
@@ -202,8 +284,9 @@ void compute_residual(
 	    float xi_c = get_cell(xi,i,j,ny,nx);
 	    float beta_l = get_cell(beta,i,j-1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauBxJacobian tau_bx = get_tau_bx_jac({u_l,u_ll,u_r,v_tl,v_tr,v_bl,v_br,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
+	    TauBxJacobian tau_bx = get_tau_bx_jac({ub_l,ub_ll,ub_r,vb_tl,vb_tr,vb_bl,vb_br,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
 	    ru_l += tau_bx.res;
+            rud_l -= tau_bx.res;
 	    }
 
 	    {
@@ -219,14 +302,23 @@ void compute_residual(
 
 	    if (j == 0 || j == nx) {
 		ru_l = get_vfacet(u,i,j,ny,nx);
+                rud_l = get_vfacet(ud,i,j,ny,nx);
 	    }	
 	    r_u[i * (nx + 1) + j] = ru_l;
+            r_ud[i * (nx + 1) + j] = rud_l;
 	}
 
 	if (has_v){
+            float K_1 = 1.0f / (2.0f * n + 3.0f);
+            float S_1 = (n + 2.0f) * (n + 2.0f) / (2.0f * n + 1.0f);
+            float c_1 = __powf(1.0f / (n + 2.0f),2.0f * n / (n + 1.0f)) * (2.0f * n + 1.0f);
 
 	    float rv_t = 0.0f;
-	    if (use_forcing) rv_t -= get_hfacet(f_v,i,j,ny,nx);
+            float rvd_t = 0.0f;
+	    if (use_forcing) {
+                rv_t -= get_hfacet(f_v,i,j,ny,nx);
+                rvd_t -= get_hfacet(f_vd,i,j,ny,nx);
+            }
 
 	    {
 	    float eta_t = eta_local[bi - 1][bj];
@@ -239,6 +331,13 @@ void compute_residual(
 	    float v_t = get_hfacet(v,i,j,ny,nx);
 	    SigmaNormalJacobian sigma_yy_t = get_sigma_yy_jac({u_tl,u_tr,v_tt,v_t,eta_H_t.res},dx_inv,i-1,j,ny,nx);
             rv_t += sigma_yy_t.res * dx_inv;
+
+	    float ud_tl = get_vfacet(ud,i-1,j,ny,nx);
+	    float ud_tr = get_vfacet(ud,i-1,j+1,ny,nx);
+	    float vd_tt = get_hfacet(vd,i-1,j,ny,nx);
+	    float vd_t = get_hfacet(vd,i,j,ny,nx);
+	    SigmaNormalJacobian sigmad_yy_t = get_sigma_yy_jac({ud_tl,ud_tr,vd_tt,vd_t,eta_H_t.res},dx_inv,i-1,j,ny,nx);
+            rvd_t += K_1 * sigmad_yy_t.res * dx_inv;
 	    }
 
 	    {
@@ -252,6 +351,13 @@ void compute_residual(
 	    float v_b = get_hfacet(v,i+1,j,ny,nx);
             SigmaNormalJacobian sigma_yy_c = get_sigma_yy_jac({u_l,u_r,v_t,v_b,eta_H_c.res},dx_inv,i,j,ny,nx);
 	    rv_t -= sigma_yy_c.res * dx_inv;
+
+            float ud_l = get_vfacet(ud,i,j,ny,nx);
+	    float ud_r = get_vfacet(ud,i,j+1,ny,nx);
+	    float vd_t = get_hfacet(vd,i,j,ny,nx);
+	    float vd_b = get_hfacet(vd,i+1,j,ny,nx);
+            SigmaNormalJacobian sigmad_yy_c = get_sigma_yy_jac({ud_l,ud_r,vd_t,vd_b,eta_H_c.res},dx_inv,i,j,ny,nx);
+	    rvd_t -= K_1 * sigmad_yy_c.res * dx_inv;
 	    }
 
 	    {
@@ -275,6 +381,16 @@ void compute_residual(
 	    SigmaShearJacobian sigma_xy_tl = get_sigma_xy_jac({u_tl,u_l,v_lt,v_t,eta_H_tl.res},dx_inv,i,j,ny,nx);
 
 	    rv_t -= sigma_xy_tl.res * dx_inv;
+
+	    float ud_tl = get_vfacet(ud,i-1,j,ny,nx);
+	    float ud_l = get_vfacet(ud,i,j,ny,nx);
+	    float vd_lt = get_hfacet(vd,i,j-1,ny,nx);
+	    float vd_t = get_hfacet(vd,i,j,ny,nx);
+
+	    SigmaShearJacobian sigmad_xy_tl = get_sigma_xy_jac({ud_tl,ud_l,vd_lt,vd_t,eta_H_tl.res},dx_inv,i,j,ny,nx);
+	    
+            rvd_t -= K_1 * sigmad_xy_tl.res * dx_inv;
+
 	    }
 
 	    {
@@ -296,16 +412,56 @@ void compute_residual(
 	    float v_rt = get_hfacet(v,i,j+1,ny,nx);
 	    SigmaShearJacobian sigma_xy_tr = get_sigma_xy_jac({u_tr,u_r,v_t,v_rt,eta_H_tr.res},dx_inv,i,j+1,ny,nx);
 	    rv_t += sigma_xy_tr.res * dx_inv;
+
+	    float ud_tr = get_vfacet(ud,i-1,j+1,ny,nx);
+	    float ud_r = get_vfacet(ud,i,j+1,ny,nx);
+	    float vd_t = get_hfacet(vd,i,j,ny,nx);
+	    float vd_rt = get_hfacet(vd,i,j+1,ny,nx);
+	    SigmaShearJacobian sigmad_xy_tr = get_sigma_xy_jac({ud_tr,ud_r,vd_t,vd_rt,eta_H_tr.res},dx_inv,i,j+1,ny,nx);
+	    rvd_t += K_1 * sigmad_xy_tr.res * dx_inv;
+
 	    }
+
+            {
+            float eta_t = eta_local[bi-1][bj];
+            float eta_b = eta_local[bi][bj];
+            float H_t = get_cell(H,i-1,j,ny,nx);
+            float H_b = get_cell(H,i,j,ny,nx);
+            float vd_t = get_vfacet(ud,i,j,ny,nx);
+            SigmaVertYZJacobian sigmad_yz_l = get_sigma_yz_jac({vd_t,eta_t,eta_b,H_t,H_b},c_1,S_1,i,j,ny,nx);
+            
+            rvd_t += sigmad_yz_l.res;
+            }
+
 
 	    {
 	    float v_t = get_hfacet(v,i,j,ny,nx);
+	    float vd_t = get_hfacet(vd,i,j,ny,nx);
+            float vb_t = v_t - vd_t;
+
 	    float v_tt = get_hfacet(v,i-1,j,ny,nx);
+	    float vd_tt = get_hfacet(vd,i-1,j,ny,nx);
+            float vb_tt = v_tt - vd_tt;
+
 	    float v_b = get_hfacet(v,i+1,j,ny,nx);
+	    float vd_b = get_hfacet(vd,i+1,j,ny,nx);
+            float vb_b = v_b - vd_b;
+
             float u_tl = get_vfacet(u,i-1,j,ny,nx);
+            float ud_tl = get_vfacet(ud,i-1,j,ny,nx);
+            float ub_tl = u_tl - ud_tl;
+
             float u_tr = get_vfacet(u,i-1,j+1,ny,nx);
+            float ud_tr = get_vfacet(ud,i-1,j+1,ny,nx);
+            float ub_tr = u_tr - ud_tr;
+ 
             float u_bl = get_vfacet(u,i,j,ny,nx);
+            float ud_bl = get_vfacet(ud,i,j,ny,nx);
+            float ub_bl = u_bl - ud_bl;
+
             float u_br = get_vfacet(u,i,j+1,ny,nx);
+            float ud_br = get_vfacet(ud,i,j+1,ny,nx);
+            float ub_br = u_br - ud_br;
 
 	    float H_t    = get_cell(H,i-1,j,ny,nx);
 	    float H_c    = get_cell(H,i,j,ny,nx);
@@ -316,8 +472,9 @@ void compute_residual(
 	    float beta_t = get_cell(beta,i-1,j,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
 
-	    TauByJacobian tau_by = get_tau_by_jac({v_t,v_tt,v_b,u_tl,u_tr,u_bl,u_br,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
+	    TauByJacobian tau_by = get_tau_by_jac({vb_t,vb_tt,vb_b,ub_tl,ub_tr,ub_bl,ub_br,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
 	    rv_t += tau_by.res;
+            rvd_t -= tau_by.res;
 	    }
 
 	    {
@@ -334,9 +491,11 @@ void compute_residual(
 
 	    if (i == 0 || i == ny) {
 		rv_t = get_hfacet(v,i,j,ny,nx);
+                rvd_t = get_hfacet(vd,i,j,ny,nx);
 	    }	
 
 	    r_v[i * nx + j] = rv_t;
+            r_vd[i * nx + j] = rvd_t;
 	}
     }
 }

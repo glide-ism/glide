@@ -9,6 +9,8 @@ from .operators import ForwardOperators, AdjointOperators
 class State:
     u: Field | None = None
     v: Field | None = None
+    ud: Field | None = None
+    vd: Field | None = None
     H: Field | None = None
     H_prev: Field | None = None
     phi: Field | None = None
@@ -22,6 +24,8 @@ class State:
 class AdjointState:
     lambda_u: Field | None = None
     lambda_v: Field | None = None
+    lambda_ud: Field | None = None
+    lambda_vd: Field | None = None
     lambda_H: Field | None = None
 
     def __repr__(self):
@@ -266,6 +270,26 @@ class Grid:
             units='m a^{-1}',
             attrs={'long_name':'y component of depth-averaged velocity'})
 
+        ud = Field(
+            data=cp.zeros((self.ny, self.nx+1),dtype=cp.float32),
+            grid_entity=GridEntity.VERTICAL_FACET,
+            dx=self.dx,
+            grid=self,
+            name='ud',
+            units='m a^{-1}',
+            attrs={'long_name':'x component of deformation velocity'})
+        
+        vd = Field(
+            data=cp.zeros((self.ny+1, self.nx),dtype=cp.float32),
+            grid_entity=GridEntity.HORIZONTAL_FACET,
+            dx=self.dx,
+            grid=self,
+            name='vd',
+            units='m a^{-1}',
+            attrs={'long_name':'y component of deformation velocity'})
+
+
+
         H = Field(
             data=cp.zeros((self.ny,self.nx),dtype=cp.float32),
             grid_entity=GridEntity.CELL,
@@ -313,7 +337,7 @@ class Grid:
             attrs={'long_name':'''Active set mask - if unity, thickness is 
                          set to thklim in Dirichlet BC fashion'''})
 
-        return State(u=u,v=v,H=H,H_prev=H_prev,phi=phi,xi=xi,mask=mask)
+        return State(u=u,v=v,ud=ud,vd=vd,H=H,H_prev=H_prev,phi=phi,xi=xi,mask=mask)
 
     def _allocate_adjoint_state(self):
         lambda_u = Field(
@@ -334,6 +358,25 @@ class Grid:
             units='varies with objective fn',
             attrs={'long_name':'Adjoint variable for v'})
 
+        lambda_ud = Field(
+            data=cp.zeros((self.ny, self.nx+1),dtype=cp.float32),
+            grid_entity=GridEntity.VERTICAL_FACET,
+            dx=self.dx,
+            grid=self,
+            name='lambda_ud',
+            units='varies with objective fn',
+            attrs={'long_name':'Adjoint variable for ud'})
+
+        lambda_vd = Field(
+            data=cp.zeros((self.ny+1, self.nx),dtype=cp.float32),
+            grid_entity=GridEntity.HORIZONTAL_FACET,
+            dx=self.dx,
+            grid=self,
+            name='lambda_vd',
+            units='varies with objective fn',
+            attrs={'long_name':'Adjoint variable for vd'})
+
+
         lambda_H = Field(
             cp.zeros((self.ny,self.nx),dtype=cp.float32),
             grid_entity=GridEntity.CELL,
@@ -343,7 +386,7 @@ class Grid:
             units='varies with objective fn',
             attrs={'long_name':'Adjoint variable for H'})
 
-        return AdjointState(lambda_u=lambda_u,lambda_v=lambda_v,lambda_H=lambda_H)
+        return AdjointState(lambda_u=lambda_u,lambda_v=lambda_v,lambda_ud=lambda_ud,lambda_vd=lambda_vd,lambda_H=lambda_H)
 
     def _allocate_geometry(self):
         bed = SubgridField(

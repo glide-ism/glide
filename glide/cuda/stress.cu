@@ -1,3 +1,123 @@
+struct SigmaVertXZStencil {
+    float u_c;
+    float eta_l, eta_r;
+    float H_l, H_r;
+};
+
+struct SigmaVertXZStencilDual {
+    DualFloat u_c;
+    DualFloat eta_l, eta_r;
+    DualFloat H_l, H_r;
+
+    __device__ __forceinline__
+    SigmaVertXZStencil get_primals() const {
+        return {u_c.v, eta_l.v,eta_r.v,H_l.v,H_r.v};
+    }
+    
+    __device__ __forceinline__
+    SigmaVertXZStencil get_diffs() const {
+        return {u_c.d,eta_l.d,eta_r.d,H_l.d,H_r.d};
+    }
+};
+
+struct SigmaVertXZJacobian {
+    float res;
+    float d_u_c;
+    float d_eta_l, d_eta_r;
+    float d_H_l, d_H_r;
+    
+    __device__ __forceinline__
+    float apply_jvp(const SigmaVertXZStencil& dot) const {
+        return d_u_c * dot.u_c +
+	       d_eta_l * dot.eta_l +
+	       d_eta_r * dot.eta_r +
+	       d_H_l * dot.H_l +
+	       d_H_r * dot.H_r;
+    }
+};
+
+__device__ __forceinline__
+SigmaVertXZJacobian get_sigma_xz_jac(
+    SigmaVertXZStencil s,
+    float c_1, float S_1,
+    int i, int j,  // Defined on cells - the i,j for the cell
+    int ny, int nx) {
+
+    SigmaVertXZJacobian jac = {0};
+
+    float factr = c_1 * S_1 / 4.0f;
+    float shear = s.eta_l / s.H_l + s.eta_r / s.H_r;
+
+    jac.res = factr * shear * s.u_c;
+    jac.d_u_c = factr * shear;
+    jac.d_eta_l = factr / s.H_l * s.u_c;
+    jac.d_eta_r = factr / s.H_r * s.u_c;
+    jac.d_H_l = - factr * s.eta_l / (s.H_l * s.H_l) * s.u_c;
+    jac.d_H_r = - factr * s.eta_r / (s.H_r * s.H_r) * s.u_c;
+
+    return jac;
+}
+
+struct SigmaVertYZStencil {
+    float v_c;
+    float eta_t, eta_b;
+    float H_t, H_b;
+};
+
+struct SigmaVertYZStencilDual {
+    DualFloat v_c;
+    DualFloat eta_t, eta_b;
+    DualFloat H_t, H_b;
+
+    __device__ __forceinline__
+    SigmaVertYZStencil get_primals() const {
+        return {v_c.v, eta_t.v,eta_b.v,H_t.v,H_b.v};
+    }
+    
+    __device__ __forceinline__
+    SigmaVertYZStencil get_diffs() const {
+        return {v_c.d,eta_t.d,eta_b.d,H_t.d,H_b.d};
+    }
+};
+
+struct SigmaVertYZJacobian {
+    float res;
+    float d_v_c;
+    float d_eta_t, d_eta_b;
+    float d_H_t, d_H_b;
+    
+    __device__ __forceinline__
+    float apply_jvp(const SigmaVertYZStencil& dot) const {
+        return d_v_c * dot.v_c +
+	       d_eta_t * dot.eta_t +
+	       d_eta_b * dot.eta_b +
+	       d_H_t * dot.H_t +
+	       d_H_b * dot.H_b;
+    }
+};
+
+__device__ __forceinline__
+SigmaVertYZJacobian get_sigma_yz_jac(
+    SigmaVertYZStencil s,
+    float c_1, float S_1,
+    int i, int j,  // Defined on cells - the i,j for the cell
+    int ny, int nx) {
+
+    SigmaVertYZJacobian jac = {0};
+
+    float factr = c_1 * S_1 / 4.0f;
+    float shear = s.eta_t / s.H_t + s.eta_b / s.H_b;
+
+    jac.res = factr * shear * s.v_c;
+    jac.d_v_c = factr * shear;
+    jac.d_eta_t = factr / s.H_t * s.v_c;
+    jac.d_eta_b = factr / s.H_b * s.v_c;
+    jac.d_H_t = - factr * s.eta_t / (s.H_t * s.H_t) * s.v_c;
+    jac.d_H_b = - factr * s.eta_b / (s.H_b * s.H_b) * s.v_c;
+
+    return jac;
+}
+
 /*=======================================================
   ================== Normal Stress ======================
  ========================================================*/

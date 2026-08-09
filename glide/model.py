@@ -59,17 +59,25 @@ class IceDynamics:
         for f in self._post_forward_hooks:
             f(t+dt)
 
-    def backward(self,t,dt,dJdu=None,dJdv=None,dJdH=None,
+    def backward(self,t,dt,dJdu=None,dJdv=None,dJdud=None,dJdvd=None,dJdH=None,
             compute_beta_grad=True,compute_bed_grad=True,
             compute_H_prev_grad=True,compute_smb_grad=True):
         if dJdu is not None:
             self.mg.levels[self.top_level].adjoint_operators.f_u[:,:] = -dJdu
         else:
             self.mg.levels[self.top_level].adjoint_operators.f_u.fill(0.0)            
+        if dJdud is not None:
+            self.mg.levels[self.top_level].adjoint_operators.f_ud[:,:] = -dJdud
+        else:
+            self.mg.levels[self.top_level].adjoint_operators.f_ud.fill(0.0)            
         if dJdv is not None:
             self.mg.levels[self.top_level].adjoint_operators.f_v[:,:] = -dJdv
         else:
             self.mg.levels[self.top_level].adjoint_operators.f_v.fill(0.0)
+        if dJdvd is not None:
+            self.mg.levels[self.top_level].adjoint_operators.f_vd[:,:] = -dJdvd
+        else:
+            self.mg.levels[self.top_level].adjoint_operators.f_vd.fill(0.0)            
         if dJdH is not None:
             self.mg.levels[self.top_level].adjoint_operators.f_H[:,:] = -dJdH
         else:    

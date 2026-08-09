@@ -8,7 +8,7 @@ from glide.model import IceDynamics
 
 fig,axs = plt.subplots(nrows=2,ncols=3)
 
-for ax,L in zip(axs.ravel(),[5000,10000,20000,40000,80000,160000]):
+for ax,L in zip(axs.ravel(),[40000]):#,10000,20000,40000,80000,160000]):
 
     dt = cp.float32(0.1)
 
@@ -30,12 +30,14 @@ for ax,L in zip(axs.ravel(),[5000,10000,20000,40000,80000,160000]):
     X,Y = cp.meshgrid(x,y)
 
     srf = 1000.0 * cp.ones((ny,nx),dtype=cp.float32) - cp.tan(cp.deg2rad(0.1))*X + 10000
+    srf = srf.T
     bed = srf - 1000 
     thk = srf - bed
 
     rho_i = cp.float32(917.0)
     g = cp.float32(9.81)
     beta = (1000*cp.sin(2*cp.pi*X/L)*cp.sin(2*cp.pi*Y/L) + 1000)/(rho_i * g)
+    beta=beta.T
 
     B = cp.ones((ny,nx),dtype=cp.float32)
     B.fill((1e-16 ** -(1./3))/(rho_i * g))
@@ -49,6 +51,8 @@ for ax,L in zip(axs.ravel(),[5000,10000,20000,40000,80000,160000]):
     model.mg.sliding.u_reg.set(1.0)
     model.mg.state.H.set(thk)
     model.mg.state.H_prev.set(thk)
+
+    #model.mg[0].forward_operators.vanka_smooth(dt)
 
     ### Set multigrid solver parameters ###
     model.forward_solver.fas_options.set(
