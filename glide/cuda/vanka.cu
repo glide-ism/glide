@@ -214,7 +214,7 @@ __device__ void build_5x5_vanka(
     J[24] += j_r.d_H_l * dx_inv;
     r[4]  += j_r.res   * dx_inv;
     
-    FacetCalvingJacobian j_calve_r = get_facet_calving_jac({H_c,H_r,phi_c,phi_r,calving_rate,flotation_reg_calving},i,j,ny,nx);
+    FacetCalvingJacobian j_calve_r = get_facet_calving_jac({H_c,H_r,phi_c,phi_r,calving_rate,flotation_reg_calving},i,j+1,ny,nx);
     J[24] += j_calve_r.d_H_this * dx_inv;
     r[4] += j_calve_r.res * dx_inv;
 
@@ -235,7 +235,7 @@ __device__ void build_5x5_vanka(
     J[24] -= j_b.d_H_t * dx_inv;
     r[4]  -= j_b.res   * dx_inv;
 
-    FacetCalvingJacobian j_calve_b = get_facet_calving_jac({H_c,H_b,phi_c,phi_b,calving_rate,flotation_reg_calving},i,j,ny,nx);
+    FacetCalvingJacobian j_calve_b = get_facet_calving_jac({H_c,H_b,phi_c,phi_b,calving_rate,flotation_reg_calving},i+1,j,ny,nx);
     J[24] += j_calve_b.d_H_this * dx_inv;
     r[4] += j_calve_b.res * dx_inv;
     }
@@ -1014,10 +1014,10 @@ void vanka_smooth(
 
     __shared__ float eta_local[bny][bnx];
 
-    if (i < 0 || i >= ny || j<0 || j >= nx) return;
-
     populate_viscosity(eta_local, bi, bj, i, j, u, v, B, n, eps_reg, dx, ny, nx);
     __syncthreads();
+
+    if (i < 0 || i >= ny || j<0 || j >= nx) return;
 
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
@@ -1341,11 +1341,11 @@ void vanka_smooth_adjoint(
 
     __shared__ float eta_local[bny][bnx];
 
-    if (i < 0 || i >= ny || j<0 || j >= nx) return;
-
     populate_viscosity(eta_local, bi, bj, i, j, u, v, B, n, eps_reg, dx, ny, nx);
 
     __syncthreads();
+
+    if (i < 0 || i >= ny || j<0 || j >= nx) return;
 
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
@@ -1476,10 +1476,10 @@ void vanka_dump(
 
     __shared__ float eta_local[bny][bnx];
 
-    if (i < 0 || i >= ny || j<0 || j >= nx) return;
-
     populate_viscosity(eta_local, bi, bj, i, j, u, v, B, n, eps_reg, dx, ny, nx);
     __syncthreads();
+
+    if (i < 0 || i >= ny || j<0 || j >= nx) return;
 
     bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
                      (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);

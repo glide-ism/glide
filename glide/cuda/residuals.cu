@@ -825,7 +825,7 @@ void compute_jvp(
 	    float phi_t      = get_cell(phi,i-1,j,ny,nx);
 	    float phi_c      = get_cell(phi,i,j,ny,nx);
 
-	    DualFloat tau_dy = get_tau_dy_dual({H_t,H_c,bed_t,bed_c,phi_t,phi_c,flotation_reg_sliding},dx_inv,i,j,ny,nx);
+	    DualFloat tau_dy = get_tau_dy_dual({H_t,H_c,bed_t,bed_c,phi_t,phi_c,flotation_reg_driving},dx_inv,i,j,ny,nx);
 	    d_rv_t -= tau_dy.d;
 	    }
 

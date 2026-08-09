@@ -434,7 +434,7 @@ struct TauByStencilDual {
 
     __device__ __forceinline__
     TauByStencil get_diffs() const {
-        return {v.d,u_tl.d,u_tr.d,u_bl.d,u_br.d,H_t.d,H_t.d,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+        return {v.d,u_tl.d,u_tr.d,u_bl.d,u_br.d,H_t.d,H_b.d,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
     }
 
 };

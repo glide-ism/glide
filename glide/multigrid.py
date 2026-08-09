@@ -213,11 +213,11 @@ class Multigrid:
         return fine_field
 
     def prolongate_hfacet(self,coarse_field, fine_field=None, method='injection'):
-        """Prolongate u-velocity (vertical face) field to fine grid."""
+        """Prolongate v-velocity (horizontal face) field to fine grid."""
         if method == 'injection':
-            kernel = self.kernels.get_function('prolongate_vfacet_injection')
+            kernel = self.kernels.get_function('prolongate_hfacet_injection')
         elif method == 'bilinear':
-            kernel = self.kernels.get_function('prolongate_vfacet_bilinear')
+            kernel = self.kernels.get_function('prolongate_hfacet_bilinear')
         else:
             raise TypeError('Valid prolongation methods: [injection, bilinear]')
 
