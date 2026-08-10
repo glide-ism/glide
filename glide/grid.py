@@ -85,9 +85,21 @@ class Rheology:
             units='s^{-2}',
             attrs={'long_name':'Strain invariant squared regularizer'})
         )
-    
+    H_reg: Constant = field(
+        default_factory = lambda: Constant(
+            value=cp.float32(0.0),
+            name='H_reg',
+            units='m',
+            attrs={'long_name':("Thickness regularizer for the vertical \
+                                 shear terms: 1/H^2 -> 1/(H^2 + H_reg^2) \
+                                 in the shear invariant, and consistently \
+                                 eta/H -> eta*H/(H^2 + H_reg^2) in the \
+                                 shear residual. Zero recovers the \
+                                 unregularized model.")})
+        )
+
     def __repr__(self):
-        return f'{self.B.compact_string}\n{self.n}\n{self.eps_reg}'
+        return f'{self.B.compact_string}\n{self.n}\n{self.eps_reg}\n{self.H_reg}'
     
 @dataclass
 class Sliding:

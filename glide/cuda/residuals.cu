@@ -27,8 +27,8 @@ void compute_residual(
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
     bool use_forcing, bool use_mask,
-    float n, float eps_reg, float flotation_reg_driving,
-    float m, float u_reg, float water_drag, float flotation_reg_sliding,     
+    float n, float eps_reg, float H_reg, float flotation_reg_driving,
+    float m, float u_reg, float water_drag, float flotation_reg_sliding,
     float calving_rate, float flotation_reg_calving,
     float dx, float dt,
     int ny, int nx, int stride, int halo)
@@ -46,7 +46,7 @@ void compute_residual(
 
     if (i > ny || j > nx) return;
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, ud, vd, H, B, n, eps_reg, dx, ny, nx);
+    populate_viscosity(eta_local, bi, bj, i, j, u, v, ud, vd, H, B, n, eps_reg, H_reg, dx, ny, nx);
 
     __syncthreads();
 
@@ -242,7 +242,7 @@ void compute_residual(
             float H_l = get_cell(H,i,j-1,ny,nx);
             float H_c = get_cell(H,i,j,ny,nx);
             float ud_l = get_vfacet(ud,i,j,ny,nx);
-            SigmaVertXZJacobian sigmad_xz_l = get_sigma_xz_jac({ud_l,eta_l,eta_c,H_l,H_c},c_1,S_1,i,j,ny,nx);
+            SigmaVertXZJacobian sigmad_xz_l = get_sigma_xz_jac({ud_l,eta_l,eta_c,H_l,H_c},c_1,S_1,H_reg,i,j,ny,nx);
             
             rud_l += sigmad_xz_l.res;
             }
@@ -429,7 +429,7 @@ void compute_residual(
             float H_t = get_cell(H,i-1,j,ny,nx);
             float H_b = get_cell(H,i,j,ny,nx);
             float vd_t = get_hfacet(vd,i,j,ny,nx);
-            SigmaVertYZJacobian sigmad_yz_l = get_sigma_yz_jac({vd_t,eta_t,eta_b,H_t,H_b},c_1,S_1,i,j,ny,nx);
+            SigmaVertYZJacobian sigmad_yz_l = get_sigma_yz_jac({vd_t,eta_t,eta_b,H_t,H_b},c_1,S_1,H_reg,i,j,ny,nx);
             
             rvd_t += sigmad_yz_l.res;
             }

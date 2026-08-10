@@ -100,6 +100,7 @@ class Multigrid:
         self.restrict_cell(fine_grid.rheology.B.data,coarse_grid.rheology.B.data)
         coarse_grid.rheology.n.set(fine_grid.rheology.n.value)
         coarse_grid.rheology.eps_reg.set(fine_grid.rheology.eps_reg.value)
+        coarse_grid.rheology.H_reg.set(fine_grid.rheology.H_reg.value)
     
     def restrict_sliding(self,fine_grid,coarse_grid):
         self.restrict_cell(fine_grid.sliding.beta.data,coarse_grid.sliding.beta.data)
@@ -446,6 +447,13 @@ class MGRheologyManager:
             getter=lambda g: g.rheology.eps_reg,
             restrict=lambda f,c: c.set(f.value),
             name="eps_reg",
+        )
+
+        self.H_reg = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.rheology.H_reg,
+            restrict=lambda f,c: c.set(f.value),
+            name="H_reg",
         )
     def __repr__(self):
         return f'Top-level ({self.mg.n_levels} levels): \n'+self.mg.levels[0].rheology.__repr__()

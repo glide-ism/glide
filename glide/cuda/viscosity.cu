@@ -189,7 +189,7 @@ __device__ void populate_viscosity(
     const float* __restrict__ vd,
     const float* __restrict__ H,
     const float* __restrict__ B,
-    float n, float eps_reg, float dx,
+    float n, float eps_reg, float H_reg, float dx,
     int ny, int nx){
 
     float dx_inv = 1.0f/dx;
@@ -262,9 +262,11 @@ __device__ void populate_viscosity(
 
     float epsd_II_c = duddx*duddx + dvddy*dvddy + duddx*dvddy + epsd_xy2_bar;
 
-    // Vertical shear: interpolate squared facet values, cell's own H only
+    // Vertical shear: interpolate squared facet values, cell's own H only.
+    // 1/H^2 is regularized to 1/(H^2 + H_reg^2), consistent with the
+    // eta*H/(H^2 + H_reg^2) form of the shear residual.
     float H_c = get_cell(H,i,j,ny,nx);
-    float shear2_c = 0.5f*(ud_l*ud_l + ud_r*ud_r + vd_t*vd_t + vd_b*vd_b)/(H_c*H_c);
+    float shear2_c = 0.5f*(ud_l*ud_l + ud_r*ud_r + vd_t*vd_t + vd_b*vd_b)/(H_c*H_c + H_reg*H_reg);
 
     float eps_II_bar = eps_II_c + K_1 * epsd_II_c + K_2 * shear2_c + eps_reg;
 

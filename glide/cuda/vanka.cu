@@ -583,8 +583,8 @@ __device__ void build_9x9_vanka(
     const float* __restrict__ B,
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
-    float n, float eps_reg, float flotation_reg_driving,
-    float m, float u_reg, float water_drag, float flotation_reg_sliding, 
+    float n, float eps_reg, float H_reg, float flotation_reg_driving,
+    float m, float u_reg, float water_drag, float flotation_reg_sliding,
     float calving_rate, float flotation_reg_calving,
     float dx, float dt,
     int ny, int nx,
@@ -968,13 +968,16 @@ __device__ void build_9x9_vanka(
     float eta_c = eta_local[bi][bj];
     float H_l = get_cell(H,i,j-1,ny,nx);
     float H_c = get_cell(H,i,j,ny,nx);
+    float B_l = get_cell(B,i,j-1,ny,nx);
+    float B_c = get_cell(B,i,j,ny,nx);
 
-    SigmaVertXZJacobian sigmad_xz_l = get_sigma_xz_jac({ud_l,eta_l,eta_c,H_l,H_c},c_1,S_1,i,j,ny,nx);
+    SigmaVertXZJacobian sigmad_xz_l = get_sigma_xz_jac({ud_l,eta_l,eta_c,H_l,H_c},c_1,S_1,H_reg,i,j,ny,nx);
 
     r[0] += sigmad_xz_l.res;
     J[0] += sigmad_xz_l.d_u_c;
+    J[0] += get_sigma_vert_dvisc(ud_l,eta_l,eta_c,H_l,H_c,B_l,B_c,c_1,S_1,n,H_reg);
     J[8] += sigmad_xz_l.d_H_r;
-    }    
+    }
 
     // Vertical shear for right momentum
     {
@@ -982,13 +985,16 @@ __device__ void build_9x9_vanka(
     float eta_r = eta_local[bi][bj+1];
     float H_c = get_cell(H,i,j,ny,nx);
     float H_r = get_cell(H,i,j+1,ny,nx);
+    float B_c = get_cell(B,i,j,ny,nx);
+    float B_r = get_cell(B,i,j+1,ny,nx);
 
-    SigmaVertXZJacobian sigmad_xz_r = get_sigma_xz_jac({ud_r,eta_c,eta_r,H_c,H_r},c_1,S_1,i,j,ny,nx);
+    SigmaVertXZJacobian sigmad_xz_r = get_sigma_xz_jac({ud_r,eta_c,eta_r,H_c,H_r},c_1,S_1,H_reg,i,j,ny,nx);
 
     r[1] += sigmad_xz_r.res;
     J[10] += sigmad_xz_r.d_u_c;
+    J[10] += get_sigma_vert_dvisc(ud_r,eta_c,eta_r,H_c,H_r,B_c,B_r,c_1,S_1,n,H_reg);
     J[17] += sigmad_xz_r.d_H_l;
-    }   
+    }
 
     // Vertical shear for top momentum
     {
@@ -996,13 +1002,16 @@ __device__ void build_9x9_vanka(
     float eta_c = eta_local[bi][bj];
     float H_t = get_cell(H,i-1,j,ny,nx);
     float H_c = get_cell(H,i,j,ny,nx);
+    float B_t = get_cell(B,i-1,j,ny,nx);
+    float B_c = get_cell(B,i,j,ny,nx);
 
-    SigmaVertYZJacobian sigmad_yz_t = get_sigma_yz_jac({vd_t,eta_t,eta_c,H_t,H_c},c_1,S_1,i,j,ny,nx);
+    SigmaVertYZJacobian sigmad_yz_t = get_sigma_yz_jac({vd_t,eta_t,eta_c,H_t,H_c},c_1,S_1,H_reg,i,j,ny,nx);
 
     r[2] += sigmad_yz_t.res;
     J[20] += sigmad_yz_t.d_v_c;
+    J[20] += get_sigma_vert_dvisc(vd_t,eta_t,eta_c,H_t,H_c,B_t,B_c,c_1,S_1,n,H_reg);
     J[26] += sigmad_yz_t.d_H_b;
-    }    
+    }
 
     // Vertical shear for bottom momentum
     {
@@ -1010,13 +1019,16 @@ __device__ void build_9x9_vanka(
     float eta_b = eta_local[bi+1][bj];
     float H_c = get_cell(H,i,j,ny,nx);
     float H_b = get_cell(H,i+1,j,ny,nx);
+    float B_c = get_cell(B,i,j,ny,nx);
+    float B_b = get_cell(B,i+1,j,ny,nx);
 
-    SigmaVertYZJacobian sigmad_yz_b = get_sigma_yz_jac({vd_b,eta_c,eta_b,H_c,H_b},c_1,S_1,i,j,ny,nx);
+    SigmaVertYZJacobian sigmad_yz_b = get_sigma_yz_jac({vd_b,eta_c,eta_b,H_c,H_b},c_1,S_1,H_reg,i,j,ny,nx);
 
     r[3] += sigmad_yz_b.res;
     J[30] += sigmad_yz_b.d_v_c;
+    J[30] += get_sigma_vert_dvisc(vd_b,eta_c,eta_b,H_c,H_b,B_c,B_b,c_1,S_1,n,H_reg);
     J[35] += sigmad_yz_b.d_H_t;
-    }   
+    }
     
     
     // Basal shear stress for left momentum
@@ -1311,14 +1323,14 @@ void vanka_smooth(
     const float* __restrict__ B,
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
-    float n, float eps_reg, float flotation_reg_driving,
+    float n, float eps_reg, float H_reg, float flotation_reg_driving,
     float m, float u_reg, float water_drag, float flotation_reg_sliding,
     float calving_rate, float flotation_reg_calving,
     float dx, float dt,
     int ny, int nx, int stride, int halo,
     int newton_steps, float relaxation,
     float ssa_damping, float mc_damping
-    ) 
+    )
 {
     const int bny = 16;
     const int bnx = 16;
@@ -1331,7 +1343,7 @@ void vanka_smooth(
 
     __shared__ float eta_local[bny][bnx];
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, ud, vd, H, B, n, eps_reg, dx, ny, nx);
+    populate_viscosity(eta_local, bi, bj, i, j, u, v, ud, vd, H, B, n, eps_reg, H_reg, dx, ny, nx);
     __syncthreads();
 
     if (i < 0 || i >= ny || j<0 || j >= nx) return;
@@ -1378,12 +1390,12 @@ void vanka_smooth(
 	while (k<newton_steps && rnorm>tol){
             
 	    build_9x9_vanka(J, r,
-		    u_l, u_r, v_t, v_b, 
+		    u_l, u_r, v_t, v_b,
 		    ud_l, ud_r, vd_t, vd_b, H_c,
 		    u, v, ud, vd, H, eta_local, phi, xi,
                     bed, B, beta, gamma,
-		    n, eps_reg, flotation_reg_driving,
-                    m, u_reg, water_drag, flotation_reg_sliding, 
+		    n, eps_reg, H_reg, flotation_reg_driving,
+                    m, u_reg, water_drag, flotation_reg_sliding,
 		    calving_rate, flotation_reg_calving,
                     dx, dt, ny, nx, i, j, bi, bj);
             
@@ -1722,11 +1734,11 @@ void vanka_dump(
     const float* __restrict__ B,
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
-    float n, float eps_reg, float flotation_reg_driving,
+    float n, float eps_reg, float H_reg, float flotation_reg_driving,
     float m, float u_reg, float water_drag, float flotation_reg_sliding,
     float calving_rate, float flotation_reg_calving,
     float dx, float dt,
-    int ny, int nx, int stride, int halo) 
+    int ny, int nx, int stride, int halo)
 {
     const int bny = 16;
     const int bnx = 16;
@@ -1739,7 +1751,7 @@ void vanka_dump(
 
     __shared__ float eta_local[bny][bnx];
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, ud, vd, H, B, n, eps_reg, dx, ny, nx);
+    populate_viscosity(eta_local, bi, bj, i, j, u, v, ud, vd, H, B, n, eps_reg, H_reg, dx, ny, nx);
     __syncthreads();
 
     if (i < 0 || i >= ny || j<0 || j >= nx) return;
@@ -1770,8 +1782,8 @@ void vanka_dump(
 	    ud_l, ud_r, vd_t, vd_b, H_c,
 	    u, v, ud, vd, H, eta_local, phi, xi,
 	    bed, B, beta, gamma,
-	    n, eps_reg, flotation_reg_driving,
-	    m, u_reg, water_drag, flotation_reg_sliding, 
+	    n, eps_reg, H_reg, flotation_reg_driving,
+	    m, u_reg, water_drag, flotation_reg_sliding,
 	    calving_rate, flotation_reg_calving,
 	    dx, dt, ny, nx, i, j, bi, bj);
 	

@@ -39,23 +39,27 @@ struct SigmaVertXZJacobian {
 __device__ __forceinline__
 SigmaVertXZJacobian get_sigma_xz_jac(
     SigmaVertXZStencil s,
-    float c_1, float S_1,
+    float c_1, float S_1, float H_reg,
     int i, int j,  // Defined on cells - the i,j for the cell
     int ny, int nx) {
 
     SigmaVertXZJacobian jac = {0};
 
     // 2*K_2 = 2*(c_1*S_1/4): the leading 2 matches the J = 2*eta*H*E2
-    // convention used by the membrane stresses (cf. get_sigma_xx_jac)
+    // convention used by the membrane stresses (cf. get_sigma_xx_jac).
+    // eta/H is regularized to eta*H/(H^2 + H_reg^2), consistent with the
+    // shear invariant's 1/(H^2 + H_reg^2) in populate_viscosity.
     float factr = -1.0f * c_1 * S_1 / 2.0f;
-    float shear = s.eta_l / s.H_l + s.eta_r / s.H_r;
+    float den_l = s.H_l * s.H_l + H_reg * H_reg;
+    float den_r = s.H_r * s.H_r + H_reg * H_reg;
+    float shear = s.eta_l * s.H_l / den_l + s.eta_r * s.H_r / den_r;
 
     jac.res = factr * shear * s.u_c;
     jac.d_u_c = factr * shear;
-    jac.d_eta_l = factr / s.H_l * s.u_c;
-    jac.d_eta_r = factr / s.H_r * s.u_c;
-    jac.d_H_l = - factr * s.eta_l / (s.H_l * s.H_l) * s.u_c;
-    jac.d_H_r = - factr * s.eta_r / (s.H_r * s.H_r) * s.u_c;
+    jac.d_eta_l = factr * s.H_l / den_l * s.u_c;
+    jac.d_eta_r = factr * s.H_r / den_r * s.u_c;
+    jac.d_H_l = factr * s.eta_l * (H_reg * H_reg - s.H_l * s.H_l) / (den_l * den_l) * s.u_c;
+    jac.d_H_r = factr * s.eta_r * (H_reg * H_reg - s.H_r * s.H_r) / (den_r * den_r) * s.u_c;
 
     return jac;
 }
@@ -101,24 +105,59 @@ struct SigmaVertYZJacobian {
 __device__ __forceinline__
 SigmaVertYZJacobian get_sigma_yz_jac(
     SigmaVertYZStencil s,
-    float c_1, float S_1,
+    float c_1, float S_1, float H_reg,
     int i, int j,  // Defined on cells - the i,j for the cell
     int ny, int nx) {
 
     SigmaVertYZJacobian jac = {0};
 
-    // 2*K_2, matching the J = 2*eta*H*E2 convention (cf. get_sigma_xx_jac)
+    // 2*K_2, matching the J = 2*eta*H*E2 convention (cf. get_sigma_xx_jac),
+    // with eta/H regularized as in get_sigma_xz_jac
     float factr = -1.0f * c_1 * S_1 / 2.0f;
-    float shear = s.eta_t / s.H_t + s.eta_b / s.H_b;
+    float den_t = s.H_t * s.H_t + H_reg * H_reg;
+    float den_b = s.H_b * s.H_b + H_reg * H_reg;
+    float shear = s.eta_t * s.H_t / den_t + s.eta_b * s.H_b / den_b;
 
     jac.res = factr * shear * s.v_c;
     jac.d_v_c = factr * shear;
-    jac.d_eta_t = factr / s.H_t * s.v_c;
-    jac.d_eta_b = factr / s.H_b * s.v_c;
-    jac.d_H_t = - factr * s.eta_t / (s.H_t * s.H_t) * s.v_c;
-    jac.d_H_b = - factr * s.eta_b / (s.H_b * s.H_b) * s.v_c;
+    jac.d_eta_t = factr * s.H_t / den_t * s.v_c;
+    jac.d_eta_b = factr * s.H_b / den_b * s.v_c;
+    jac.d_H_t = factr * s.eta_t * (H_reg * H_reg - s.H_t * s.H_t) / (den_t * den_t) * s.v_c;
+    jac.d_H_b = factr * s.eta_b * (H_reg * H_reg - s.H_b * s.H_b) / (den_b * den_b) * s.v_c;
 
     return jac;
+}
+
+// Newton correction for the diagonal of the vertical shear block: the
+// shear-softening part of d(eta)/d(u_d), which is local to the facet's two
+// adjacent cells (the shear invariant depends only on the cell's own
+// facet values). In the shear-dominated limit this scales the frozen-eta
+// diagonal by 1/n, curing the systematic Picard overshoot. Membrane
+// contributions to d(eta)/d(u) remain deliberately ignored.
+// E2 is recovered from eta = B/2 * E2^((1-n)/(2n)).
+__device__ __forceinline__
+float get_sigma_vert_dvisc(
+    float u_c,
+    float eta_1, float eta_2,
+    float H_1, float H_2,
+    float B_1, float B_2,
+    float c_1, float S_1,
+    float n, float H_reg) {
+
+    float factr = -1.0f * c_1 * S_1 / 2.0f;
+    float K_2 = c_1 * S_1 / 4.0f;
+    float glen_exp = (1.0f - n) / (2.0f * n);
+    float pw = 2.0f * n / (1.0f - n);
+
+    float den_1 = H_1 * H_1 + H_reg * H_reg;
+    float den_2 = H_2 * H_2 + H_reg * H_reg;
+
+    float e2_1 = __powf(2.0f * eta_1 / B_1, pw);
+    float e2_2 = __powf(2.0f * eta_2 / B_2, pw);
+
+    return factr * glen_exp * K_2 * u_c * u_c *
+           (eta_1 * H_1 / (den_1 * den_1 * e2_1) +
+            eta_2 * H_2 / (den_2 * den_2 * e2_2));
 }
 
 /*=======================================================
