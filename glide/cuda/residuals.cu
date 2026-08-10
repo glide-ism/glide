@@ -46,7 +46,7 @@ void compute_residual(
 
     if (i > ny || j > nx) return;
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, B, n, eps_reg, dx, ny, nx);
+    populate_viscosity(eta_local, bi, bj, i, j, u, v, ud, vd, H, B, n, eps_reg, dx, ny, nx);
 
     __syncthreads();
 
@@ -274,7 +274,7 @@ void compute_residual(
 
 	    float v_br   = get_hfacet(v,i+1,j,ny,nx);
 	    float vd_br  = get_hfacet(vd,i+1,j,ny,nx);
-            float vb_br  = vd_br - vd_br;
+            float vb_br  = v_br - vd_br;
 
 	    float H_l    = get_cell(H,i,j-1,ny,nx);
 	    float H_c    = get_cell(H,i,j,ny,nx);
@@ -421,18 +421,19 @@ void compute_residual(
 	    rvd_t += K_1 * sigmad_xy_tr.res * dx_inv;
 
 	    }
-
-            {
+ 
+            
+             {
             float eta_t = eta_local[bi-1][bj];
             float eta_b = eta_local[bi][bj];
             float H_t = get_cell(H,i-1,j,ny,nx);
             float H_b = get_cell(H,i,j,ny,nx);
-            float vd_t = get_vfacet(ud,i,j,ny,nx);
+            float vd_t = get_hfacet(vd,i,j,ny,nx);
             SigmaVertYZJacobian sigmad_yz_l = get_sigma_yz_jac({vd_t,eta_t,eta_b,H_t,H_b},c_1,S_1,i,j,ny,nx);
             
             rvd_t += sigmad_yz_l.res;
             }
-
+            
 
 	    {
 	    float v_t = get_hfacet(v,i,j,ny,nx);

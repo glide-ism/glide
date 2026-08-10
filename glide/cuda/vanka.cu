@@ -568,9 +568,13 @@ __device__ void build_9x9_vanka(
     float* __restrict__ r,
     float u_l, float u_r,
     float v_t, float v_b,
+    float ud_l, float ud_r,
+    float vd_t, float vd_b,
     float H_c,
     const float* __restrict__ u,
     const float* __restrict__ v,
+    const float* __restrict__ ud,
+    const float* __restrict__ vd,
     const float* __restrict__ H,
     const float (&eta_local)[height][width], 
     const float* __restrict__ phi,
@@ -598,6 +602,10 @@ __device__ void build_9x9_vanka(
     float phi_t = get_cell(phi,i-1,j,ny,nx);
     float phi_b = get_cell(phi,i+1,j,ny,nx);
 
+    float K_1 = 1.0f / (2.0f * n + 3.0f);
+    float S_1 = (n + 2.0f) * (n + 2.0f) / (2.0f * n + 1.0f);
+    float c_1 = __powf(1.0f / (n + 2.0f),2.0f * n / (n + 1.0f)) * (2.0f * n + 1.0f);
+
     // Mass Conservation Assembly
     {
     // Standard Mass Conservation: dH/dt + div(q) - smb = 0
@@ -622,7 +630,7 @@ __device__ void build_9x9_vanka(
     J[80] += j_r.d_H_l * dx_inv;
     r[8]  += j_r.res   * dx_inv;
     
-    FacetCalvingJacobian j_calve_r = get_facet_calving_jac({H_c,H_r,phi_c,phi_r,calving_rate,flotation_reg_calving},i,j,ny,nx);
+    FacetCalvingJacobian j_calve_r = get_facet_calving_jac({H_c,H_r,phi_c,phi_r,calving_rate,flotation_reg_calving},i,j+1,ny,nx);
     J[80] += j_calve_r.d_H_this * dx_inv;
     r[8] += j_calve_r.res * dx_inv;
 
@@ -643,7 +651,7 @@ __device__ void build_9x9_vanka(
     J[80] -= j_b.d_H_t * dx_inv;
     r[8]  -= j_b.res   * dx_inv;
 
-    FacetCalvingJacobian j_calve_b = get_facet_calving_jac({H_c,H_b,phi_c,phi_b,calving_rate,flotation_reg_calving},i,j,ny,nx);
+    FacetCalvingJacobian j_calve_b = get_facet_calving_jac({H_c,H_b,phi_c,phi_b,calving_rate,flotation_reg_calving},i+1,j,ny,nx);
     J[80] += j_calve_b.d_H_this * dx_inv;
     r[8] += j_calve_b.res * dx_inv;
     }
@@ -669,6 +677,23 @@ __device__ void build_9x9_vanka(
     J[52] -= sigma_xx_c.d_v_b * dx_inv;
     J[53] -= sigma_xx_c.d_eta_H * eta_H_c.d_H * dx_inv;
 
+    // Compute the contribution of sigma_xx at the center to both the left and right u-residuals (since it is used by both)
+    SigmaNormalJacobian sigmad_xx_c = get_sigma_xx_jac({ud_l,ud_r,vd_t,vd_b,eta_H_c.res},dx_inv,i,j,ny,nx);
+    
+    r[0] += K_1 * sigmad_xx_c.res * dx_inv;
+    J[0] += K_1 * sigmad_xx_c.d_u_l * dx_inv;
+    J[1] += K_1 * sigmad_xx_c.d_u_r * dx_inv;
+    J[2] += K_1 * sigmad_xx_c.d_v_t * dx_inv;
+    J[3] += K_1 * sigmad_xx_c.d_v_b * dx_inv;
+    J[8] += K_1 * sigmad_xx_c.d_eta_H * eta_H_c.d_H * dx_inv;
+    
+    r[1] -= K_1 * sigmad_xx_c.res * dx_inv;
+    J[9] -= K_1 * sigmad_xx_c.d_u_l * dx_inv;
+    J[10] -= K_1 * sigmad_xx_c.d_u_r * dx_inv;
+    J[11] -= K_1 * sigmad_xx_c.d_v_t * dx_inv;
+    J[12] -= K_1 * sigmad_xx_c.d_v_b * dx_inv;
+    J[17] -= K_1 * sigmad_xx_c.d_eta_H * eta_H_c.d_H * dx_inv;
+
     SigmaNormalJacobian sigma_yy_c = get_sigma_yy_jac({u_l,u_r,v_t,v_b,eta_H_c.res},dx_inv,i,j,ny,nx);
     r[6]  -= sigma_yy_c.res * dx_inv;
     J[58] -= sigma_yy_c.d_u_l * dx_inv;
@@ -683,6 +708,21 @@ __device__ void build_9x9_vanka(
     J[69] += sigma_yy_c.d_v_t * dx_inv;
     J[70] += sigma_yy_c.d_v_b * dx_inv;
     J[71] += sigma_yy_c.d_eta_H * eta_H_c.d_H * dx_inv;
+
+    SigmaNormalJacobian sigmad_yy_c = get_sigma_yy_jac({ud_l,ud_r,vd_t,vd_b,eta_H_c.res},dx_inv,i,j,ny,nx);
+    r[2]  -= K_1 * sigmad_yy_c.res * dx_inv;
+    J[18] -= K_1 * sigmad_yy_c.d_u_l * dx_inv;
+    J[19] -= K_1 * sigmad_yy_c.d_u_r * dx_inv;
+    J[20] -= K_1 * sigmad_yy_c.d_v_t * dx_inv;
+    J[21] -= K_1 * sigmad_yy_c.d_v_b * dx_inv;
+    J[26] -= K_1 * sigmad_yy_c.d_eta_H * eta_H_c.d_H * dx_inv;
+
+    r[3]  += K_1 * sigmad_yy_c.res * dx_inv;
+    J[27] += K_1 * sigmad_yy_c.d_u_l * dx_inv;
+    J[28] += K_1 * sigmad_yy_c.d_u_r * dx_inv;
+    J[29] += K_1 * sigmad_yy_c.d_v_t * dx_inv;
+    J[30] += K_1 * sigmad_yy_c.d_v_b * dx_inv;
+    J[35] += K_1 * sigmad_yy_c.d_eta_H * eta_H_c.d_H * dx_inv;
     }
 
     // Compute the contribution of sigma_xx from the left cell to the left u-residual
@@ -697,6 +737,13 @@ __device__ void build_9x9_vanka(
     SigmaNormalJacobian sigma_xx_l = get_sigma_xx_jac({u_ll,u_l,v_lt,v_lb,eta_H_l.res},dx_inv,i,j - 1,ny,nx);
     r[4] -= sigma_xx_l.res * dx_inv;
     J[40] -= sigma_xx_l.d_u_r * dx_inv;
+
+    float ud_ll   = get_vfacet(ud,i,j-1,ny,nx);
+    float vd_lt   = get_hfacet(vd,i,j-1,ny,nx);
+    float vd_lb   = get_hfacet(vd,i+1,j-1,ny,nx);
+    SigmaNormalJacobian sigmad_xx_l = get_sigma_xx_jac({ud_ll,ud_l,vd_lt,vd_lb,eta_H_l.res},dx_inv,i,j - 1,ny,nx);
+    r[0] -= K_1 * sigmad_xx_l.res * dx_inv;
+    J[0] -= K_1 * sigmad_xx_l.d_u_r * dx_inv;
     }
 
     // Compute the contribution of sigma_xx from the right cell to the right u-residual
@@ -711,6 +758,13 @@ __device__ void build_9x9_vanka(
     SigmaNormalJacobian sigma_xx_r = get_sigma_xx_jac({u_r,u_rr,v_rt,v_rb,eta_H_r.res},dx_inv,i,j + 1,ny,nx);
     r[5] += sigma_xx_r.res * dx_inv;
     J[50] += sigma_xx_r.d_u_l * dx_inv;
+
+    float ud_rr   = get_vfacet(ud,i,j+2,ny,nx);
+    float vd_rt   = get_hfacet(vd,i,j+1,ny,nx);
+    float vd_rb   = get_hfacet(vd,i+1,j+1,ny,nx);
+    SigmaNormalJacobian sigmad_xx_r = get_sigma_xx_jac({ud_r,ud_rr,vd_rt,vd_rb,eta_H_r.res},dx_inv,i,j + 1,ny,nx);
+    r[1] += K_1 * sigmad_xx_r.res * dx_inv;
+    J[10] += K_1 * sigmad_xx_r.d_u_l * dx_inv;
     }
 
     // Compute the contribution of sigma_yy from the top cell to the top v-residual
@@ -725,6 +779,13 @@ __device__ void build_9x9_vanka(
     SigmaNormalJacobian sigma_yy_t = get_sigma_yy_jac({u_tl,u_tr,v_tt,v_t,eta_H_t.res},dx_inv,i - 1,j,ny,nx);
     r[6] += sigma_yy_t.res * dx_inv;
     J[60] += sigma_yy_t.d_v_b * dx_inv;
+
+    float ud_tl   = get_vfacet(ud,i-1,j,ny,nx);
+    float ud_tr   = get_vfacet(ud,i-1,j+1,ny,nx);
+    float vd_tt   = get_hfacet(vd,i-1,j,ny,nx);
+    SigmaNormalJacobian sigmad_yy_t = get_sigma_yy_jac({ud_tl,ud_tr,vd_tt,vd_t,eta_H_t.res},dx_inv,i - 1,j,ny,nx);
+    r[2] += K_1 * sigmad_yy_t.res * dx_inv;
+    J[20] += K_1 * sigmad_yy_t.d_v_b * dx_inv;
     }
 
     // Compute the contribution of sigma_yy from the bottom cell to the bottom v-residual
@@ -739,6 +800,14 @@ __device__ void build_9x9_vanka(
     SigmaNormalJacobian sigma_yy_b = get_sigma_yy_jac({u_bl,u_br,v_b,v_bb,eta_H_b.res},dx_inv,i + 1,j,ny,nx);
     r[7] -= sigma_yy_b.res * dx_inv;
     J[70] -= sigma_yy_b.d_v_t * dx_inv;
+
+    float ud_bl   = get_vfacet(ud,i+1,j,ny,nx);
+    float ud_br   = get_vfacet(ud,i+1,j+1,ny,nx);
+    float vd_bb   = get_hfacet(vd,i+2,j,ny,nx);
+    SigmaNormalJacobian sigmad_yy_b = get_sigma_yy_jac({ud_bl,ud_br,vd_b,vd_bb,eta_H_b.res},dx_inv,i + 1,j,ny,nx);
+    r[3] -= K_1 * sigmad_yy_b.res * dx_inv;
+    J[30] -= K_1 * sigmad_yy_b.d_v_t * dx_inv;
+
     }
     
     
@@ -766,7 +835,20 @@ __device__ void build_9x9_vanka(
     r[6] -= sigma_xy_tl.res * dx_inv;
     J[60] -= sigma_xy_tl.d_v_r * dx_inv;
     J[62] -= sigma_xy_tl.d_eta_H * eta_H_tl.d_H_br * dx_inv;
+
+    float ud_tl = get_vfacet(ud,i-1,j,ny,nx);
+    float vd_lt = get_hfacet(vd,i,j-1,ny,nx);
+    
+    SigmaShearJacobian sigmad_xy_tl = get_sigma_xy_jac({ud_tl,ud_l,vd_lt,vd_t,eta_H_tl.res},dx_inv,i,j,ny,nx);
+    r[0] += K_1 * sigmad_xy_tl.res * dx_inv;
+    J[0] += K_1 * sigmad_xy_tl.d_u_b * dx_inv;
+    J[8] += K_1 * sigmad_xy_tl.d_eta_H * eta_H_tl.d_H_br * dx_inv;
+
+    r[2] -= K_1 * sigmad_xy_tl.res * dx_inv;
+    J[20] -= K_1 * sigmad_xy_tl.d_v_r * dx_inv;
+    J[26] -= K_1 * sigmad_xy_tl.d_eta_H * eta_H_tl.d_H_br * dx_inv;
     }
+
 
     // Compute the contribution of sigma_xy from the top-right corner to the right u-residual and top v-residual
     {
@@ -792,6 +874,19 @@ __device__ void build_9x9_vanka(
     r[6] += sigma_xy_tr.res * dx_inv;
     J[60] += sigma_xy_tr.d_v_l * dx_inv;
     J[62] += sigma_xy_tr.d_eta_H * eta_H_tr.d_H_bl * dx_inv;
+
+    float ud_tr = get_vfacet(ud,i-1,j+1,ny,nx);
+    float vd_rt = get_hfacet(vd,i,j+1,ny,nx);
+    
+    SigmaShearJacobian sigmad_xy_tr = get_sigma_xy_jac({ud_tr,ud_r,vd_t,vd_rt,eta_H_tr.res},dx_inv,i,j+1,ny,nx);
+    r[1] += K_1 * sigmad_xy_tr.res * dx_inv;
+    J[10] += K_1 * sigmad_xy_tr.d_u_b * dx_inv;
+    J[17] += K_1 * sigmad_xy_tr.d_eta_H * eta_H_tr.d_H_bl * dx_inv;
+
+    r[2] += K_1 * sigmad_xy_tr.res * dx_inv;
+    J[20] += K_1 * sigmad_xy_tr.d_v_l * dx_inv;
+    J[26] += K_1 * sigmad_xy_tr.d_eta_H * eta_H_tr.d_H_bl * dx_inv;
+
     }
 
     // Compute the contribution of sigma_xy from the bottom-left corner to the left u-residual and bottom v-residual
@@ -817,6 +912,17 @@ __device__ void build_9x9_vanka(
     r[7] -= sigma_xy_bl.res * dx_inv;
     J[70] -= sigma_xy_bl.d_v_r * dx_inv;
     J[71] -= sigma_xy_bl.d_eta_H * eta_H_bl.d_H_tr * dx_inv;
+
+    float ud_bl   = get_vfacet(ud,i+1,j,ny,nx);
+    float vd_lb   = get_hfacet(vd,i+1,j-1,ny,nx);
+    SigmaShearJacobian sigmad_xy_bl = get_sigma_xy_jac({ud_l,ud_bl,vd_lb,vd_b,eta_H_bl.res},dx_inv,i + 1,j,ny,nx);
+    r[0] -= K_1 * sigmad_xy_bl.res * dx_inv;
+    J[0] -= K_1 * sigmad_xy_bl.d_u_t * dx_inv;
+    J[8] -= K_1 * sigmad_xy_bl.d_eta_H * eta_H_bl.d_H_tr * dx_inv;
+
+    r[3] -= K_1 * sigmad_xy_bl.res * dx_inv;
+    J[30] -= K_1 * sigmad_xy_bl.d_v_r * dx_inv;
+    J[35] -= K_1 * sigmad_xy_bl.d_eta_H * eta_H_bl.d_H_tr * dx_inv;
     }
 
     // Compute the contribution of sigma_xy from the bottom-right corner to the right u-residual and bottom v-residual
@@ -842,14 +948,96 @@ __device__ void build_9x9_vanka(
     r[7] += sigma_xy_br.res * dx_inv;
     J[70] += sigma_xy_br.d_v_l * dx_inv;
     J[71] += sigma_xy_br.d_eta_H * eta_H_br.d_H_tl * dx_inv;
+
+    float ud_br   = get_vfacet(ud,i+1,j+1,ny,nx);
+    float vd_rb   = get_hfacet(vd,i+1,j+1,ny,nx);
+    SigmaShearJacobian sigmad_xy_br = get_sigma_xy_jac({ud_r,ud_br,vd_b,vd_rb,eta_H_br.res},dx_inv,i + 1,j + 1,ny,nx);
+    r[1] -= K_1 * sigmad_xy_br.res * dx_inv;
+    J[10] -= K_1 * sigmad_xy_br.d_u_t * dx_inv;
+    J[17] -= K_1 * sigmad_xy_br.d_eta_H * eta_H_br.d_H_tl * dx_inv;
+
+    r[3] += K_1 * sigmad_xy_br.res * dx_inv;
+    J[30] += K_1 * sigmad_xy_br.d_v_l * dx_inv;
+    J[35] += K_1 * sigmad_xy_br.d_eta_H * eta_H_br.d_H_tl * dx_inv;
     }
+
+    
+    // Vertical shear for left momentum
+    {
+    float eta_l = eta_local[bi][bj-1];
+    float eta_c = eta_local[bi][bj];
+    float H_l = get_cell(H,i,j-1,ny,nx);
+    float H_c = get_cell(H,i,j,ny,nx);
+
+    SigmaVertXZJacobian sigmad_xz_l = get_sigma_xz_jac({ud_l,eta_l,eta_c,H_l,H_c},c_1,S_1,i,j,ny,nx);
+
+    r[0] += sigmad_xz_l.res;
+    J[0] += sigmad_xz_l.d_u_c;
+    J[8] += sigmad_xz_l.d_H_r;
+    }    
+
+    // Vertical shear for right momentum
+    {
+    float eta_c = eta_local[bi][bj];
+    float eta_r = eta_local[bi][bj+1];
+    float H_c = get_cell(H,i,j,ny,nx);
+    float H_r = get_cell(H,i,j+1,ny,nx);
+
+    SigmaVertXZJacobian sigmad_xz_r = get_sigma_xz_jac({ud_r,eta_c,eta_r,H_c,H_r},c_1,S_1,i,j,ny,nx);
+
+    r[1] += sigmad_xz_r.res;
+    J[10] += sigmad_xz_r.d_u_c;
+    J[17] += sigmad_xz_r.d_H_l;
+    }   
+
+    // Vertical shear for top momentum
+    {
+    float eta_t = eta_local[bi-1][bj];
+    float eta_c = eta_local[bi][bj];
+    float H_t = get_cell(H,i-1,j,ny,nx);
+    float H_c = get_cell(H,i,j,ny,nx);
+
+    SigmaVertYZJacobian sigmad_yz_t = get_sigma_yz_jac({vd_t,eta_t,eta_c,H_t,H_c},c_1,S_1,i,j,ny,nx);
+
+    r[2] += sigmad_yz_t.res;
+    J[20] += sigmad_yz_t.d_v_c;
+    J[26] += sigmad_yz_t.d_H_b;
+    }    
+
+    // Vertical shear for bottom momentum
+    {
+    float eta_c = eta_local[bi][bj];
+    float eta_b = eta_local[bi+1][bj];
+    float H_c = get_cell(H,i,j,ny,nx);
+    float H_b = get_cell(H,i+1,j,ny,nx);
+
+    SigmaVertYZJacobian sigmad_yz_b = get_sigma_yz_jac({vd_b,eta_c,eta_b,H_c,H_b},c_1,S_1,i,j,ny,nx);
+
+    r[3] += sigmad_yz_b.res;
+    J[30] += sigmad_yz_b.d_v_c;
+    J[35] += sigmad_yz_b.d_H_t;
+    }   
     
     
     // Basal shear stress for left momentum
     {
-    float u_ll   = get_vfacet(u,i,j-1,ny,nx);
-    float v_tl   = get_hfacet(v,i,j-1,ny,nx);
-    float v_bl   = get_hfacet(v,i+1,j-1,ny,nx);
+
+    float ub_l = u_l - ud_l;
+    float ub_r = u_r - ud_r;
+    float vb_t = v_t - vd_t;
+    float vb_b = v_b - vd_b;
+
+    float u_ll  = get_vfacet(u,i,j-1,ny,nx);
+    float ud_ll = get_vfacet(ud,i,j-1,ny,nx);
+    float ub_ll = u_ll - ud_ll; 
+
+    float v_tl  = get_hfacet(v,i,j-1,ny,nx);
+    float vd_tl = get_hfacet(vd,i,j-1,ny,nx);
+    float vb_tl = v_tl - vd_tl;
+
+    float v_bl  = get_hfacet(v,i+1,j-1,ny,nx);
+    float vd_bl = get_hfacet(vd,i+1,j-1,ny,nx);
+    float vb_bl = v_bl - vd_bl; 
 
     float H_l    = get_cell(H,i,j-1,ny,nx);
     float beta_l = get_cell(beta,i,j-1,ny,nx);
@@ -857,20 +1045,63 @@ __device__ void build_9x9_vanka(
     float xi_l = get_cell(xi,i,j-1,ny,nx);
     float xi_c = get_cell(xi,i,j,ny,nx);
 
-    TauBxJacobian tau_bx_l = get_tau_bx_jac({u_l,u_ll,u_r,v_tl,v_t,v_bl,v_b,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
+    TauBxJacobian tau_bx_l = get_tau_bx_jac({ub_l,ub_ll,ub_r,vb_tl,vb_t,vb_bl,vb_b,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
+
+    // Residual for averaged component
     r[4] += tau_bx_l.res;
+
+    // Vertical cross terms
+    J[36] -= tau_bx_l.d_u_c;
+    J[37] -= tau_bx_l.d_u_r;
+    J[38] -= tau_bx_l.d_v_tr;
+    J[39] -= tau_bx_l.d_v_br;
+
+    // Horizontal cross terms
     J[40] += tau_bx_l.d_u_c;
     J[41] += tau_bx_l.d_u_r;
     J[42] += tau_bx_l.d_v_tr;
     J[43] += tau_bx_l.d_v_br;
+
+    // thickness dependence (currently ignored)
     J[44] += tau_bx_l.d_H_r;
+
+    // Residual for deformational component
+    r[0]  -= tau_bx_l.res;
+
+    // Vertical cross terms
+    J[0]  += tau_bx_l.d_u_c;
+    J[1]  += tau_bx_l.d_u_r;
+    J[2]  += tau_bx_l.d_v_tr;
+    J[3]  += tau_bx_l.d_v_br;
+    
+    // Horizontal cross terms
+    J[4]  -= tau_bx_l.d_u_c;
+    J[5]  -= tau_bx_l.d_u_r;
+    J[6]  -= tau_bx_l.d_v_tr;
+    J[7]  -= tau_bx_l.d_v_br;
+
+    // thickness dependence
+    J[8]  -= tau_bx_l.d_H_r;
     }
 
     // Basal shear stress for right momentum
     {
+    float ub_l = u_l - ud_l;
+    float ub_r = u_r - ud_r;
+    float vb_t = v_t - vd_t;
+    float vb_b = v_b - vd_b;
+
     float u_rr   = get_vfacet(u,i,j+2,ny,nx);
+    float ud_rr  = get_vfacet(ud,i,j+2,ny,nx);
+    float ub_rr  = u_rr - ud_rr;
+
     float v_tr   = get_hfacet(v,i,j+1,ny,nx);
+    float vd_tr  = get_hfacet(vd,i,j+1,ny,nx);
+    float vb_tr  = v_tr - vd_tr;
+    
     float v_br   = get_hfacet(v,i+1,j+1,ny,nx);
+    float vd_br  = get_hfacet(vd,i+1,j+1,ny,nx);
+    float vb_br  = v_br - vd_br;
     
     float H_r    = get_cell(H,i,j+1,ny,nx);
     float beta_c = get_cell(beta,i,j,ny,nx);
@@ -878,20 +1109,52 @@ __device__ void build_9x9_vanka(
     float xi_c = get_cell(xi,i,j,ny,nx);
     float xi_r = get_cell(xi,i,j+1,ny,nx);
 
-    TauBxJacobian tau_bx_r = get_tau_bx_jac({u_r,u_l,u_rr,v_t,v_tr,v_b,v_br,H_c,H_r,xi_c,xi_r,beta_c,beta_r,m,u_reg,water_drag,flotation_reg_sliding});
+    TauBxJacobian tau_bx_r = get_tau_bx_jac({ub_r,ub_l,ub_rr,vb_t,vb_tr,vb_b,vb_br,H_c,H_r,xi_c,xi_r,beta_c,beta_r,m,u_reg,water_drag,flotation_reg_sliding});
     r[5] += tau_bx_r.res;
+    
+    J[45] -= tau_bx_r.d_u_l;
+    J[46] -= tau_bx_r.d_u_c;
+    J[47] -= tau_bx_r.d_v_tl;
+    J[48] -= tau_bx_r.d_v_bl;
+    
     J[49] += tau_bx_r.d_u_l;
     J[50] += tau_bx_r.d_u_c;
     J[51] += tau_bx_r.d_v_tl;
     J[52] += tau_bx_r.d_v_bl;
     J[53] += tau_bx_r.d_H_l;
+    
+    r[1]  -= tau_bx_r.res;
+    J[9]  += tau_bx_r.d_u_l;
+    J[10] += tau_bx_r.d_u_c;
+    J[11] += tau_bx_r.d_v_tl;
+    J[12] += tau_bx_r.d_v_bl;
+    
+    J[13] -= tau_bx_r.d_u_l;
+    J[14] -= tau_bx_r.d_u_c;
+    J[15] -= tau_bx_r.d_v_tl;
+    J[16] -= tau_bx_r.d_v_bl;
+
+    J[17] -= tau_bx_r.d_H_l;
     }
 
     // Basal shear stress for top momentum
     {
+    float ub_l = u_l - ud_l;
+    float ub_r = u_r - ud_r;
+    float vb_t = v_t - vd_t;
+    float vb_b = v_b - vd_b;
+
     float v_tt = get_hfacet(v,i-1,j,ny,nx);
+    float vd_tt = get_hfacet(vd,i-1,j,ny,nx);
+    float vb_tt = v_tt - vd_tt;
+
     float u_tl = get_vfacet(u,i-1,j,ny,nx);
+    float ud_tl = get_vfacet(ud,i-1,j,ny,nx);
+    float ub_tl = u_tl - ud_tl;
+    
     float u_tr = get_vfacet(u,i-1,j+1,ny,nx);
+    float ud_tr = get_vfacet(ud,i-1,j+1,ny,nx);
+    float ub_tr = u_tr - ud_tr;
 
     float H_t    = get_cell(H,i-1,j,ny,nx);
     float beta_t = get_cell(beta,i-1,j,ny,nx);
@@ -899,20 +1162,54 @@ __device__ void build_9x9_vanka(
     float xi_t = get_cell(xi,i-1,j,ny,nx);
     float xi_c = get_cell(xi,i,j,ny,nx);
 
-    TauByJacobian tau_by_t = get_tau_by_jac({v_t,v_tt,v_b,u_tl,u_tr,u_l,u_r,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
+    TauByJacobian tau_by_t = get_tau_by_jac({vb_t,vb_tt,vb_b,ub_tl,ub_tr,ub_l,ub_r,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
     r[6]  += tau_by_t.res;
+    
+    J[54] -= tau_by_t.d_u_bl;
+    J[55] -= tau_by_t.d_u_br;
+    J[56] -= tau_by_t.d_v_c;
+    J[57] -= tau_by_t.d_v_b;
+    
     J[58] += tau_by_t.d_u_bl;
     J[59] += tau_by_t.d_u_br;
     J[60] += tau_by_t.d_v_c;
     J[61] += tau_by_t.d_v_b;
+    
     J[62] += tau_by_t.d_H_b;
+    
+    r[2]  -= tau_by_t.res;
+
+    J[18] += tau_by_t.d_u_bl;
+    J[19] += tau_by_t.d_u_br;
+    J[20] += tau_by_t.d_v_c;
+    J[21] += tau_by_t.d_v_b;
+    
+    J[22] -= tau_by_t.d_u_bl;
+    J[23] -= tau_by_t.d_u_br;
+    J[24] -= tau_by_t.d_v_c;
+    J[25] -= tau_by_t.d_v_b;
+
+    J[26] -= tau_by_t.d_H_b;
     }
 
     // Basal shear stress for bottom momentum
     {
+    float ub_l = u_l - ud_l;
+    float ub_r = u_r - ud_r;
+    float vb_t = v_t - vd_t;
+    float vb_b = v_b - vd_b;
+
     float v_bb = get_hfacet(v,i+2,j,ny,nx);
+    float vd_bb = get_hfacet(vd,i+2,j,ny,nx);
+    float vb_bb = v_bb - vd_bb;
+
     float u_bl = get_vfacet(u,i+1,j,ny,nx);
+    float ud_bl = get_vfacet(ud,i+1,j,ny,nx);
+    float ub_bl = u_bl - ud_bl;
+
     float u_br = get_vfacet(u,i+1,j+1,ny,nx);
+    float ud_br = get_vfacet(ud,i+1,j+1,ny,nx);
+    float ub_br = u_br - ud_br;
 
     float H_b    = get_cell(H,i+1,j,ny,nx);
     float beta_c = get_cell(beta,i,j,ny,nx);
@@ -920,13 +1217,33 @@ __device__ void build_9x9_vanka(
     float xi_c = get_cell(xi,i,j,ny,nx);
     float xi_b = get_cell(xi,i+1,j,ny,nx);
 
-    TauByJacobian tau_by_b = get_tau_by_jac({v_b,v_t,v_bb,u_l,u_r,u_bl,u_br,H_c,H_b,xi_c,xi_b,beta_c,beta_b,m,u_reg,water_drag,flotation_reg_sliding});
+    TauByJacobian tau_by_b = get_tau_by_jac({vb_b,vb_t,vb_bb,ub_l,ub_r,ub_bl,ub_br,H_c,H_b,xi_c,xi_b,beta_c,beta_b,m,u_reg,water_drag,flotation_reg_sliding});
     r[7]  += tau_by_b.res;
+
+    J[63] -= tau_by_b.d_u_tl;
+    J[64] -= tau_by_b.d_u_tr;
+    J[65] -= tau_by_b.d_v_t;
+    J[66] -= tau_by_b.d_v_c;
+
     J[67] += tau_by_b.d_u_tl;
     J[68] += tau_by_b.d_u_tr;
     J[69] += tau_by_b.d_v_t;
     J[70] += tau_by_b.d_v_c;
     J[71] += tau_by_b.d_H_t;
+    
+    r[3]  -= tau_by_b.res;
+
+    J[27] += tau_by_b.d_u_tl;
+    J[28] += tau_by_b.d_u_tr;
+    J[29] += tau_by_b.d_v_t;
+    J[30] += tau_by_b.d_v_c;
+
+    J[31] -= tau_by_b.d_u_tl;
+    J[32] -= tau_by_b.d_u_tr;
+    J[33] -= tau_by_b.d_v_t;
+    J[34] -= tau_by_b.d_v_c;
+
+    J[35] -= tau_by_b.d_H_t;
     }
     
     // Driving stress for left momentum (u)
@@ -1014,7 +1331,7 @@ void vanka_smooth(
 
     __shared__ float eta_local[bny][bnx];
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, B, n, eps_reg, dx, ny, nx);
+    populate_viscosity(eta_local, bi, bj, i, j, u, v, ud, vd, H, B, n, eps_reg, dx, ny, nx);
     __syncthreads();
 
     if (i < 0 || i >= ny || j<0 || j >= nx) return;
@@ -1030,6 +1347,12 @@ void vanka_smooth(
 	float u_r = get_vfacet(u, i, j + 1, ny, nx);
 	float v_t = get_hfacet(v, i, j, ny, nx);
 	float v_b = get_hfacet(v, i + 1, j, ny, nx);
+
+	float ud_l = get_vfacet(ud, i, j, ny, nx);
+	float ud_r = get_vfacet(ud, i, j + 1, ny, nx);
+	float vd_t = get_hfacet(vd, i, j, ny, nx);
+	float vd_b = get_hfacet(vd, i + 1, j, ny, nx);
+
 	float H_c = get_cell(H, i, j, ny, nx);
 	float thklim = get_cell(gamma,i,j,ny,nx);
 
@@ -1037,6 +1360,12 @@ void vanka_smooth(
 	float c_u_r = 0.0f;
 	float c_v_t = 0.0f;
 	float c_v_b = 0.0f;
+
+	float c_ud_l = 0.0f;
+	float c_ud_r = 0.0f;
+	float c_vd_t = 0.0f;
+	float c_vd_b = 0.0f;
+
 	float c_H_c = 0.0f;
 
 	float rnorm = 1.0f;
@@ -1047,173 +1376,80 @@ void vanka_smooth(
         float r[9] = {0};
 
 	while (k<newton_steps && rnorm>tol){
-            /*
-	    float J[25] = {0};
-            float r[5] = {0};
-            
-	    build_5x5_vanka(J, r,
-		    u_l, u_r, v_t, v_b, H_c,
-		    u, v, H, eta_local, phi, xi,
-                    bed, B, beta, gamma,
-		    n, eps_reg, flotation_reg_driving,
-                    m, u_reg, water_drag, flotation_reg_sliding, 
-		    calving_rate, flotation_reg_calving,
-                    dx, dt, ny, nx, i, j, bi, bj);
-            
-            //if(i==50 && j==50) {printf("%f,%f,%f,%f,%f\n",J[4],J[9],J[14],J[19],J[24]);}
-
-	    r[0] -= get_vfacet(f_u,i,j,ny,nx);
-	    r[1] -= get_vfacet(f_u,i,j+1,ny,nx);
-	    r[2] -= get_hfacet(f_v,i,j,ny,nx);
-	    r[3] -= get_hfacet(f_v,i+1,j,ny,nx);
-	    r[4] -= get_hfacet(f_H,i,j,ny,nx);
-
-            J[0]  -= ssa_damping;
-            J[6]  -= ssa_damping;
-            J[12] -= ssa_damping;
-            J[18] -= ssa_damping;
-            J[24] += mc_damping;
-	     
-	    if (j == 0) {
-	    	for(int k=0; k<5; ++k) J[0 + k] = 0.0f;
-	        for(int k=0; k<5; ++k) J[k*5 + 0] = 0.0f;
-		J[0] = 1.0f;
-		r[0] = u_l;
-	    }
-
-	    if (j == (nx - 1)) {
-	    	for(int k=0; k<5; ++k) J[5 + k] = 0.0f;
-	        for(int k=0; k<5; ++k) J[k*5 + 1] = 0.0f;
-		J[6] = 1.0f;
-		r[1] = u_r;
-	    }
-
-	    if (i == 0) {
-	    	for(int k=0; k<5; ++k) J[10 + k] = 0.0f;
-	        for(int k=0; k<5; ++k) J[k*5 + 2] = 0.0f;
-		J[12] = 1.0f;
-		r[2] = v_t;
-	    }
-
-	    if (i == (ny-1)) {
-	    	for(int k=0; k<5; ++k) J[15 + k] = 0.0f;
-	        for(int k=0; k<5; ++k) J[k*5 + 3] = 0.0f;
-		J[18] = 1.0f;
-		r[3] = v_b;
-	    }
-	    
-
-            //if(i==50 && j==50) {printf("%f,%f,%f,%f,%f\n",r[0],r[1],r[2],r[3],r[4]);}
-	    if ((H_c - dt*r[4]) <= (thklim)) {
-		// Active set constraint: Force H = thklim
-		masked = 1.0f;
-		for(int k=0; k<5; ++k) J[20 + k] = 0.0f;
-	        for(int k=0; k<5; ++k) J[k*5 + 4] = 0.0f;
-		J[24] = 1.0f;
-		r[4] = H_c - thklim;
-	    } else {
-	        masked = 0.0f;
-	    
-	    }
-            if(i==50 && j==50) {
-                 printf("%f,%f,%f,%f,%f\n",J[0],J[1],J[2],J[3],J[4]);
-                 printf("%f,%f,%f,%f,%f\n",J[5],J[6],J[7],J[8],J[9]);
-                 printf("%f,%f,%f,%f,%f\n",J[10],J[11],J[12],J[13],J[14]);
-                 printf("%f,%f,%f,%f,%f\n",J[15],J[16],J[17],J[18],J[19]);
-                 printf("%f,%f,%f,%f,%f\n",J[20],J[21],J[22],J[23],J[24]);
-}
-	    
-            rnorm = r[0]*r[0] + r[1]*r[1] + r[2]*r[2] + r[3]*r[3] + r[4]*r[4];
-            if(i==50 && j==50) {printf("%f,%f,%f,%f,%f\n",r[0],r[1],r[2],r[3],r[4]);}
-
-	    float delta_x[5] = {0};
-            lu_factor<5>(J);
-	    lu_solve_factored<5>(J,r,delta_x);
-            //lu_5x5_solve(J,r,delta_x);
-            
-            if(i==50 && j==50) {printf("%f,%f,%f,%f,%f\n",delta_x[0],delta_x[1],delta_x[2],delta_x[3],delta_x[4]);}
-
-	    relaxation = 0.5f;
-
-	    float y_u_l = -relaxation*delta_x[0] - c_u_l;
-	    float t_u_l = u_l + y_u_l;
-	    c_u_l = (t_u_l - u_l) - y_u_l;
-	    u_l = t_u_l;
-	    
-	    float y_u_r = -relaxation*delta_x[1] - c_u_r;
-	    float t_u_r = u_r + y_u_r;
-	    c_u_r = (t_u_r - u_r) - y_u_r;
-	    u_r = t_u_r;
-
-	    float y_v_t = -relaxation*delta_x[2] - c_v_t;
-	    float t_v_t = v_t + y_v_t;
-	    c_v_t = (t_v_t - v_t) - y_v_t;
-	    v_t = t_v_t;
-	    
-	    float y_v_b = -relaxation*delta_x[3] - c_v_b;
-	    float t_v_b = v_b + y_v_b;
-	    c_v_b = (t_v_b - v_b) - y_v_b;
-	    v_b = t_v_b;
-
-	    float y_H_c = -relaxation*delta_x[4] - c_H_c;
-	    float t_H_c = H_c + y_H_c;
-	    c_H_c = (t_H_c - H_c) - y_H_c;
-	    H_c = t_H_c;
-
-	    H_c = fmaxf(H_c,thklim);
-	    k++;
-            */
-
-	    //float J[81] = {0};
-            //float r[9] = {0};
             
 	    build_9x9_vanka(J, r,
-		    u_l, u_r, v_t, v_b, H_c,
-		    u, v, H, eta_local, phi, xi,
+		    u_l, u_r, v_t, v_b, 
+		    ud_l, ud_r, vd_t, vd_b, H_c,
+		    u, v, ud, vd, H, eta_local, phi, xi,
                     bed, B, beta, gamma,
 		    n, eps_reg, flotation_reg_driving,
                     m, u_reg, water_drag, flotation_reg_sliding, 
 		    calving_rate, flotation_reg_calving,
                     dx, dt, ny, nx, i, j, bi, bj);
             
-            //if(i==50 && j==50) {printf("%f,%f,%f,%f,%f\n",J[44],J[53],J[62],J[71],J[80]);}
 
+	    r[0] -= get_vfacet(f_ud,i,j,ny,nx);
+	    r[1] -= get_vfacet(f_ud,i,j+1,ny,nx);
+	    r[2] -= get_hfacet(f_vd,i,j,ny,nx);
+	    r[3] -= get_hfacet(f_vd,i+1,j,ny,nx);
 	    r[4] -= get_vfacet(f_u,i,j,ny,nx);
 	    r[5] -= get_vfacet(f_u,i,j+1,ny,nx);
 	    r[6] -= get_hfacet(f_v,i,j,ny,nx);
 	    r[7] -= get_hfacet(f_v,i+1,j,ny,nx);
-	    r[8] -= get_hfacet(f_H,i,j,ny,nx);
+	    r[8] -= get_cell(f_H,i,j,ny,nx);
 
-            J[40]  -= ssa_damping;
-            J[50]  -= ssa_damping;
+            J[0]  -= ssa_damping;
+            J[10] -= ssa_damping;
+            J[20] -= ssa_damping;
+            J[30] -= ssa_damping;
+            J[40] -= ssa_damping;
+            J[50] -= ssa_damping;
             J[60] -= ssa_damping;
             J[70] -= ssa_damping;
             J[80] += mc_damping;
 	     
 	    if (j == 0) {
+	    	for(int k=0; k<9; ++k) J[0*9 + k] = 0.0f;
+	        for(int k=0; k<9; ++k) J[k*9 + 0] = 0.0f;
 	    	for(int k=0; k<9; ++k) J[4*9 + k] = 0.0f;
 	        for(int k=0; k<9; ++k) J[k*9 + 4] = 0.0f;
+                J[0]  = 1.0f;
+                r[0] = ud_l;
+
 		J[40] = 1.0f;
 		r[4] = u_l;
 	    }
 
 	    if (j == (nx - 1)) {
+	    	for(int k=0; k<9; ++k) J[1*9 + k] = 0.0f;
+	        for(int k=0; k<9; ++k) J[k*9 + 1] = 0.0f;
 	    	for(int k=0; k<9; ++k) J[5*9 + k] = 0.0f;
 	        for(int k=0; k<9; ++k) J[k*9 + 5] = 0.0f;
+                J[10] = 1.0f;
+                r[1] = ud_r;
+
 		J[50] = 1.0f;
 		r[5] = u_r;
 	    }
 
 	    if (i == 0) {
+	    	for(int k=0; k<9; ++k) J[2*9 + k] = 0.0f;
+	        for(int k=0; k<9; ++k) J[k*9 + 2] = 0.0f;
 	    	for(int k=0; k<9; ++k) J[6*9 + k] = 0.0f;
 	        for(int k=0; k<9; ++k) J[k*9 + 6] = 0.0f;
+		J[20] = 1.0f;
+		r[2] = vd_t;
 		J[60] = 1.0f;
 		r[6] = v_t;
 	    }
 
 	    if (i == (ny-1)) {
+	    	for(int k=0; k<9; ++k) J[3*9 + k] = 0.0f;
+	        for(int k=0; k<9; ++k) J[k*9 + 3] = 0.0f;
 	    	for(int k=0; k<9; ++k) J[7*9 + k] = 0.0f;
 	        for(int k=0; k<9; ++k) J[k*9 + 7] = 0.0f;
+		J[30] = 1.0f;
+		r[3] = vd_b;
 		J[70] = 1.0f;
 		r[7] = v_b;
 	    }
@@ -1238,14 +1474,14 @@ void vanka_smooth(
             //    printf("%f,%f,%f,%f,%f\n",J[67],J[68],J[69],J[70],J[71]);
             //    printf("%f,%f,%f,%f,%f\n",J[76],J[77],J[78],J[79],J[80]);
             //}
-            rnorm = r[4]*r[4] + r[5]*r[5] + r[6]*r[6] + r[7]*r[7] + r[8]*r[8];
+            rnorm = r[0]*r[0] + r[1]*r[1] + r[2]*r[2] + r[3]*r[3] + r[4]*r[4] + r[5]*r[5] + r[6]*r[6] + r[7]*r[7] + r[8]*r[8];
             //if(i==50 && j==50) {printf("%f,%f,%f,%f,%f\n",r[4],r[5],r[6],r[7],r[8]);}
             
 
-            J[0] = 1.0f;
-            J[10] = 1.0f;
-            J[20] = 1.0f;
-            J[30] = 1.0f;
+            //J[0] = 1.0f;
+            //J[10] = 1.0f;
+            //J[20] = 1.0f;
+            //J[30] = 1.0f;
 
 	    float delta_x[9] = {0};
             lu_factor<9>(J);
@@ -1253,6 +1489,26 @@ void vanka_smooth(
             //lu_5x5_solve(J,r,delta_x);
             //if(i==50 && j==50) {printf("%f,%f,%f,%f,%f\n",delta_x[4],delta_x[5],delta_x[6],delta_x[7],delta_x[8]);}
 	    relaxation = 0.5f;
+
+	    float y_ud_l = -relaxation*delta_x[0] - c_ud_l;
+	    float t_ud_l = ud_l + y_ud_l;
+	    c_ud_l = (t_ud_l - ud_l) - y_ud_l;
+	    ud_l = t_ud_l;
+	    
+	    float y_ud_r = -relaxation*delta_x[1] - c_ud_r;
+	    float t_ud_r = ud_r + y_ud_r;
+	    c_ud_r = (t_ud_r - ud_r) - y_ud_r;
+	    ud_r = t_ud_r;
+
+	    float y_vd_t = -relaxation*delta_x[2] - c_vd_t;
+	    float t_vd_t = vd_t + y_vd_t;
+	    c_vd_t = (t_vd_t - vd_t) - y_vd_t;
+	    vd_t = t_vd_t;
+	    
+	    float y_vd_b = -relaxation*delta_x[3] - c_vd_b;
+	    float t_vd_b = vd_b + y_vd_b;
+	    c_vd_b = (t_vd_b - vd_b) - y_vd_b;
+	    vd_b = t_vd_b;
 
 	    float y_u_l = -relaxation*delta_x[4] - c_u_l;
 	    float t_u_l = u_l + y_u_l;
@@ -1282,19 +1538,22 @@ void vanka_smooth(
 	    H_c = fmaxf(H_c,thklim);
 	    k++;
             
-            
-            
-
-
-
         }
 	
+	float ud_l_prev = get_vfacet(ud, i, j, ny, nx);
+	float ud_r_prev = get_vfacet(ud, i, j + 1, ny, nx);
+	float vd_t_prev = get_hfacet(vd, i, j, ny, nx);
+	float vd_b_prev = get_hfacet(vd, i + 1, j, ny, nx);
 	float u_l_prev = get_vfacet(u, i, j, ny, nx);
 	float u_r_prev = get_vfacet(u, i, j + 1, ny, nx);
 	float v_t_prev = get_hfacet(v, i, j, ny, nx);
 	float v_b_prev = get_hfacet(v, i + 1, j, ny, nx);
 	float H_c_prev = get_cell(H, i, j, ny, nx);
 
+	atomicAdd(&delta_ud[i * (nx + 1) + j],       0.5f*(ud_l - ud_l_prev));
+	atomicAdd(&delta_ud[i * (nx + 1) + j + 1],   0.5f*(ud_r - ud_r_prev));
+	atomicAdd(&delta_vd[i * nx + j],             0.5f*(vd_t - vd_t_prev));
+	atomicAdd(&delta_vd[(i + 1) * nx + j ],      0.5f*(vd_b - vd_b_prev));
 	atomicAdd(&delta_u[i * (nx + 1) + j],       0.5f*(u_l - u_l_prev));
 	atomicAdd(&delta_u[i * (nx + 1) + j + 1],   0.5f*(u_r - u_r_prev));
 	atomicAdd(&delta_v[i * nx + j],             0.5f*(v_t - v_t_prev));
@@ -1449,11 +1708,15 @@ void vanka_dump(
     float* __restrict__ r_array,
     const float* __restrict__ u,
     const float* __restrict__ v,
+    const float* __restrict__ ud,
+    const float* __restrict__ vd,
     const float* __restrict__ H,
     const float* __restrict__ phi,
     const float* __restrict__ xi,
     const float* __restrict__ f_u,
     const float* __restrict__ f_v,
+    const float* __restrict__ f_ud,
+    const float* __restrict__ f_vd,
     const float* __restrict__ f_H,
     const float* __restrict__ bed,
     const float* __restrict__ B,
@@ -1476,7 +1739,7 @@ void vanka_dump(
 
     __shared__ float eta_local[bny][bnx];
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, B, n, eps_reg, dx, ny, nx);
+    populate_viscosity(eta_local, bi, bj, i, j, u, v, ud, vd, H, B, n, eps_reg, dx, ny, nx);
     __syncthreads();
 
     if (i < 0 || i >= ny || j<0 || j >= nx) return;
@@ -1487,6 +1750,11 @@ void vanka_dump(
     if ( is_active ) {
 	float dx_inv = 1.0f/dx;
 
+	float ud_l = get_vfacet(ud, i, j, ny, nx);
+	float ud_r = get_vfacet(ud, i, j + 1, ny, nx);
+	float vd_t = get_hfacet(vd, i, j, ny, nx);
+	float vd_b = get_hfacet(vd, i + 1, j, ny, nx);
+
 	float u_l = get_vfacet(u, i, j, ny, nx);
 	float u_r = get_vfacet(u, i, j + 1, ny, nx);
 	float v_t = get_hfacet(v, i, j, ny, nx);
@@ -1494,63 +1762,86 @@ void vanka_dump(
 	float H_c = get_cell(H, i, j, ny, nx);
 	float thklim = get_cell(gamma,i,j,ny,nx);
 
-	float J[25] = {0};
-        float r[5] = {0};
+	float J[81] = {0};
+        float r[9] = {0};
 
-        build_5x5_vanka(J, r,
-	    u_l, u_r, v_t, v_b, H_c,
-	    u, v, H, eta_local, phi, xi,
+        build_9x9_vanka(J, r,
+	    u_l, u_r, v_t, v_b,
+	    ud_l, ud_r, vd_t, vd_b, H_c,
+	    u, v, ud, vd, H, eta_local, phi, xi,
 	    bed, B, beta, gamma,
 	    n, eps_reg, flotation_reg_driving,
 	    m, u_reg, water_drag, flotation_reg_sliding, 
 	    calving_rate, flotation_reg_calving,
 	    dx, dt, ny, nx, i, j, bi, bj);
 	
-	r[0] -= get_vfacet(f_u,i,j,ny,nx);
-	r[1] -= get_vfacet(f_u,i,j+1,ny,nx);
-	r[2] -= get_hfacet(f_v,i,j,ny,nx);
-	r[3] -= get_hfacet(f_v,i+1,j,ny,nx);
-	r[4] -= get_hfacet(f_H,i,j,ny,nx);
+	r[0] -= get_vfacet(f_ud,i,j,ny,nx);
+	r[1] -= get_vfacet(f_ud,i,j+1,ny,nx);
+	r[2] -= get_hfacet(f_vd,i,j,ny,nx);
+	r[3] -= get_hfacet(f_vd,i+1,j,ny,nx);
+	r[4] -= get_vfacet(f_u,i,j,ny,nx);
+	r[5] -= get_vfacet(f_u,i,j+1,ny,nx);
+	r[6] -= get_hfacet(f_v,i,j,ny,nx);
+	r[7] -= get_hfacet(f_v,i+1,j,ny,nx);
+	r[8] -= get_cell(f_H,i,j,ny,nx);
 
 	if (j == 0) {
-	    for(int k=0; k<5; ++k) J[0 + k] = 0.0f;
-	    for(int k=0; k<5; ++k) J[k*5 + 0] = 0.0f;
-	    J[0] = 1.0f;
-	    r[0] = u_l;
+	    for(int k=0; k<9; ++k) J[0*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 0] = 0.0f;
+	    for(int k=0; k<9; ++k) J[4*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 4] = 0.0f;
+	    J[0]  = 1.0f;
+	    r[0] = ud_l;
+
+	    J[40] = 1.0f;
+	    r[4] = u_l;
 	}
 
 	if (j == (nx - 1)) {
-	    for(int k=0; k<5; ++k) J[5 + k] = 0.0f;
-	    for(int k=0; k<5; ++k) J[k*5 + 1] = 0.0f;
-	    J[6] = 1.0f;
-	    r[1] = u_r;
+	    for(int k=0; k<9; ++k) J[1*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 1] = 0.0f;
+	    for(int k=0; k<9; ++k) J[5*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 5] = 0.0f;
+	    J[10] = 1.0f;
+	    r[1] = ud_r;
+
+	    J[50] = 1.0f;
+	    r[5] = u_r;
 	}
 
 	if (i == 0) {
-	    for(int k=0; k<5; ++k) J[10 + k] = 0.0f;
-	    for(int k=0; k<5; ++k) J[k*5 + 2] = 0.0f;
-	    J[12] = 1.0f;
-	    r[2] = v_t;
+	    for(int k=0; k<9; ++k) J[2*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 2] = 0.0f;
+	    for(int k=0; k<9; ++k) J[6*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 6] = 0.0f;
+	    J[20] = 1.0f;
+	    r[2] = vd_t;
+	    J[60] = 1.0f;
+	    r[6] = v_t;
 	}
 
 	if (i == (ny-1)) {
-	    for(int k=0; k<5; ++k) J[15 + k] = 0.0f;
-	    for(int k=0; k<5; ++k) J[k*5 + 3] = 0.0f;
-	    J[18] = 1.0f;
-	    r[3] = v_b;
+	    for(int k=0; k<9; ++k) J[3*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 3] = 0.0f;
+	    for(int k=0; k<9; ++k) J[7*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 7] = 0.0f;
+	    J[30] = 1.0f;
+	    r[3] = vd_b;
+	    J[70] = 1.0f;
+	    r[7] = v_b;
 	}
 	
 
-	if ((H_c - dt*r[4]) <= (thklim)) {
+	if ((H_c - dt*r[8]) <= (thklim)) {
 	    // Active set constraint: Force H = thklim
-	    for(int k=0; k<5; ++k) J[20 + k] = 0.0f;
-	    for(int k=0; k<5; ++k) J[k*5 + 4] = 0.0f;
-	    J[24] = 1.0f;
-	    r[4] = H_c - thklim;
+	    for(int k=0; k<9; ++k) J[8*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 8] = 0.0f;
+	    J[80] = 1.0f;
+	    r[8] = H_c - thklim;
 	}
 
-        for(int k=0; k<25; ++k) J_array[25*(i * nx + j) + k] = J[k]; 
-        for(int k=0; k<5; ++k) r_array[5*(i * nx + j) + k] = r[k]; 
+        for(int k=0; k<81; ++k) J_array[81*(i * nx + j) + k] = J[k]; 
+        for(int k=0; k<9; ++k)  r_array[9*(i * nx + j) + k]  = r[k]; 
     }
 }
 

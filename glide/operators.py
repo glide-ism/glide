@@ -269,7 +269,6 @@ class ForwardOperators:
             self.grid.state.v.data[:] += self.vanka_config.omega * self.delta_v
             self.grid.state.ud.data[:] += self.vanka_config.omega * self.delta_ud
             self.grid.state.vd.data[:] += self.vanka_config.omega * self.delta_vd
-
             self.grid.state.H.data[:] += self.vanka_config.omega * self.delta_H
             self.vanka_config.hook_func(i)
 
@@ -278,8 +277,8 @@ class ForwardOperators:
         grid_size, block_size, stride, halo = self._kernel_config
         grid = self.grid
 
-        J = cp.zeros((self.grid.ny*self.grid.nx,25),dtype=cp.float32)
-        r = cp.zeros((self.grid.ny*self.grid.nx,5),dtype=cp.float32)
+        J = cp.zeros((self.grid.ny*self.grid.nx,81),dtype=cp.float32)
+        r = cp.zeros((self.grid.ny*self.grid.nx,9),dtype=cp.float32)
         kernel(grid_size, block_size,
                (J,r,
                 grid.state.u.data, grid.state.v.data, grid.state.ud.data, grid.state.vd.data, grid.state.H.data, grid.state.phi.data, grid.state.xi.data,

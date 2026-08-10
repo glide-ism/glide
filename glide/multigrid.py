@@ -81,6 +81,8 @@ class Multigrid:
     def restrict_state(self,fine_grid,coarse_grid):
         self.restrict_vfacet(fine_grid.state.u.data,coarse_grid.state.u.data)
         self.restrict_hfacet(fine_grid.state.v.data,coarse_grid.state.v.data)
+        self.restrict_vfacet(fine_grid.state.ud.data,coarse_grid.state.ud.data)
+        self.restrict_hfacet(fine_grid.state.vd.data,coarse_grid.state.vd.data)
         self.restrict_cell(fine_grid.state.H.data,coarse_grid.state.H.data)
         self.restrict_cell(fine_grid.state.H_prev.data,coarse_grid.state.H_prev.data)
         self.restrict_cell(fine_grid.state.phi.data,coarse_grid.state.phi.data)
@@ -116,6 +118,8 @@ class Multigrid:
     def restrict_residual(self,fine_grid,coarse_grid):
         self.restrict_vfacet(fine_grid.forward_operators.r_u,coarse_grid.forward_operators.r_u)
         self.restrict_hfacet(fine_grid.forward_operators.r_v,coarse_grid.forward_operators.r_v)
+        self.restrict_vfacet(fine_grid.forward_operators.r_ud,coarse_grid.forward_operators.r_ud)
+        self.restrict_hfacet(fine_grid.forward_operators.r_vd,coarse_grid.forward_operators.r_vd)
         self.restrict_cell(fine_grid.forward_operators.r_H,coarse_grid.forward_operators.r_H)
    
     def restrict_vfacet(self,fine_field,coarse_field=None):
@@ -300,6 +304,20 @@ class MGStateManager:
             getter=lambda g: g.state.v,
             restrict=lambda f,c: mg.restrict_hfacet(f.data,c.data),
             name="v",
+        )
+
+        self.ud = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.state.ud,
+            restrict=lambda f,c: mg.restrict_vfacet(f.data,c.data),
+            name="ud",
+        )
+
+        self.vd = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.state.vd,
+            restrict=lambda f,c: mg.restrict_hfacet(f.data,c.data),
+            name="vd",
         )
 
         self.H = HierarchyFieldManager(
@@ -529,15 +547,15 @@ class FASCDSolver:
         start_level_.forward_operators.set_rhs(dt)
         
         ru_init,rv_init,rud_init,rvd_init,rH_init = start_level_.forward_operators.compute_residual(dt,return_norms=True)
-        initial_residual_norm = cp.sqrt(ru_init**2 + rv_init**2 + 0*rud_init**2 + 0*rvd_init**2 + rH_init**2)
+        initial_residual_norm = cp.sqrt(ru_init**2 + rv_init**2 + rud_init**2 + rvd_init**2 + rH_init**2)
         relative_residual_norm = cp.float32(1.0)
 
         if self._fas_config.report_norms:
             print(f"  Initial:   |r0|     = {initial_residual_norm:.2e}, "
                   f"|r_u| = {float(ru_init):.2e}, "
                   f"|r_v| = {float(rv_init):.2e}, "
-                  f"|r_u| = {float(rud_init):.2e}, "
-                  f"|r_v| = {float(rvd_init):.2e}, "
+                  f"|r_ud| = {float(rud_init):.2e}, "
+                  f"|r_vd| = {float(rvd_init):.2e}, "
                   f"|r_H| = {float(rH_init):.2e}")
 
         absolute_residual_norm = initial_residual_norm
@@ -548,7 +566,7 @@ class FASCDSolver:
             self.vcycle(start_level,finest=True)
             ru,rv,rud,rvd,rH = start_level_.forward_operators.compute_residual(dt,freeze_phi=True,return_norms=True)
 
-            absolute_residual_norm = cp.sqrt(ru**2 + rv**2 + 0*rud**2 + 0*rvd**2 + rH**2)
+            absolute_residual_norm = cp.sqrt(ru**2 + rv**2 + rud**2 + rvd**2 + rH**2)
             relative_residual_norm = absolute_residual_norm / initial_residual_norm
             if self._fas_config.report_norms:
                 print(f"  V-cycle {iteration}: |r|/|r0| = {relative_residual_norm:.2e}, "
@@ -579,6 +597,8 @@ class FASCDSolver:
         if finest:
             level.scratch.w_u[:,:] = level.grid.state.u.data[:,:]
             level.scratch.w_v[:,:] = level.grid.state.v.data[:,:]
+            level.scratch.w_ud[:,:] = level.grid.state.ud.data[:,:]
+            level.scratch.w_vd[:,:] = level.grid.state.vd.data[:,:]
             level.scratch.w_H[:,:] = level.grid.state.H.data[:,:]
             level.scratch.chi[:,:] = level.grid.geometry.thklim.value - level.grid.state.H.data
 
@@ -612,12 +632,16 @@ class FASCDSolver:
         # Compute coarse grid correction
         level.scratch.y_u[:,:] = level.grid.state.u.data - level.scratch.w_u
         level.scratch.y_v[:,:] = level.grid.state.v.data - level.scratch.w_v
+        level.scratch.y_ud[:,:] = level.grid.state.ud.data - level.scratch.w_ud
+        level.scratch.y_vd[:,:] = level.grid.state.vd.data - level.scratch.w_vd
         level.scratch.y_H[:,:] = level.grid.state.H.data - level.scratch.w_H
 
         # Restrict solution to child
         mg.restrict_state(level.grid,next_level.grid)
         next_level.scratch.w_u[:,:] = next_level.grid.state.u.data[:,:]
         next_level.scratch.w_v[:,:] = next_level.grid.state.v.data[:,:]
+        next_level.scratch.w_ud[:,:] = next_level.grid.state.ud.data[:,:]
+        next_level.scratch.w_vd[:,:] = next_level.grid.state.vd.data[:,:]
         next_level.scratch.w_H[:,:] = next_level.grid.state.H.data[:,:]
 
         # Compute and restrict residual
@@ -634,6 +658,8 @@ class FASCDSolver:
 
         next_level.grid.forward_operators.f_u[:,:] = next_level.grid.forward_operators.F_u[:,:] - next_level.grid.forward_operators.r_u[:,:]
         next_level.grid.forward_operators.f_v[:,:] = next_level.grid.forward_operators.F_v[:,:] - next_level.grid.forward_operators.r_v[:,:]
+        next_level.grid.forward_operators.f_ud[:,:] = next_level.grid.forward_operators.F_ud[:,:] - next_level.grid.forward_operators.r_ud[:,:]
+        next_level.grid.forward_operators.f_vd[:,:] = next_level.grid.forward_operators.F_vd[:,:] - next_level.grid.forward_operators.r_vd[:,:]
         next_level.grid.forward_operators.f_H[:,:] = next_level.grid.forward_operators.F_H[:,:] - next_level.grid.forward_operators.r_H[:,:]
 
         # Recursive call
@@ -642,20 +668,28 @@ class FASCDSolver:
         # Compute coarse correction
         next_level.scratch.z_u[:] = next_level.grid.state.u.data - next_level.scratch.w_u
         next_level.scratch.z_v[:] = next_level.grid.state.v.data - next_level.scratch.w_v
+        next_level.scratch.z_ud[:] = next_level.grid.state.ud.data - next_level.scratch.w_ud
+        next_level.scratch.z_vd[:] = next_level.grid.state.vd.data - next_level.scratch.w_vd
         next_level.scratch.z_H[:] = next_level.grid.state.H.data - next_level.scratch.w_H
 
         # Prolongate correction
         mg.prolongate_vfacet(next_level.scratch.z_u,level.scratch.z_u,method='bilinear')
         mg.prolongate_hfacet(next_level.scratch.z_v,level.scratch.z_v,method='bilinear')
+        mg.prolongate_vfacet(next_level.scratch.z_ud,level.scratch.z_ud,method='bilinear')
+        mg.prolongate_hfacet(next_level.scratch.z_vd,level.scratch.z_vd,method='bilinear')
         mg.prolongate_cell(next_level.scratch.z_H,level.scratch.z_H,method='injection')
 
         # Apply correction
         level.scratch.z_u[:,:] += level.scratch.y_u[:,:]
         level.scratch.z_v[:,:] += level.scratch.y_v[:,:]
+        level.scratch.z_ud[:,:] += level.scratch.y_ud[:,:]
+        level.scratch.z_vd[:,:] += level.scratch.y_vd[:,:]
         level.scratch.z_H[:,:] += level.scratch.y_H[:,:]
 
         level.grid.state.u.data[:,:] = level.scratch.w_u + level.scratch.z_u
         level.grid.state.v.data[:,:] = level.scratch.w_v + level.scratch.z_v
+        level.grid.state.ud.data[:,:] = level.scratch.w_ud + level.scratch.z_ud
+        level.grid.state.vd.data[:,:] = level.scratch.w_vd + level.scratch.z_vd
         level.grid.state.H.data[:,:] = level.scratch.w_H + level.scratch.z_H
 
         # Post-smooth
@@ -677,14 +711,20 @@ class FASCDScratch:
         
         self.w_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.w_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.w_ud = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.w_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.w_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
 
         self.y_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.y_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.y_ud = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.y_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.y_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
-        
+
         self.z_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.z_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.z_ud = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.z_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.z_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
 
         self.chi = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)

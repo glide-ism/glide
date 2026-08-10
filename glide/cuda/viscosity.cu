@@ -174,6 +174,105 @@ __device__ void populate_viscosity(
 
 }
 
+// Two-field (MOLHO) viscosity: the depth-averaged squared invariant picks up
+// the deformational membrane terms (weighted by K_1 = int phi^2 dsigma) and
+// the vertical shear term (weighted by K_2 = c_1*S_1/4, which contains the
+// plug/no-slip limit renormalization).
+template <int TH, int TW>
+__device__ void populate_viscosity(
+    float (&eta_local)[TH][TW],
+    int bi, int bj,
+    int i, int j,
+    const float* __restrict__ u,
+    const float* __restrict__ v,
+    const float* __restrict__ ud,
+    const float* __restrict__ vd,
+    const float* __restrict__ H,
+    const float* __restrict__ B,
+    float n, float eps_reg, float dx,
+    int ny, int nx){
+
+    float dx_inv = 1.0f/dx;
+    float glen_exp = (1.0f - n)/(2.0f * n);
+
+    float K_1 = 1.0f / (2.0f * n + 3.0f);
+    float S_1 = (n + 2.0f) * (n + 2.0f) / (2.0f * n + 1.0f);
+    float c_1 = __powf(1.0f / (n + 2.0f),2.0f * n / (n + 1.0f)) * (2.0f * n + 1.0f);
+    float K_2 = c_1 * S_1 / 4.0f;
+
+    // Mean-velocity membrane terms
+    float u_l = get_vfacet(u, i, j, ny, nx);
+    float u_r = get_vfacet(u, i, j + 1, ny, nx);
+    float v_t = get_hfacet(v, i, j, ny, nx);
+    float v_b = get_hfacet(v, i + 1, j, ny, nx);
+
+    float dudx = (u_r - u_l)*dx_inv;
+    float dvdy = (v_t - v_b)*dx_inv;
+
+    float tl_mask = i > 0 && j > 0;
+    float u_tl = get_vfacet(u, i - 1, j, ny, nx);
+    float v_lt = get_hfacet(v, i, j - 1, ny, nx);
+    float eps_xy_tl = 0.5f*((u_tl - u_l)*dx_inv + (v_t - v_lt)*dx_inv)*tl_mask;
+
+    float tr_mask = i > 0 && j < (nx - 1);
+    float u_tr = get_vfacet(u, i - 1, j + 1, ny, nx);
+    float v_rt = get_hfacet(v, i, j + 1, ny, nx);
+    float eps_xy_tr = 0.5f*((u_tr - u_r)*dx_inv + (v_rt - v_t)*dx_inv)*tr_mask;
+
+    float bl_mask = i < (ny - 1) && j > 0;
+    float u_bl = get_vfacet(u, i + 1, j, ny, nx);
+    float v_lb = get_hfacet(v, i + 1, j - 1, ny, nx);
+    float eps_xy_bl = 0.5f*((u_l - u_bl)*dx_inv + (v_b - v_lb)*dx_inv)*bl_mask;
+
+    float br_mask = i < (ny - 1) && j < (nx - 1);
+    float u_br = get_vfacet(u, i + 1, j + 1, ny, nx);
+    float v_rb = get_hfacet(v, i + 1, j + 1, ny, nx);
+    float eps_xy_br = 0.5f*((u_r - u_br)*dx_inv + (v_rb - v_b)*dx_inv)*br_mask;
+
+    float eps_xy2_bar = 0.25f*(eps_xy_tl*eps_xy_tl + eps_xy_tr*eps_xy_tr + eps_xy_bl*eps_xy_bl + eps_xy_br*eps_xy_br);
+
+    float eps_II_c = dudx*dudx + dvdy*dvdy + dudx*dvdy + eps_xy2_bar;
+
+    // Deformational membrane terms, same gathers on (ud,vd)
+    float ud_l = get_vfacet(ud, i, j, ny, nx);
+    float ud_r = get_vfacet(ud, i, j + 1, ny, nx);
+    float vd_t = get_hfacet(vd, i, j, ny, nx);
+    float vd_b = get_hfacet(vd, i + 1, j, ny, nx);
+
+    float duddx = (ud_r - ud_l)*dx_inv;
+    float dvddy = (vd_t - vd_b)*dx_inv;
+
+    float ud_tl = get_vfacet(ud, i - 1, j, ny, nx);
+    float vd_lt = get_hfacet(vd, i, j - 1, ny, nx);
+    float epsd_xy_tl = 0.5f*((ud_tl - ud_l)*dx_inv + (vd_t - vd_lt)*dx_inv)*tl_mask;
+
+    float ud_tr = get_vfacet(ud, i - 1, j + 1, ny, nx);
+    float vd_rt = get_hfacet(vd, i, j + 1, ny, nx);
+    float epsd_xy_tr = 0.5f*((ud_tr - ud_r)*dx_inv + (vd_rt - vd_t)*dx_inv)*tr_mask;
+
+    float ud_bl = get_vfacet(ud, i + 1, j, ny, nx);
+    float vd_lb = get_hfacet(vd, i + 1, j - 1, ny, nx);
+    float epsd_xy_bl = 0.5f*((ud_l - ud_bl)*dx_inv + (vd_b - vd_lb)*dx_inv)*bl_mask;
+
+    float ud_br = get_vfacet(ud, i + 1, j + 1, ny, nx);
+    float vd_rb = get_hfacet(vd, i + 1, j + 1, ny, nx);
+    float epsd_xy_br = 0.5f*((ud_r - ud_br)*dx_inv + (vd_rb - vd_b)*dx_inv)*br_mask;
+
+    float epsd_xy2_bar = 0.25f*(epsd_xy_tl*epsd_xy_tl + epsd_xy_tr*epsd_xy_tr + epsd_xy_bl*epsd_xy_bl + epsd_xy_br*epsd_xy_br);
+
+    float epsd_II_c = duddx*duddx + dvddy*dvddy + duddx*dvddy + epsd_xy2_bar;
+
+    // Vertical shear: interpolate squared facet values, cell's own H only
+    float H_c = get_cell(H,i,j,ny,nx);
+    float shear2_c = 0.5f*(ud_l*ud_l + ud_r*ud_r + vd_t*vd_t + vd_b*vd_b)/(H_c*H_c);
+
+    float eps_II_bar = eps_II_c + K_1 * epsd_II_c + K_2 * shear2_c + eps_reg;
+
+    eta_local[bi][bj] = 0.5f*get_cell(B,i,j,ny,nx)*__powf(eps_II_bar,glen_exp);
+
+
+}
+
 
 
 /*==================================================
