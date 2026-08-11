@@ -1367,7 +1367,7 @@ void vanka_smooth(
     float dx, float dt,
     int ny, int nx, int stride, int halo,
     int newton_steps, float relaxation, float step_tolerance,
-    float ssa_damping, float mc_damping
+    float momentum_damping, float mc_damping
     )
 {
     const int bny = 16;
@@ -1461,14 +1461,14 @@ void vanka_smooth(
             // additive pseudo-transient continuation in physical time
             // units: mc_damping = 1/dtau [1/a], dominant when dt is large
             // and negligible when dt is small.
-            J[0]  -= ssa_damping;
-            J[10] -= ssa_damping;
-            J[20] -= ssa_damping;
-            J[30] -= ssa_damping;
-            J[40] -= ssa_damping;
-            J[50] -= ssa_damping;
-            J[60] -= ssa_damping;
-            J[70] -= ssa_damping;
+            J[0]  -= momentum_damping;
+            J[10] -= momentum_damping;
+            J[20] -= momentum_damping;
+            J[30] -= momentum_damping;
+            J[40] -= momentum_damping;
+            J[50] -= momentum_damping;
+            J[60] -= momentum_damping;
+            J[70] -= momentum_damping;
             J[80] += mc_damping;
 
 	    if (j == 0) {
@@ -1655,7 +1655,7 @@ void vanka_smooth_adjoint(
     float calving_rate, float flotation_reg_calving,
     float dx, float dt,
     int ny, int nx, int stride, int halo,
-    float ssa_damping, float mc_damping
+    float momentum_damping, float mc_damping
     )
 {
     const int bny = 16;
@@ -1710,14 +1710,14 @@ void vanka_smooth_adjoint(
 	// Damping matches the forward smoother: relative on the
 	// sign-definite velocity rows, additive physical-time PTC on the
 	// transport row (see vanka_smooth)
-	J[0]  -= ssa_damping;
-        J[10] -= ssa_damping;
-        J[20] -= ssa_damping;
-        J[30] -= ssa_damping;
-        J[40] -= ssa_damping;
-        J[50] -= ssa_damping;
-        J[60] -= ssa_damping;
-        J[70] -= ssa_damping;
+	J[0]  -= momentum_damping;
+        J[10] -= momentum_damping;
+        J[20] -= momentum_damping;
+        J[30] -= momentum_damping;
+        J[40] -= momentum_damping;
+        J[50] -= momentum_damping;
+        J[60] -= momentum_damping;
+        J[70] -= momentum_damping;
         J[80] += mc_damping;
 
         rhs[0] = get_vfacet(r_adj_ud, i, j, ny, nx);

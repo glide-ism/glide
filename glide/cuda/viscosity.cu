@@ -57,7 +57,12 @@ void compute_flotation_fraction(
     float depth_c = get_cell(depth,i,j,ny,nx);
     float xi_old = xi[i * nx + j];
 
-    float xi_new = 1.0f - fminf(1.0905*depth_c/H_c,1.0f);
+    // Floor H: the constraint machinery can leave H at tiny negative
+    // values in the ocean, and an unguarded ratio then produces xi far
+    // outside [0,1], detonating the drag coefficients. With the floor,
+    // H <= 0 with depth > 0 gives xi -> 0 (floating) and bare land
+    // (depth = 0) gives xi -> 1 (grounded; N ~ H*xi vanishes regardless).
+    float xi_new = 1.0f - fminf(1.0905f*depth_c/fmaxf(H_c,1e-3f),1.0f);
 
     xi[i * nx + j] = (1.0f - relaxation_parameter) * xi_new + relaxation_parameter * xi_old;
 }
@@ -266,7 +271,7 @@ __device__ void populate_viscosity(
     // 1/H^2 is regularized to 1/(H^2 + H_reg^2), consistent with the
     // eta*H/(H^2 + H_reg^2) form of the shear residual.
     float H_c = get_cell(H,i,j,ny,nx);
-    float shear2_c = 0.5f*(ud_l*ud_l + ud_r*ud_r + vd_t*vd_t + vd_b*vd_b)/(H_c*H_c + H_reg*H_reg);
+    float shear2_c = 0.5f*(ud_l*ud_l + ud_r*ud_r + vd_t*vd_t + vd_b*vd_b)/(H_c*H_c + H_reg*H_reg + 1e-10f);
 
     float eps_II_bar = eps_II_c + K_1 * epsd_II_c + K_2 * shear2_c + eps_reg;
 
@@ -369,7 +374,7 @@ __device__ void populate_viscosity(
 
     // Vertical shear, including the H leg through 1/(H^2 + H_reg^2)
     DualFloat H_c = get_cell(H,d_H,i,j,ny,nx);
-    DualFloat den = H_c*H_c + H_reg*H_reg;
+    DualFloat den = H_c*H_c + (H_reg*H_reg + 1e-10f);
     DualFloat inv_den = {1.0f/den.v, -den.d/(den.v*den.v)};
     DualFloat shear2_c = 0.5f*(ud_l*ud_l + ud_r*ud_r + vd_t*vd_t + vd_b*vd_b)*inv_den;
 
@@ -475,7 +480,7 @@ __device__ void populate_viscosity_vjp(
 
     // Vertical shear: H is primal-only here (no H direction)
     float H_c = get_cell(H,i,j,ny,nx);
-    float den = H_c*H_c + H_reg*H_reg;
+    float den = H_c*H_c + H_reg*H_reg + 1e-10f;
     DualFloat shear2_c = 0.5f*(ud_l*ud_l + ud_r*ud_r + vd_t*vd_t + vd_b*vd_b)/den;
 
     DualFloat eps_II_bar = eps_II_c + K_1*epsd_II_c + K_2*shear2_c + eps_reg;

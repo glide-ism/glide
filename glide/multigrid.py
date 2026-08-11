@@ -914,12 +914,12 @@ class NewtonOptions:
     def __init__(self, levels, getter):
         self._levels = levels
         self._getter = getter  # level -> NewtonConfig
-        self.options = ['steps','relaxation','step_tolerance','ssa_damping','mc_damping']
+        self.options = ['steps','relaxation','step_tolerance','momentum_damping','mc_damping']
 
         self.steps = BroadcastOption(self._levels, self._getter, "steps")
         self.relaxation = BroadcastOption(self._levels, self._getter, "relaxation")
         self.step_tolerance = BroadcastOption(self._levels, self._getter, "step_tolerance")
-        self.ssa_damping = BroadcastOption(self._levels, self._getter, "ssa_damping")
+        self.momentum_damping = BroadcastOption(self._levels, self._getter, "momentum_damping")
         self.mc_damping = BroadcastOption(self._levels, self._getter, "mc_damping")
 
     def set(self, **kwargs):

@@ -12,7 +12,7 @@ from scipy.ndimage import gaussian_filter
 
 from glide.model import IceDynamics
 from glide.data import load_antarctica_preprocessed
-
+from glide.field import Field, GridEntity
 from glide.io import ZarrWriter, VTIWriter
 
 ### Load a dataset (here a preprocessed antarctica dataset)
@@ -47,6 +47,9 @@ B.fill(1e-17 ** (-1.0 / 3.0) / (917 * 9.81))
 mg.rheology.B.set(B)
 mg.rheology.eps_reg.set(1e-6)
 mg.rheology.n.set(3.0)
+#mg.rheology.H_reg.set(10.0)
+
+n_glen = 3.0
 
 ### Initialize sliding
 #BETA_PATH = None
@@ -92,12 +95,30 @@ model.forward_solver.fas_options.set(
 # Antarctica likes it if we damp the transition between floating and grounded
 model.forward_solver.vanka_options.relax_phi.set(cp.float32(0.5))
 
+# Derived surface velocity fields: with the MOLHO ansatz the surface
+# velocity is u_bar + u_d/(n+1); refreshed from the state before each write
+u_s = Field(
+        data=cp.zeros((ny,nx+1),dtype=cp.float32),
+        grid_entity=GridEntity.VERTICAL_FACET,
+        dx=mg[0].dx, grid=mg[0], name='u_s', units='m a^{-1}',
+        attrs={'long_name':'Surface velocity (x)'})
+v_s = Field(
+        data=cp.zeros((ny+1,nx),dtype=cp.float32),
+        grid_entity=GridEntity.HORIZONTAL_FACET,
+        dx=mg[0].dx, grid=mg[0], name='v_s', units='m a^{-1}',
+        attrs={'long_name':'Surface velocity (y)'})
+
+def update_surface_velocity():
+    u_s.data[:,:] = mg[0].state.u.data + mg[0].state.ud.data/(n_glen + 1.0)
+    v_s.data[:,:] = mg[0].state.v.data + mg[0].state.vd.data/(n_glen + 1.0)
+
 # Examples of different writing utilities - First writes to vti/pvd
 vti_writer = VTIWriter('forward/vti/', base='antarctica', dx=mg[0].dx,
         static_fields={'bed':mg[0].geometry.bed,
                        'beta':mg[0].sliding.beta,},
         dynamic_fields={'H':mg[0].state.H,
                         'U':[mg[0].state.u, mg[0].state.v],
+                        'U_s':[u_s, v_s],
                         'mask':mg[0].state.mask,
                         'phi':mg[0].state.phi,
                         'xi':mg[0].state.xi}
@@ -126,6 +147,7 @@ while t < t_end:
     t += dt
 
     # Write
+    update_surface_velocity()
     vti_writer.append(mg[0],time=t)
     vti_writer.write_pvd()
     zarr_writer.append(mg[0],time=t)

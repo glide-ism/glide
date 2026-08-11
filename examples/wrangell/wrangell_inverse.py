@@ -114,7 +114,7 @@ model.adjoint_solver.fas_options.set(
         report_norms=False)                               # adjoint var is small 
                                                           # in magnitude
 
-model.adjoint_solver.vanka_options.newton_options.ssa_damping.set(cp.float32(1.0))
+model.adjoint_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(1.0))
 
 # Thin Pytorch wrapper of a single glide time step
 glide_step = GlideStep.apply

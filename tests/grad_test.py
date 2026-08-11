@@ -91,7 +91,7 @@ adjoint_solver.fas_options.finest_steps.set(150)
 adjoint_solver.fas_options.maximum_vcycles.set(10)
 adjoint_solver.fas_options.absolute_tolerance.set(cp.float32(0.1))
 adjoint_solver.fas_options.relative_tolerance.set(cp.float32(1e-3))
-adjoint_solver.vanka_options.newton_options.ssa_damping.set(cp.float32(0.1))
+adjoint_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.1))
 adjoint_solver.vanka_options.omega.set(cp.float32(0.5))
 adjoint_solver.solve(dt)
 

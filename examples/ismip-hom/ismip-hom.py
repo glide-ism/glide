@@ -17,11 +17,25 @@ def setup_a(X, Y, L, ny, nx):
     beta = 1e6/(rho_i * g) * cp.ones((ny,nx),dtype=cp.float32)
     return srf, bed, beta
 
+# ISMIP-HOM B: as A, but with the bed undulating in x only (flowline analog)
+def setup_b(X, Y, L, ny, nx):
+    srf = 1000.0 * cp.ones((ny,nx),dtype=cp.float32) - cp.tan(cp.deg2rad(0.5))*X + 10000
+    bed = srf - 1000 + 500*cp.sin(2*cp.pi*X/L)
+    beta = 1e6/(rho_i * g) * cp.ones((ny,nx),dtype=cp.float32)
+    return srf, bed, beta
+
 # ISMIP-HOM C: 0.1 degree slope, uniform thickness, sinusoidal basal friction
 def setup_c(X, Y, L, ny, nx):
     srf = 1000.0 * cp.ones((ny,nx),dtype=cp.float32) - cp.tan(cp.deg2rad(0.1))*X + 10000
     bed = srf - 1000
     beta = (1000*cp.sin(2*cp.pi*X/L)*cp.sin(2*cp.pi*Y/L) + 1000)/(rho_i * g)
+    return srf, bed, beta
+
+# ISMIP-HOM D: as C, but with friction varying in x only (flowline analog)
+def setup_d(X, Y, L, ny, nx):
+    srf = 1000.0 * cp.ones((ny,nx),dtype=cp.float32) - cp.tan(cp.deg2rad(0.1))*X + 10000
+    bed = srf - 1000
+    beta = (1000*cp.sin(2*cp.pi*X/L) + 1000)/(rho_i * g)
     return srf, bed, beta
 
 
@@ -48,7 +62,7 @@ for ax,L in zip(axs.ravel(),[5000,10000,20000,40000,80000,160000]):
 
     X,Y = cp.meshgrid(x,y)
 
-    for name,setup in [('A',setup_a),('C',setup_c)]:
+    for name,setup in [('A',setup_a),('B',setup_b),('C',setup_c),('D',setup_d)]:
 
         srf, bed, beta = setup(X, Y, L, ny, nx)
         thk = srf - bed

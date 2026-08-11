@@ -14,6 +14,7 @@ from scipy.ndimage import gaussian_filter
 
 from glide.model import IceDynamics
 from glide.data import load_antarctica_preprocessed
+from glide.field import Field, GridEntity
 from glide.torch import GlideStep
 from glide.io import VTIWriter
 
@@ -50,6 +51,9 @@ B.fill(1e-17 ** (-1.0 / 3.0) / (917 * 9.81))
 mg.rheology.B.set(B)
 mg.rheology.eps_reg.set(1e-6)
 mg.rheology.n.set(3.0)
+#mg.rheology.H_reg.set(10.0)
+
+n_glen = 3.0
 
 ### Initialize sliding
 beta = cp.zeros((ny,nx), dtype=cp.float32)
@@ -87,9 +91,6 @@ model.forward_solver.fas_options.set(
         relative_tolerance=1e-2, absolute_tolerance=10.0,
         report_norms=False)
 
-model.forward_solver.vanka_options.newton_options.ssa_damping.set(cp.float32(0.001))
-
-
 model.adjoint_solver.fas_options.set(
         coarsest_steps=200, pre_steps=10,
         post_steps=150, finest_steps=0,
@@ -126,12 +127,27 @@ for level in range(coarsest_level,-1,-1):
 
     # Standard torch optimization loop (RMSprop works very well here)
     optimizer = torch.optim.RMSprop([log_beta],lr=1e-2)
-    
+
+    # Derived surface velocity fields for output monitoring: with the MOLHO
+    # ansatz the surface velocity is u_bar + u_d/(n+1)
+    ny_l, nx_l = mg[level].ny, mg[level].nx
+    u_s_field = Field(
+            data=cp.zeros((ny_l,nx_l+1),dtype=cp.float32),
+            grid_entity=GridEntity.VERTICAL_FACET,
+            dx=mg[level].dx, grid=mg[level], name='u_s', units='m a^{-1}',
+            attrs={'long_name':'Surface velocity (x)'})
+    v_s_field = Field(
+            data=cp.zeros((ny_l+1,nx_l),dtype=cp.float32),
+            grid_entity=GridEntity.HORIZONTAL_FACET,
+            dx=mg[level].dx, grid=mg[level], name='v_s', units='m a^{-1}',
+            attrs={'long_name':'Surface velocity (y)'})
+
     # Initialize writer
     vti_writer = VTIWriter(f'inverse/level_{level}/vti', base='antarctica', dx=mg[level].dx,
             static_fields={'U_obs':[u_obs,v_obs]},
             dynamic_fields={'beta':mg[level].sliding.beta,
                             'U':[mg[level].state.u, mg[level].state.v],
+                            'U_s':[u_s_field, v_s_field],
                             'xi':mg[level].state.xi}
         )
 
@@ -144,13 +160,18 @@ for level in range(coarsest_level,-1,-1):
 
         # Predict the velocity and thickness at t + dt
         mg.sliding.water_drag.set(1e-5)
-        u,v,H,mask = glide_step(t,dt,model,level,H_prev,bed,beta,smb)
+        u,v,ud,vd,H,mask = glide_step(t,dt,model,level,H_prev,bed,beta,smb)
+
+        # The observations are surface velocities: with the MOLHO ansatz
+        # u_s = u_bar + u_d/(n+1)
+        u_s = u + ud/(n_glen + 1.0)
+        v_s = v + vd/(n_glen + 1.0)
 
         # Interpolation from facets (where the model predicts)
         # to cells (where the observations are)
-        u_cell = 0.5*(u[:,1:] + u[:,:-1])
-        v_cell = 0.5*(v[1:] + v[:-1])
-        
+        u_cell = 0.5*(u_s[:,1:] + u_s[:,:-1])
+        v_cell = 0.5*(v_s[1:] + v_s[:-1])
+
         # L1 Objective function, masked by valid data
         J_data = (abs(u_cell - u_obs)*u_mask).mean() + (abs(v_cell - v_obs)*v_mask).mean()
 
@@ -179,6 +200,8 @@ for level in range(coarsest_level,-1,-1):
         optimizer.step()
         
         print(f"Level {level}, Iter. {j}/{n_level_epochs} | J: {J.item():.2f}, J_data: {J_data.item():.2f}, J_L1: {J_L1.item():.2f}, J_L2: {J_L2.item():.2f}")
+        u_s_field.data[:,:] = mg[level].state.u.data + mg[level].state.ud.data/(n_glen + 1.0)
+        v_s_field.data[:,:] = mg[level].state.v.data + mg[level].state.vd.data/(n_glen + 1.0)
         vti_writer.append(mg[level],time=j)
         vti_writer.write_pvd()
 

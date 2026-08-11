@@ -50,8 +50,8 @@ SigmaVertXZJacobian get_sigma_xz_jac(
     // eta/H is regularized to eta*H/(H^2 + H_reg^2), consistent with the
     // shear invariant's 1/(H^2 + H_reg^2) in populate_viscosity.
     float factr = -1.0f * c_1 * S_1 / 2.0f;
-    float den_l = s.H_l * s.H_l + H_reg * H_reg;
-    float den_r = s.H_r * s.H_r + H_reg * H_reg;
+    float den_l = s.H_l * s.H_l + H_reg * H_reg + 1e-10f;
+    float den_r = s.H_r * s.H_r + H_reg * H_reg + 1e-10f;
     float shear = s.eta_l * s.H_l / den_l + s.eta_r * s.H_r / den_r;
 
     jac.res = factr * shear * s.u_c;
@@ -114,8 +114,8 @@ SigmaVertYZJacobian get_sigma_yz_jac(
     // 2*K_2, matching the J = 2*eta*H*E2 convention (cf. get_sigma_xx_jac),
     // with eta/H regularized as in get_sigma_xz_jac
     float factr = -1.0f * c_1 * S_1 / 2.0f;
-    float den_t = s.H_t * s.H_t + H_reg * H_reg;
-    float den_b = s.H_b * s.H_b + H_reg * H_reg;
+    float den_t = s.H_t * s.H_t + H_reg * H_reg + 1e-10f;
+    float den_b = s.H_b * s.H_b + H_reg * H_reg + 1e-10f;
     float shear = s.eta_t * s.H_t / den_t + s.eta_b * s.H_b / den_b;
 
     jac.res = factr * shear * s.v_c;
@@ -169,8 +169,8 @@ float get_sigma_vert_dvisc(
     float glen_exp = (1.0f - n) / (2.0f * n);
     float pw = 2.0f * n / (1.0f - n);
 
-    float den_1 = H_1 * H_1 + H_reg * H_reg;
-    float den_2 = H_2 * H_2 + H_reg * H_reg;
+    float den_1 = H_1 * H_1 + H_reg * H_reg + 1e-10f;
+    float den_2 = H_2 * H_2 + H_reg * H_reg + 1e-10f;
 
     float e2_1 = __powf(2.0f * eta_1 / B_1, pw);
     float e2_2 = __powf(2.0f * eta_2 / B_2, pw);
