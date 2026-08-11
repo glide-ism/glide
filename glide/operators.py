@@ -367,6 +367,11 @@ class ForwardOperators:
 class NewtonConfig:
     steps: int = 30
     relaxation: cp.float32 = cp.float32(0.5)
+    # ssa_damping is RELATIVE and dimensionless: the (sign-definite)
+    # velocity diagonals of the Vanka patch are stiffened by
+    # J_ii *= (1 + ssa_damping). mc_damping is additive pseudo-transient
+    # continuation on the transport row, in units of 1/time (an effective
+    # pseudo-timestep of 1/mc_damping that dominates when dt is large).
     ssa_damping: cp.float32 = cp.float32(0.01)
     mc_damping: cp.float32 = cp.float32(1.0)
 

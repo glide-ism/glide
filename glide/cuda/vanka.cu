@@ -66,6 +66,13 @@ __device__ __forceinline__ void equilibrate(float* __restrict__ A,
         for (int j = 0; j < N; ++j) A[i*N + j] *= s[i]*s[j];
         b[i] *= s[i];
     }
+    // Pivot floor for the no-pivot factorization: healthy rows have a
+    // scaled diagonal of +-1 and are untouched; only rows whose diagonal
+    // is degenerate relative to their own row norm are lifted.
+    #pragma unroll
+    for (int i = 0; i < N; ++i) {
+        A[i*N + i] = copysignf(fmaxf(fabsf(A[i*N + i]), 1e-3f), A[i*N + i]);
+    }
 }
 
 // Solve A x = b using factors produced by lu_factor<N>. b is overwritten
@@ -1412,6 +1419,7 @@ void vanka_smooth(
 	float c_H_c = 0.0f;
 
 	float rnorm = 1.0f;
+	float rnorm0 = -1.0f;
 	float tol = 0.000001f;
 	int k = 0;
 
@@ -1441,16 +1449,25 @@ void vanka_smooth(
 	    r[7] -= get_hfacet(f_v,i+1,j,ny,nx);
 	    r[8] -= get_cell(f_H,i,j,ny,nx);
 
-            J[0]  -= ssa_damping;
-            J[10] -= ssa_damping;
-            J[20] -= ssa_damping;
-            J[30] -= ssa_damping;
-            J[40] -= ssa_damping;
-            J[50] -= ssa_damping;
-            J[60] -= ssa_damping;
-            J[70] -= ssa_damping;
+            // Velocity rows are sign-definite (elliptic), so damping is
+            // relative (dimensionless, Levenberg-style): each diagonal is
+            // stiffened by a fraction of itself, meaning the same thing in
+            // every patch regardless of local scales. The transport row is
+            // NOT sign-definite (its diagonal 1/dt + flux terms can vanish
+            // or change sign at outflow margins for large dt), so it gets
+            // additive pseudo-transient continuation in physical time
+            // units: mc_damping = 1/dtau [1/a], dominant when dt is large
+            // and negligible when dt is small.
+            J[0]  *= (1.0f + ssa_damping);
+            J[10] *= (1.0f + ssa_damping);
+            J[20] *= (1.0f + ssa_damping);
+            J[30] *= (1.0f + ssa_damping);
+            J[40] *= (1.0f + ssa_damping);
+            J[50] *= (1.0f + ssa_damping);
+            J[60] *= (1.0f + ssa_damping);
+            J[70] *= (1.0f + ssa_damping);
             J[80] += mc_damping;
-	     
+
 	    if (j == 0) {
 	    	for(int k=0; k<9; ++k) J[0*9 + k] = 0.0f;
 	    	for(int k=0; k<9; ++k) J[k*9 + 0] = 0.0f;
@@ -1511,12 +1528,16 @@ void vanka_smooth(
 	    }
 	    
 
-            rnorm = r[0]*r[0] + r[1]*r[1] + r[2]*r[2] + r[3]*r[3] + r[4]*r[4] + r[5]*r[5] + r[6]*r[6] + r[7]*r[7] + r[8]*r[8];
-
-
 	    float delta_x[9] = {0};
 	    float s_eq[9];
 	    equilibrate<9>(J, r, s_eq);
+
+	    // Dimensionless convergence measure: the equilibrated patch
+	    // residual, relative to its value on the first Newton iteration
+	    float rn = r[0]*r[0] + r[1]*r[1] + r[2]*r[2] + r[3]*r[3] + r[4]*r[4] + r[5]*r[5] + r[6]*r[6] + r[7]*r[7] + r[8]*r[8];
+	    if (rnorm0 < 0.0f) rnorm0 = fmaxf(rn, 1e-30f);
+	    rnorm = rn / rnorm0;
+
             lu_factor<9>(J);
 	    lu_solve_factored<9>(J,r,delta_x);
 	    #pragma unroll
@@ -1677,14 +1698,17 @@ void vanka_smooth_adjoint(
 		calving_rate, flotation_reg_calving,
 		dx, dt, ny, nx, i, j, bi, bj);
 
-	J[0]  -= ssa_damping;
-        J[10] -= ssa_damping;
-        J[20] -= ssa_damping;
-        J[30] -= ssa_damping;
-        J[40] -= ssa_damping;
-        J[50] -= ssa_damping;
-        J[60] -= ssa_damping;
-        J[70] -= ssa_damping;
+	// Damping matches the forward smoother: relative on the
+	// sign-definite velocity rows, additive physical-time PTC on the
+	// transport row (see vanka_smooth)
+	J[0]  *= (1.0f + ssa_damping);
+        J[10] *= (1.0f + ssa_damping);
+        J[20] *= (1.0f + ssa_damping);
+        J[30] *= (1.0f + ssa_damping);
+        J[40] *= (1.0f + ssa_damping);
+        J[50] *= (1.0f + ssa_damping);
+        J[60] *= (1.0f + ssa_damping);
+        J[70] *= (1.0f + ssa_damping);
         J[80] += mc_damping;
 
         rhs[0] = get_vfacet(r_adj_ud, i, j, ny, nx);
