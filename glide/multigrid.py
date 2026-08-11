@@ -1050,14 +1050,19 @@ class FASAdjointSolver:
         next_level.scratch.w_lambda_H[:,:] = next_level.grid.adjoint.lambda_H.data[:,:]
 
         # Compute and restrict adjoint residual
-        level.grid.adjoint_operators.compute_residual(dt,use_mask=False)
+        # The adjoint smoother applies the active-set convention
+        # unconditionally, so the FAS tau correction must be built from the
+        # SAME (masked) operator - a mismatch here makes the coarse
+        # correction inconsistent with the smoothed equations and the
+        # V-cycle settles into a limit cycle instead of converging.
+        level.grid.adjoint_operators.compute_residual(dt,use_mask=True)
         mg.restrict_vfacet(level.grid.adjoint_operators.r_u,next_level.grid.adjoint_operators.r_u)
         mg.restrict_hfacet(level.grid.adjoint_operators.r_v,next_level.grid.adjoint_operators.r_v)
         mg.restrict_vfacet(level.grid.adjoint_operators.r_ud,next_level.grid.adjoint_operators.r_ud)
         mg.restrict_hfacet(level.grid.adjoint_operators.r_vd,next_level.grid.adjoint_operators.r_vd)
         mg.restrict_cell(level.grid.adjoint_operators.r_H,next_level.grid.adjoint_operators.r_H)
 
-        next_level.grid.adjoint_operators.compute_vjp(dt,use_mask=False)
+        next_level.grid.adjoint_operators.compute_vjp(dt,use_mask=True)
         next_level.grid.adjoint_operators.f_u[:,:] = next_level.grid.adjoint_operators.vjp_u[:,:] - next_level.grid.adjoint_operators.r_u[:,:]
         next_level.grid.adjoint_operators.f_v[:,:] = next_level.grid.adjoint_operators.vjp_v[:,:] - next_level.grid.adjoint_operators.r_v[:,:]
         next_level.grid.adjoint_operators.f_ud[:,:] = next_level.grid.adjoint_operators.vjp_ud[:,:] - next_level.grid.adjoint_operators.r_ud[:,:]

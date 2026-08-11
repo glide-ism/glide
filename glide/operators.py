@@ -453,7 +453,11 @@ class AdjointOperators:
         self.gamma = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
         self.gamma.fill(grid.geometry.thklim.value)
 
-        self.vanka_config = VankaConfig()
+        # The adjoint solve is LINEAR: it does not need the heavy damping
+        # that protects the forward patch Newton iteration from divergence,
+        # and momentum_damping ~ 1 severely degrades its convergence rate.
+        self.vanka_config = VankaConfig(
+                newton_config=NewtonConfig(momentum_damping=cp.float32(0.01)))
 
     @property
     def _kernel_config(self):
