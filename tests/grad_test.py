@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 from glide.grid import Grid
 from glide.multigrid import Multigrid, FASCDSolver, FASAdjointSolver
 
+cp.random.seed(0)
+
 L = 20000.0
 dt = cp.float32(1.0)
 
@@ -56,8 +58,10 @@ solver.fas_options.pre_steps.set(10)
 solver.fas_options.post_steps.set(50)
 solver.fas_options.finest_steps.set(150)
 solver.fas_options.maximum_vcycles.set(10)
-solver.fas_options.relative_tolerance.set(1e-3)
-solver.fas_options.absolute_tolerance.set(0.1)
+# The FD test differences J at O(eps) perturbations of beta; the forward
+# re-solves must be converged well below that signal.
+solver.fas_options.relative_tolerance.set(cp.float32(1e-5))
+solver.fas_options.absolute_tolerance.set(cp.float32(0.01))
 
 solver.solve(dt)
 

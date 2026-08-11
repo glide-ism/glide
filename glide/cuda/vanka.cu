@@ -1565,27 +1565,33 @@ extern "C" __global__
 void vanka_smooth_adjoint(
     float* __restrict__ lambda_u_out,
     float* __restrict__ lambda_v_out,
+    float* __restrict__ lambda_ud_out,
+    float* __restrict__ lambda_vd_out,
     float* __restrict__ lambda_H_out,
     const float* __restrict__ u,
     const float* __restrict__ v,
+    const float* __restrict__ ud,
+    const float* __restrict__ vd,
     const float* __restrict__ H,
     const float* __restrict__ phi,
     const float* __restrict__ xi,
     const float* __restrict__ mask,
-    const float* __restrict__ r_adj_u,  
+    const float* __restrict__ r_adj_u,
     const float* __restrict__ r_adj_v,
+    const float* __restrict__ r_adj_ud,
+    const float* __restrict__ r_adj_vd,
     const float* __restrict__ r_adj_H,
     const float* __restrict__ bed,
     const float* __restrict__ B,
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
-    float n, float eps_reg, float flotation_reg_driving,
+    float n, float eps_reg, float H_reg, float flotation_reg_driving,
     float m, float u_reg, float water_drag, float flotation_reg_sliding,
     float calving_rate, float flotation_reg_calving,
     float dx, float dt,
     int ny, int nx, int stride, int halo,
     float ssa_damping, float mc_damping
-    ) 
+    )
 {
     const int bny = 16;
     const int bnx = 16;
@@ -1598,7 +1604,7 @@ void vanka_smooth_adjoint(
 
     __shared__ float eta_local[bny][bnx];
 
-    populate_viscosity(eta_local, bi, bj, i, j, u, v, B, n, eps_reg, dx, ny, nx);
+    populate_viscosity(eta_local, bi, bj, i, j, u, v, ud, vd, H, B, n, eps_reg, H_reg, dx, ny, nx);
 
     __syncthreads();
 
@@ -1616,86 +1622,120 @@ void vanka_smooth_adjoint(
 	float u_r = get_vfacet(u, i, j + 1, ny, nx);
 	float v_t = get_hfacet(v, i, j, ny, nx);
 	float v_b = get_hfacet(v, i + 1, j, ny, nx);
+	float ud_l = get_vfacet(ud, i, j, ny, nx);
+	float ud_r = get_vfacet(ud, i, j + 1, ny, nx);
+	float vd_t = get_hfacet(vd, i, j, ny, nx);
+	float vd_b = get_hfacet(vd, i + 1, j, ny, nx);
 	float H_c = get_cell(H, i, j, ny, nx);
 
-	float J[25] = {0};
-	float rhs[5] = {0};
-	// Note that the adjoint assembles a forward problem rhs, but it's 
-	// discarded.  
-	build_5x5_vanka(J, rhs,
-		u_l, u_r, v_t, v_b, H_c,
-		u, v, H, eta_local, phi, xi,
+	float J[81] = {0};
+	float rhs[9] = {0};
+	// Note that the adjoint assembles a forward problem rhs, but it's
+	// discarded.
+	build_9x9_vanka(J, rhs,
+		u_l, u_r, v_t, v_b,
+		ud_l, ud_r, vd_t, vd_b, H_c,
+		u, v, ud, vd, H, eta_local, phi, xi,
 		bed, B, beta, gamma,
-		n, eps_reg, flotation_reg_driving,
-		m, u_reg, water_drag, flotation_reg_sliding, 
+		n, eps_reg, H_reg, flotation_reg_driving,
+		m, u_reg, water_drag, flotation_reg_sliding,
 		calving_rate, flotation_reg_calving,
 		dx, dt, ny, nx, i, j, bi, bj);
 
 	J[0]  -= ssa_damping;
-        J[6]  -= ssa_damping;
-        J[12] -= ssa_damping;
-        J[18] -= ssa_damping;
-        J[24] += mc_damping;
+        J[10] -= ssa_damping;
+        J[20] -= ssa_damping;
+        J[30] -= ssa_damping;
+        J[40] -= ssa_damping;
+        J[50] -= ssa_damping;
+        J[60] -= ssa_damping;
+        J[70] -= ssa_damping;
+        J[80] += mc_damping;
 
-        rhs[0] = get_vfacet(r_adj_u, i, j, ny, nx);
-        rhs[1] = get_vfacet(r_adj_u, i, j+1, ny, nx);
-        rhs[2] = get_hfacet(r_adj_v, i, j, ny, nx);
-        rhs[3] = get_hfacet(r_adj_v, i+1, j, ny, nx);
-        rhs[4] = get_cell(r_adj_H, i, j, ny, nx);
+        rhs[0] = get_vfacet(r_adj_ud, i, j, ny, nx);
+        rhs[1] = get_vfacet(r_adj_ud, i, j+1, ny, nx);
+        rhs[2] = get_hfacet(r_adj_vd, i, j, ny, nx);
+        rhs[3] = get_hfacet(r_adj_vd, i+1, j, ny, nx);
+        rhs[4] = get_vfacet(r_adj_u, i, j, ny, nx);
+        rhs[5] = get_vfacet(r_adj_u, i, j+1, ny, nx);
+        rhs[6] = get_hfacet(r_adj_v, i, j, ny, nx);
+        rhs[7] = get_hfacet(r_adj_v, i+1, j, ny, nx);
+        rhs[8] = get_cell(r_adj_H, i, j, ny, nx);
 
 	if (j == 0) {
-	    for(int k=0; k<5; ++k) J[0 + k] = 0.0f;
-	    for(int k=0; k<5; ++k) J[k*5 + 0] = 0.0f;
-	    J[0] = 1.0f;
+	    for(int k=0; k<9; ++k) J[0*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 0] = 0.0f;
+	    for(int k=0; k<9; ++k) J[4*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 4] = 0.0f;
+	    J[0]  = 1.0f;
 	    rhs[0] = 0.0f;
+	    J[40] = 1.0f;
+	    rhs[4] = 0.0f;
 	}
 
 	if (j == (nx - 1)) {
-	    for(int k=0; k<5; ++k) J[5 + k] = 0.0f;
-	    for(int k=0; k<5; ++k) J[k*5 + 1] = 0.0f;
-	    J[6] = 1.0f;
+	    for(int k=0; k<9; ++k) J[1*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 1] = 0.0f;
+	    for(int k=0; k<9; ++k) J[5*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 5] = 0.0f;
+	    J[10] = 1.0f;
 	    rhs[1] = 0.0f;
+	    J[50] = 1.0f;
+	    rhs[5] = 0.0f;
 	}
 
 	if (i == 0) {
-	    for(int k=0; k<5; ++k) J[10 + k] = 0.0f;
-	    for(int k=0; k<5; ++k) J[k*5 + 2] = 0.0f;
-	    J[12] = 1.0f;
+	    for(int k=0; k<9; ++k) J[2*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 2] = 0.0f;
+	    for(int k=0; k<9; ++k) J[6*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 6] = 0.0f;
+	    J[20] = 1.0f;
 	    rhs[2] = 0.0f;
+	    J[60] = 1.0f;
+	    rhs[6] = 0.0f;
 	}
 
 	if (i == (ny-1)) {
-	    for(int k=0; k<5; ++k) J[15 + k] = 0.0f;
-	    for(int k=0; k<5; ++k) J[k*5 + 3] = 0.0f;
-	    J[18] = 1.0f;
+	    for(int k=0; k<9; ++k) J[3*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 3] = 0.0f;
+	    for(int k=0; k<9; ++k) J[7*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 7] = 0.0f;
+	    J[30] = 1.0f;
 	    rhs[3] = 0.0f;
+	    J[70] = 1.0f;
+	    rhs[7] = 0.0f;
 	}
-	
+
 	if (masked > 0.5) {
 	    // Active set constraint: Force H = thklim
-	    for(int k=0; k<5; ++k) J[20 + k] = 0.0f;
-	    for(int k=0; k<5; ++k) J[k*5 + 4] = 0.0f;
-	    J[24] = 1.0f;
-	    rhs[4] = 0.0f;
-	} 
+	    for(int k=0; k<9; ++k) J[8*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 8] = 0.0f;
+	    J[80] = 1.0f;
+	    rhs[8] = 0.0f;
+	}
 
-        float J_T[25];
+        float J_T[81];
         #pragma unroll
-        for(int r=0; r<5; ++r) {
+        for(int r=0; r<9; ++r) {
             #pragma unroll
-            for(int c=0; c<5; ++c) {
-                J_T[r*5 + c] = J[c*5 + r];
+            for(int c=0; c<9; ++c) {
+                J_T[r*9 + c] = J[c*9 + r];
             }
         }
- 	
-	float delta_lambda[5] = {0};
-	lu_5x5_solve(J_T,rhs,delta_lambda);
 
-	atomicAdd(&lambda_u_out[i * (nx + 1) + j],      0.5f*delta_lambda[0]);
-	atomicAdd(&lambda_u_out[i * (nx + 1) + j + 1],  0.5f*delta_lambda[1]);
-	atomicAdd(&lambda_v_out[i * nx + j],            0.5f*delta_lambda[2]);
-	atomicAdd(&lambda_v_out[(i + 1) * nx + j ],     0.5f*delta_lambda[3]);
-	atomicAdd(&lambda_H_out[i * nx + j],                 delta_lambda[4]);
+	float delta_lambda[9] = {0};
+	lu_factor<9>(J_T);
+	lu_solve_factored<9>(J_T,rhs,delta_lambda);
+
+	atomicAdd(&lambda_ud_out[i * (nx + 1) + j],      0.5f*delta_lambda[0]);
+	atomicAdd(&lambda_ud_out[i * (nx + 1) + j + 1],  0.5f*delta_lambda[1]);
+	atomicAdd(&lambda_vd_out[i * nx + j],            0.5f*delta_lambda[2]);
+	atomicAdd(&lambda_vd_out[(i + 1) * nx + j ],     0.5f*delta_lambda[3]);
+	atomicAdd(&lambda_u_out[i * (nx + 1) + j],      0.5f*delta_lambda[4]);
+	atomicAdd(&lambda_u_out[i * (nx + 1) + j + 1],  0.5f*delta_lambda[5]);
+	atomicAdd(&lambda_v_out[i * nx + j],            0.5f*delta_lambda[6]);
+	atomicAdd(&lambda_v_out[(i + 1) * nx + j ],     0.5f*delta_lambda[7]);
+	atomicAdd(&lambda_H_out[i * nx + j],                 delta_lambda[8]);
     }
 }
 

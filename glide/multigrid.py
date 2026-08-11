@@ -375,6 +375,20 @@ class MGAdjointManager:
             name="lambda_v",
         )
 
+        self.lambda_ud = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.adjoint.lambda_ud,
+            restrict=lambda f,c: mg.restrict_vfacet(f.data,c.data),
+            name="lambda_ud",
+        )
+
+        self.lambda_vd = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.adjoint.lambda_vd,
+            restrict=lambda f,c: mg.restrict_hfacet(f.data,c.data),
+            name="lambda_vd",
+        )
+
         self.lambda_H = HierarchyFieldManager(
             mg.levels,
             getter=lambda g: g.adjoint.lambda_H,
@@ -951,35 +965,39 @@ class FASAdjointSolver:
         if zero_init:
             start_level_.adjoint.lambda_u.data.fill(0.0)
             start_level_.adjoint.lambda_v.data.fill(0.0)
+            start_level_.adjoint.lambda_ud.data.fill(0.0)
+            start_level_.adjoint.lambda_vd.data.fill(0.0)
             start_level_.adjoint.lambda_H.data.fill(0.0)
-        
-        # Note: the adjoint smoother does not yet solve the lambda_ud/lambda_vd
-        # rows, so only the u/v/H norms enter the convergence test for now.
+
         ru_init,rv_init,rud_init,rvd_init,rH_init = start_level_.adjoint_operators.compute_residual(dt,return_norms=True)
-        initial_residual_norm = cp.sqrt(ru_init**2 + rv_init**2 + rH_init**2)
+        initial_residual_norm = cp.sqrt(ru_init**2 + rv_init**2 + rud_init**2 + rvd_init**2 + rH_init**2)
         relative_residual_norm = cp.float32(1.0)
 
         if self._fas_config.report_norms:
             print(f"  Initial:   |r0|     = {initial_residual_norm:.2e}, "
                   f"|r_u| = {float(ru_init):.2e}, "
                   f"|r_v| = {float(rv_init):.2e}, "
+                  f"|r_ud| = {float(rud_init):.2e}, "
+                  f"|r_vd| = {float(rvd_init):.2e}, "
                   f"|r_H| = {float(rH_init):.2e}")
 
         absolute_residual_norm = initial_residual_norm
         iteration = 0
-        
-        while (relative_residual_norm > self._fas_config.relative_tolerance 
+
+        while (relative_residual_norm > self._fas_config.relative_tolerance
                 and absolute_residual_norm > self._fas_config.absolute_tolerance
                 and iteration < self._fas_config.maximum_vcycles):
             self.vcycle(start_level,finest=True)
             ru,rv,rud,rvd,rH = start_level_.adjoint_operators.compute_residual(dt,return_norms=True)
 
-            absolute_residual_norm = cp.sqrt(ru**2 + rv**2 + rH**2)
+            absolute_residual_norm = cp.sqrt(ru**2 + rv**2 + rud**2 + rvd**2 + rH**2)
             relative_residual_norm = absolute_residual_norm / initial_residual_norm
             if self._fas_config.report_norms:
                 print(f"  V-cycle {iteration}: |r|/|r0| = {relative_residual_norm:.2e}, "
                       f"|r_u| = {float(ru):.2e}, "
                       f"|r_v| = {float(rv):.2e}, "
+                      f"|r_ud| = {float(rud):.2e}, "
+                      f"|r_vd| = {float(rvd):.2e}, "
                       f"|r_H| = {float(rH):.2e}")
             iteration += 1
         if iteration < self._fas_config.maximum_vcycles:
@@ -1010,6 +1028,8 @@ class FASAdjointSolver:
         # Restrict forward solution to child - ensures adjoint sees the restriction of the correct forward state
         mg.restrict_vfacet(level.grid.state.u.data,next_level.grid.state.u.data)
         mg.restrict_hfacet(level.grid.state.v.data,next_level.grid.state.v.data)
+        mg.restrict_vfacet(level.grid.state.ud.data,next_level.grid.state.ud.data)
+        mg.restrict_hfacet(level.grid.state.vd.data,next_level.grid.state.vd.data)
         mg.restrict_cell(level.grid.state.H.data,next_level.grid.state.H.data)
         mg.restrict_cell(level.grid.state.H_prev.data,next_level.grid.state.H_prev.data)
         mg.restrict_cell(level.grid.state.phi.data,next_level.grid.state.phi.data)
@@ -1018,21 +1038,29 @@ class FASAdjointSolver:
         # Restrict adjoint solution to child
         mg.restrict_vfacet(level.grid.adjoint.lambda_u.data,next_level.grid.adjoint.lambda_u.data)
         mg.restrict_hfacet(level.grid.adjoint.lambda_v.data,next_level.grid.adjoint.lambda_v.data)
+        mg.restrict_vfacet(level.grid.adjoint.lambda_ud.data,next_level.grid.adjoint.lambda_ud.data)
+        mg.restrict_hfacet(level.grid.adjoint.lambda_vd.data,next_level.grid.adjoint.lambda_vd.data)
         mg.restrict_cell(level.grid.adjoint.lambda_H.data,next_level.grid.adjoint.lambda_H.data)
 
         next_level.scratch.w_lambda_u[:,:] = next_level.grid.adjoint.lambda_u.data[:,:]
         next_level.scratch.w_lambda_v[:,:] = next_level.grid.adjoint.lambda_v.data[:,:]
+        next_level.scratch.w_lambda_ud[:,:] = next_level.grid.adjoint.lambda_ud.data[:,:]
+        next_level.scratch.w_lambda_vd[:,:] = next_level.grid.adjoint.lambda_vd.data[:,:]
         next_level.scratch.w_lambda_H[:,:] = next_level.grid.adjoint.lambda_H.data[:,:]
 
         # Compute and restrict adjoint residual
         level.grid.adjoint_operators.compute_residual(dt,use_mask=False)
         mg.restrict_vfacet(level.grid.adjoint_operators.r_u,next_level.grid.adjoint_operators.r_u)
         mg.restrict_hfacet(level.grid.adjoint_operators.r_v,next_level.grid.adjoint_operators.r_v)
+        mg.restrict_vfacet(level.grid.adjoint_operators.r_ud,next_level.grid.adjoint_operators.r_ud)
+        mg.restrict_hfacet(level.grid.adjoint_operators.r_vd,next_level.grid.adjoint_operators.r_vd)
         mg.restrict_cell(level.grid.adjoint_operators.r_H,next_level.grid.adjoint_operators.r_H)
-        
+
         next_level.grid.adjoint_operators.compute_vjp(dt,use_mask=False)
         next_level.grid.adjoint_operators.f_u[:,:] = next_level.grid.adjoint_operators.vjp_u[:,:] - next_level.grid.adjoint_operators.r_u[:,:]
         next_level.grid.adjoint_operators.f_v[:,:] = next_level.grid.adjoint_operators.vjp_v[:,:] - next_level.grid.adjoint_operators.r_v[:,:]
+        next_level.grid.adjoint_operators.f_ud[:,:] = next_level.grid.adjoint_operators.vjp_ud[:,:] - next_level.grid.adjoint_operators.r_ud[:,:]
+        next_level.grid.adjoint_operators.f_vd[:,:] = next_level.grid.adjoint_operators.vjp_vd[:,:] - next_level.grid.adjoint_operators.r_vd[:,:]
         next_level.grid.adjoint_operators.f_H[:,:] = next_level.grid.adjoint_operators.vjp_H[:,:] - next_level.grid.adjoint_operators.r_H[:,:]
 
         # recursive call
@@ -1041,15 +1069,21 @@ class FASAdjointSolver:
         # compute coarse_correction
         next_level.scratch.z_lambda_u[:,:] = next_level.grid.adjoint.lambda_u.data[:,:] - next_level.scratch.w_lambda_u[:,:]
         next_level.scratch.z_lambda_v[:,:] = next_level.grid.adjoint.lambda_v.data[:,:] - next_level.scratch.w_lambda_v[:,:]
+        next_level.scratch.z_lambda_ud[:,:] = next_level.grid.adjoint.lambda_ud.data[:,:] - next_level.scratch.w_lambda_ud[:,:]
+        next_level.scratch.z_lambda_vd[:,:] = next_level.grid.adjoint.lambda_vd.data[:,:] - next_level.scratch.w_lambda_vd[:,:]
         next_level.scratch.z_lambda_H[:,:] = next_level.grid.adjoint.lambda_H.data[:,:] - next_level.scratch.w_lambda_H[:,:]
 
         mg.prolongate_vfacet(next_level.scratch.z_lambda_u,level.scratch.z_lambda_u,method='bilinear')
         mg.prolongate_hfacet(next_level.scratch.z_lambda_v,level.scratch.z_lambda_v,method='bilinear')
+        mg.prolongate_vfacet(next_level.scratch.z_lambda_ud,level.scratch.z_lambda_ud,method='bilinear')
+        mg.prolongate_hfacet(next_level.scratch.z_lambda_vd,level.scratch.z_lambda_vd,method='bilinear')
         mg.prolongate_cell(next_level.scratch.z_lambda_H,level.scratch.z_lambda_H,method='bilinear')
 
         # Apply fine correction
         level.grid.adjoint.lambda_u.data[:,:] += level.scratch.z_lambda_u[:,:]
         level.grid.adjoint.lambda_v.data[:,:] += level.scratch.z_lambda_v[:,:]
+        level.grid.adjoint.lambda_ud.data[:,:] += level.scratch.z_lambda_ud[:,:]
+        level.grid.adjoint.lambda_vd.data[:,:] += level.scratch.z_lambda_vd[:,:]
         level.grid.adjoint.lambda_H.data[:,:] += level.scratch.z_lambda_H[:,:]
 
         # Post-smooth
@@ -1064,10 +1098,14 @@ class FASAdjointScratch:
         
         self.w_lambda_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.w_lambda_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.w_lambda_ud = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.w_lambda_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.w_lambda_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
 
         self.z_lambda_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
         self.z_lambda_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.z_lambda_ud = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.z_lambda_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.z_lambda_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
 
 @dataclass

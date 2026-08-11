@@ -565,18 +565,19 @@ class AdjointOperators:
         self.delta_lambda_vd.fill(0.0)
         self.delta_lambda_H.fill(0.0)
         kernel(grid_size, block_size,
-               (self.delta_lambda_u, self.delta_lambda_v, self.delta_lambda_H, 
-                state.u.data, state.v.data, state.H.data, 
+               (self.delta_lambda_u, self.delta_lambda_v,
+                self.delta_lambda_ud, self.delta_lambda_vd, self.delta_lambda_H,
+                state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data,
                 state.phi.data, state.xi.data, state.mask.data,
-                self.r_u, self.r_v, self.r_H,
-                geometry.bed.data, rheology.B.data, sliding.beta.data, 
+                self.r_u, self.r_v, self.r_ud, self.r_vd, self.r_H,
+                geometry.bed.data, rheology.B.data, sliding.beta.data,
                 self.gamma,
-                rheology.n.value, rheology.eps_reg.value, 
+                rheology.n.value, rheology.eps_reg.value, rheology.H_reg.value,
                 geometry.sigmoid_c.value,
-                sliding.m.value, sliding.u_reg.value, 
-                sliding.water_drag.value, 
+                sliding.m.value, sliding.u_reg.value,
+                sliding.water_drag.value,
                 sliding.flotation_reg_sliding.value,
-                calving_rate, 
+                calving_rate,
                 calving.flotation_reg_calving.value,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
@@ -584,13 +585,15 @@ class AdjointOperators:
                 cp.float32(self.vanka_config.newton_config.mc_damping))
         )
 
-    def vanka_sweep(self, dt, n_iter, 
+    def vanka_sweep(self, dt, n_iter,
             freeze_calving=False):
         for i in range(n_iter):
             self.compute_residual(dt,freeze_calving=freeze_calving)
             self.vanka_smooth(dt,freeze_calving=freeze_calving)
             self.grid.adjoint.lambda_u.data[:] -= self.vanka_config.omega * self.delta_lambda_u
             self.grid.adjoint.lambda_v.data[:] -= self.vanka_config.omega * self.delta_lambda_v
+            self.grid.adjoint.lambda_ud.data[:] -= self.vanka_config.omega * self.delta_lambda_ud
+            self.grid.adjoint.lambda_vd.data[:] -= self.vanka_config.omega * self.delta_lambda_vd
             self.grid.adjoint.lambda_H.data[:] -= self.vanka_config.omega * self.delta_lambda_H
 
     def compute_gradient_beta(self):
@@ -609,8 +612,9 @@ class AdjointOperators:
         sliding.beta.grad.fill(0)
         kernel(grid_size, block_size,
                (sliding.beta.grad,
-                state.u.data, state.v.data, state.H.data, 
-                adjoint.lambda_u.data, adjoint.lambda_v.data, adjoint.lambda_H.data, 
+                state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data,
+                adjoint.lambda_u.data, adjoint.lambda_v.data,
+                adjoint.lambda_ud.data, adjoint.lambda_vd.data, adjoint.lambda_H.data,
                 state.phi.data, state.xi.data, state.mask.data,
                 geometry.bed.data, 
                 rheology.B.data, 
