@@ -1479,28 +1479,14 @@ void vanka_smooth(
 	    
 	    }
 	    
-            //if(i==50 && j==50) {
-            //    printf("%f,%f,%f,%f,%f\n",J[40],J[41],J[42],J[43],J[44]);
-            //    printf("%f,%f,%f,%f,%f\n",J[49],J[50],J[51],J[52],J[53]);
-            //    printf("%f,%f,%f,%f,%f\n",J[58],J[59],J[60],J[61],J[62]);
-            //    printf("%f,%f,%f,%f,%f\n",J[67],J[68],J[69],J[70],J[71]);
-            //    printf("%f,%f,%f,%f,%f\n",J[76],J[77],J[78],J[79],J[80]);
-            //}
-            rnorm = r[0]*r[0] + r[1]*r[1] + r[2]*r[2] + r[3]*r[3] + r[4]*r[4] + r[5]*r[5] + r[6]*r[6] + r[7]*r[7] + r[8]*r[8];
-            //if(i==50 && j==50) {printf("%f,%f,%f,%f,%f\n",r[4],r[5],r[6],r[7],r[8]);}
-            
 
-            //J[0] = 1.0f;
-            //J[10] = 1.0f;
-            //J[20] = 1.0f;
-            //J[30] = 1.0f;
+            rnorm = r[0]*r[0] + r[1]*r[1] + r[2]*r[2] + r[3]*r[3] + r[4]*r[4] + r[5]*r[5] + r[6]*r[6] + r[7]*r[7] + r[8]*r[8];
+
 
 	    float delta_x[9] = {0};
             lu_factor<9>(J);
 	    lu_solve_factored<9>(J,r,delta_x);
-            //lu_5x5_solve(J,r,delta_x);
-            //if(i==50 && j==50) {printf("%f,%f,%f,%f,%f\n",delta_x[4],delta_x[5],delta_x[6],delta_x[7],delta_x[8]);}
-	    relaxation = 0.5f;
+	    //relaxation = 0.5f;
 
 	    float y_ud_l = -relaxation*delta_x[0] - c_ud_l;
 	    float t_ud_l = ud_l + y_ud_l;

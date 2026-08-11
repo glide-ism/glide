@@ -953,7 +953,9 @@ class FASAdjointSolver:
             start_level_.adjoint.lambda_v.data.fill(0.0)
             start_level_.adjoint.lambda_H.data.fill(0.0)
         
-        ru_init,rv_init,rH_init = start_level_.adjoint_operators.compute_residual(dt,return_norms=True)
+        # Note: the adjoint smoother does not yet solve the lambda_ud/lambda_vd
+        # rows, so only the u/v/H norms enter the convergence test for now.
+        ru_init,rv_init,rud_init,rvd_init,rH_init = start_level_.adjoint_operators.compute_residual(dt,return_norms=True)
         initial_residual_norm = cp.sqrt(ru_init**2 + rv_init**2 + rH_init**2)
         relative_residual_norm = cp.float32(1.0)
 
@@ -970,7 +972,7 @@ class FASAdjointSolver:
                 and absolute_residual_norm > self._fas_config.absolute_tolerance
                 and iteration < self._fas_config.maximum_vcycles):
             self.vcycle(start_level,finest=True)
-            ru,rv,rH = start_level_.adjoint_operators.compute_residual(dt,return_norms=True)
+            ru,rv,rud,rvd,rH = start_level_.adjoint_operators.compute_residual(dt,return_norms=True)
 
             absolute_residual_norm = cp.sqrt(ru**2 + rv**2 + rH**2)
             relative_residual_norm = absolute_residual_norm / initial_residual_norm

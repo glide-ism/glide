@@ -54,6 +54,14 @@ grid.forward_operators.var_v[:,:] = cp.random.randn(ny+1,nx,dtype=cp.float32)
 grid.forward_operators.var_v[0].fill(0)
 grid.forward_operators.var_v[-1].fill(0)
 
+grid.forward_operators.var_ud[:,:] = cp.random.randn(ny,nx+1,dtype=cp.float32)
+grid.forward_operators.var_ud[:,0].fill(0)
+grid.forward_operators.var_ud[:,-1].fill(0)
+
+grid.forward_operators.var_vd[:,:] = cp.random.randn(ny+1,nx,dtype=cp.float32)
+grid.forward_operators.var_vd[0].fill(0)
+grid.forward_operators.var_vd[-1].fill(0)
+
 grid.forward_operators.var_H[:,:] = cp.random.randn(ny,nx,dtype=cp.float32)
 grid.forward_operators.var_H[grid.state.mask.data>0.5] = 0
 
@@ -65,6 +73,14 @@ grid.adjoint.lambda_v.data[:,:] = cp.random.randn(ny+1,nx,dtype=cp.float32)
 grid.adjoint.lambda_v.data[0].fill(0)
 grid.adjoint.lambda_v.data[-1].fill(0)
 
+grid.adjoint.lambda_ud.data[:,:] = cp.random.randn(ny,nx+1,dtype=cp.float32)
+grid.adjoint.lambda_ud.data[:,0].fill(0)
+grid.adjoint.lambda_ud.data[:,-1].fill(0)
+
+grid.adjoint.lambda_vd.data[:,:] = cp.random.randn(ny+1,nx,dtype=cp.float32)
+grid.adjoint.lambda_vd.data[0].fill(0)
+grid.adjoint.lambda_vd.data[-1].fill(0)
+
 grid.adjoint.lambda_H.data[:,:] = cp.random.randn(ny,nx,dtype=cp.float32)
 grid.adjoint.lambda_H.data[grid.state.mask.data>0.5] = 0
 
@@ -73,11 +89,15 @@ grid.forward_operators.compute_jvp(dt)
 grid.adjoint_operators.compute_vjp(dt)
 
 t1 = ((grid.adjoint_operators.vjp_u * grid.forward_operators.var_u).sum() +
-         (grid.adjoint_operators.vjp_v * grid.forward_operators.var_v).sum() + 
+         (grid.adjoint_operators.vjp_v * grid.forward_operators.var_v).sum() +
+         (grid.adjoint_operators.vjp_ud * grid.forward_operators.var_ud).sum() +
+         (grid.adjoint_operators.vjp_vd * grid.forward_operators.var_vd).sum() +
          (grid.adjoint_operators.vjp_H * grid.forward_operators.var_H).sum())
 
 t2 = ((grid.forward_operators.jvp_u * grid.adjoint.lambda_u.data).sum() +
-         (grid.forward_operators.jvp_v * grid.adjoint.lambda_v.data).sum() + 
+         (grid.forward_operators.jvp_v * grid.adjoint.lambda_v.data).sum() +
+         (grid.forward_operators.jvp_ud * grid.adjoint.lambda_ud.data).sum() +
+         (grid.forward_operators.jvp_vd * grid.adjoint.lambda_vd.data).sum() +
          (grid.forward_operators.jvp_H * grid.adjoint.lambda_H.data).sum())
 
 print(t1,t2,(t1 - t2)/(0.5*(t1 + t2)))

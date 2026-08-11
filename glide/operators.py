@@ -163,22 +163,27 @@ class ForwardOperators:
 
         kernel(grid_size, block_size,
                (self.jvp_u, self.jvp_v, self.jvp_ud, self.jvp_vd, self.jvp_H,
-                state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data, 
-                self.var_u, self.var_v, self.var_ud, self.var_vd, self.var_H, 
+                state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data,
+                self.var_u, self.var_v, self.var_ud, self.var_vd, self.var_H,
                 state.phi.data, state.xi.data, state.mask.data,
                 self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
-                geometry.bed.data, 
-                rheology.B.data, 
+                geometry.bed.data,
+                rheology.B.data,
                 sliding.beta.data,
                 self.gamma,
                 use_mask,
-                rheology.n.value, rheology.eps_reg.value, 
+                rheology.n.value, rheology.eps_reg.value, rheology.H_reg.value,
                 geometry.sigmoid_c.value,
-                sliding.m.value, sliding.u_reg.value, 
+                sliding.m.value, sliding.u_reg.value,
                 sliding.water_drag.value, sliding.flotation_reg_sliding.value,
                 calving_rate, calving.flotation_reg_calving.value,
                 grid.dx, dt,
-                grid.ny, grid.nx, stride, halo)) 
+                grid.ny, grid.nx, stride, halo))
+
+        if return_norms:
+            return (cp.linalg.norm(self.jvp_u), cp.linalg.norm(self.jvp_v),
+                    cp.linalg.norm(self.jvp_ud), cp.linalg.norm(self.jvp_vd),
+                    cp.linalg.norm(self.jvp_H))
 
     def compute_phi(self, relaxation=cp.float32(0.0)):
         kernel = self.kernels.get_function('compute_grounded')
@@ -254,10 +259,10 @@ class ForwardOperators:
                 calving.flotation_reg_calving.value,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
-                self.vanka_config.newton_config.steps,
-                self.vanka_config.newton_config.relaxation,
-                self.vanka_config.newton_config.ssa_damping,
-                self.vanka_config.newton_config.mc_damping)
+                cp.int32(self.vanka_config.newton_config.steps),
+                cp.float32(self.vanka_config.newton_config.relaxation),
+                cp.float32(self.vanka_config.newton_config.ssa_damping),
+                cp.float32(self.vanka_config.newton_config.mc_damping))
         )
 
     def vanka_sweep(self, dt, n_iter, 
@@ -460,26 +465,29 @@ class AdjointOperators:
         self.r_H.fill(0)
         use_forcing=True
         kernel(grid_size, block_size,
-               (self.r_u, self.r_v, self.r_H,
-                state.u.data, state.v.data, state.H.data, 
-                adjoint.lambda_u.data, adjoint.lambda_v.data, adjoint.lambda_H.data, 
+               (self.r_u, self.r_v, self.r_ud, self.r_vd, self.r_H,
+                state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data,
+                adjoint.lambda_u.data, adjoint.lambda_v.data,
+                adjoint.lambda_ud.data, adjoint.lambda_vd.data, adjoint.lambda_H.data,
                 state.phi.data, state.xi.data, state.mask.data,
-                self.f_u, self.f_v, self.f_H,
-                geometry.bed.data, 
-                rheology.B.data, 
+                self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
+                geometry.bed.data,
+                rheology.B.data,
                 sliding.beta.data,
                 self.gamma,
                 use_forcing, use_mask,
-                rheology.n.value, rheology.eps_reg.value, 
+                rheology.n.value, rheology.eps_reg.value, rheology.H_reg.value,
                 geometry.sigmoid_c.value,
-                sliding.m.value, sliding.u_reg.value, 
+                sliding.m.value, sliding.u_reg.value,
                 sliding.water_drag.value, sliding.flotation_reg_sliding.value,
                 calving_rate, calving.flotation_reg_calving.value,
                 grid.dx, dt,
-                grid.ny, grid.nx, stride, halo)) 
+                grid.ny, grid.nx, stride, halo))
 
         if return_norms:
-            return cp.linalg.norm(self.r_u),cp.linalg.norm(self.r_v),cp.linalg.norm(self.r_H)
+            return (cp.linalg.norm(self.r_u),cp.linalg.norm(self.r_v),
+                    cp.linalg.norm(self.r_ud),cp.linalg.norm(self.r_vd),
+                    cp.linalg.norm(self.r_H))
 
 
 
@@ -512,23 +520,24 @@ class AdjointOperators:
         self.vjp_vd.fill(0)
         self.vjp_H.fill(0)
         kernel(grid_size, block_size,
-               (self.vjp_u, self.vjp_v, self.vjp_H,
-                state.u.data, state.v.data, state.H.data, 
-                adjoint.lambda_u.data, adjoint.lambda_v.data, adjoint.lambda_H.data, 
+               (self.vjp_u, self.vjp_v, self.vjp_ud, self.vjp_vd, self.vjp_H,
+                state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data,
+                adjoint.lambda_u.data, adjoint.lambda_v.data,
+                adjoint.lambda_ud.data, adjoint.lambda_vd.data, adjoint.lambda_H.data,
                 state.phi.data, state.xi.data, state.mask.data,
-                self.f_u, self.f_v, self.f_H,
-                geometry.bed.data, 
-                rheology.B.data, 
+                self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
+                geometry.bed.data,
+                rheology.B.data,
                 sliding.beta.data,
                 self.gamma,
                 use_forcing, use_mask,
-                rheology.n.value, rheology.eps_reg.value, 
+                rheology.n.value, rheology.eps_reg.value, rheology.H_reg.value,
                 geometry.sigmoid_c.value,
-                sliding.m.value, sliding.u_reg.value, 
+                sliding.m.value, sliding.u_reg.value,
                 sliding.water_drag.value, sliding.flotation_reg_sliding.value,
                 calving_rate, calving.flotation_reg_calving.value,
                 grid.dx, dt,
-                grid.ny, grid.nx, stride, halo)) 
+                grid.ny, grid.nx, stride, halo))
 
 
     def vanka_smooth(self, dt,
@@ -571,8 +580,8 @@ class AdjointOperators:
                 calving.flotation_reg_calving.value,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
-                self.vanka_config.newton_config.ssa_damping,
-                self.vanka_config.newton_config.mc_damping)
+                cp.float32(self.vanka_config.newton_config.ssa_damping),
+                cp.float32(self.vanka_config.newton_config.mc_damping))
         )
 
     def vanka_sweep(self, dt, n_iter, 

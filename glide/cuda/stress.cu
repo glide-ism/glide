@@ -128,6 +128,26 @@ SigmaVertYZJacobian get_sigma_yz_jac(
     return jac;
 }
 
+__device__ __forceinline__
+DualFloat get_sigma_xz_dual(
+    SigmaVertXZStencilDual s,
+    float c_1, float S_1, float H_reg,
+    int i, int j,
+    int ny, int nx) {
+    SigmaVertXZJacobian jac = get_sigma_xz_jac(s.get_primals(),c_1,S_1,H_reg,i,j,ny,nx);
+    return {jac.res,jac.apply_jvp(s.get_diffs())};
+}
+
+__device__ __forceinline__
+DualFloat get_sigma_yz_dual(
+    SigmaVertYZStencilDual s,
+    float c_1, float S_1, float H_reg,
+    int i, int j,
+    int ny, int nx) {
+    SigmaVertYZJacobian jac = get_sigma_yz_jac(s.get_primals(),c_1,S_1,H_reg,i,j,ny,nx);
+    return {jac.res,jac.apply_jvp(s.get_diffs())};
+}
+
 // Newton correction for the diagonal of the vertical shear block: the
 // shear-softening part of d(eta)/d(u_d), which is local to the facet's two
 // adjacent cells (the shear invariant depends only on the cell's own

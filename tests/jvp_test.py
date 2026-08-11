@@ -54,6 +54,14 @@ grid.forward_operators.var_v[:,:] = cp.random.randn(ny+1,nx,dtype=cp.float32)
 grid.forward_operators.var_v[0].fill(0)
 grid.forward_operators.var_v[-1].fill(0)
 
+grid.forward_operators.var_ud[:,:] = cp.random.randn(ny,nx+1,dtype=cp.float32)
+grid.forward_operators.var_ud[:,0].fill(0)
+grid.forward_operators.var_ud[:,-1].fill(0)
+
+grid.forward_operators.var_vd[:,:] = cp.random.randn(ny+1,nx,dtype=cp.float32)
+grid.forward_operators.var_vd[0].fill(0)
+grid.forward_operators.var_vd[-1].fill(0)
+
 grid.forward_operators.var_H[:,:] = cp.random.randn(ny,nx,dtype=cp.float32)
 grid.forward_operators.var_H[grid.state.mask.data>0.5] = 0
 
@@ -61,42 +69,60 @@ grid.forward_operators.compute_jvp(dt)
 
 u_0 = cp.array(grid.state.u.data)
 v_0 = cp.array(grid.state.v.data)
+ud_0 = cp.array(grid.state.ud.data)
+vd_0 = cp.array(grid.state.vd.data)
 H_0 = cp.array(grid.state.H.data)
 
 eps = cp.float32(1e-2)
 
 grid.state.u.data[:,:] = u_0 + eps * grid.forward_operators.var_u
 grid.state.v.data[:,:] = v_0 + eps * grid.forward_operators.var_v
+grid.state.ud.data[:,:] = ud_0 + eps * grid.forward_operators.var_ud
+grid.state.vd.data[:,:] = vd_0 + eps * grid.forward_operators.var_vd
 grid.state.H.data[:,:] = H_0 + eps * grid.forward_operators.var_H
 
 grid.forward_operators.compute_residual(dt)
 
 r1_u = cp.array(grid.forward_operators.r_u)
 r1_v = cp.array(grid.forward_operators.r_v)
+r1_ud = cp.array(grid.forward_operators.r_ud)
+r1_vd = cp.array(grid.forward_operators.r_vd)
 r1_H = cp.array(grid.forward_operators.r_H)
 
 grid.state.u.data[:,:] = u_0 - eps * grid.forward_operators.var_u
 grid.state.v.data[:,:] = v_0 - eps * grid.forward_operators.var_v
+grid.state.ud.data[:,:] = ud_0 - eps * grid.forward_operators.var_ud
+grid.state.vd.data[:,:] = vd_0 - eps * grid.forward_operators.var_vd
 grid.state.H.data[:,:] = H_0 - eps * grid.forward_operators.var_H
 
 grid.forward_operators.compute_residual(dt)
 
 r0_u = cp.array(grid.forward_operators.r_u)
 r0_v = cp.array(grid.forward_operators.r_v)
+r0_ud = cp.array(grid.forward_operators.r_ud)
+r0_vd = cp.array(grid.forward_operators.r_vd)
 r0_H = cp.array(grid.forward_operators.r_H)
 
 jvp_u_fd = (r1_u - r0_u)/(2*eps)
 jvp_v_fd = (r1_v - r0_v)/(2*eps)
+jvp_ud_fd = (r1_ud - r0_ud)/(2*eps)
+jvp_vd_fd = (r1_vd - r0_vd)/(2*eps)
 jvp_H_fd = (r1_H - r0_H)/(2*eps)
 
 abs_err_u = cp.linalg.norm(jvp_u_fd - grid.forward_operators.jvp_u)
 abs_err_v = cp.linalg.norm(jvp_v_fd - grid.forward_operators.jvp_v)
+abs_err_ud = cp.linalg.norm(jvp_ud_fd - grid.forward_operators.jvp_ud)
+abs_err_vd = cp.linalg.norm(jvp_vd_fd - grid.forward_operators.jvp_vd)
 abs_err_H = cp.linalg.norm(jvp_H_fd - grid.forward_operators.jvp_H)
 
 rel_err_u = abs_err_u / cp.linalg.norm(grid.forward_operators.jvp_u)
 rel_err_v = abs_err_v / cp.linalg.norm(grid.forward_operators.jvp_v)
+rel_err_ud = abs_err_ud / cp.linalg.norm(grid.forward_operators.jvp_ud)
+rel_err_vd = abs_err_vd / cp.linalg.norm(grid.forward_operators.jvp_vd)
 rel_err_H = abs_err_H / cp.linalg.norm(grid.forward_operators.jvp_H)
 
-print(f"Relative norm of jvp versus finite difference: {rel_err_u:.6f}, {rel_err_v:.6f}, {rel_err_H:.6f}")
+print(f"Relative norm of jvp versus finite difference: "
+      f"u={rel_err_u:.6f}, v={rel_err_v:.6f}, "
+      f"ud={rel_err_ud:.6f}, vd={rel_err_vd:.6f}, H={rel_err_H:.6f}")
 
 
