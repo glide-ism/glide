@@ -101,6 +101,21 @@ beta_pert = cp.random.randn(*grid.sliding.beta.data.shape,dtype=cp.float32)
 
 eps = cp.float32(1e-3)
 beta_0 = cp.array(grid.sliding.beta.data)
+
+# The FD signal J_1 - J_0 is ~5e-5 of J itself, so the warm-started forward
+# re-solves are the dominant error source unless driven to the solver's
+# floor: from a warm start the relative tolerance is measured against a tiny
+# initial residual, so give the solver a hard absolute target and enough
+# V-cycles to grind there. J is accumulated in float64 for the same reason.
+solver.fas_options.maximum_vcycles.set(40)
+solver.fas_options.relative_tolerance.set(cp.float32(1e-8))
+solver.fas_options.absolute_tolerance.set(cp.float32(1e-4))
+
+def misfit():
+    du = (grid.state.u.data - u_obs).astype(cp.float64)
+    dv = (grid.state.v.data - v_obs).astype(cp.float64)
+    return float(abs(du).sum() + abs(dv).sum())
+
 grid.sliding.beta.data[:,:] = beta_0 + eps*beta_pert
 
 grid.state.u.data[:,:] = u
@@ -108,7 +123,7 @@ grid.state.v.data[:,:] = v
 grid.state.H.data[:,:] = H
 
 solver.solve(dt)
-J_1 = (abs(grid.state.u.data[:,:] - u_obs)).sum() + (abs(grid.state.v.data[:,:] - v_obs)).sum()
+J_1 = misfit()
 
 grid.sliding.beta.data[:,:] = beta_0 - eps*beta_pert
 
@@ -117,12 +132,12 @@ grid.state.v.data[:,:] = v
 grid.state.H.data[:,:] = H
 
 solver.solve(dt)
-J_0 = (abs(grid.state.u.data[:,:] - u_obs)).sum() + (abs(grid.state.v.data[:,:] - v_obs)).sum()
+J_0 = misfit()
 
-gvp_fd = (J_1 - J_0)/(2*eps)
-gvp_ad = (grid.sliding.beta.grad*beta_pert).sum()
+gvp_fd = (J_1 - J_0)/(2*float(eps))
+gvp_ad = float((grid.sliding.beta.grad*beta_pert).sum())
 
 rel_err = abs(gvp_fd - gvp_ad)/abs(gvp_ad)
 print(f"FD: {gvp_fd}, Adj: {gvp_ad}, Rel. Err.: {rel_err}")
-assert rel_err < 5e-2
+assert rel_err < 1e-2
 
