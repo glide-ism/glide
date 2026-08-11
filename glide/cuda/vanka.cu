@@ -1366,7 +1366,7 @@ void vanka_smooth(
     float calving_rate, float flotation_reg_calving,
     float dx, float dt,
     int ny, int nx, int stride, int halo,
-    int newton_steps, float relaxation,
+    int newton_steps, float relaxation, float step_tolerance,
     float ssa_damping, float mc_damping
     )
 {
@@ -1419,8 +1419,11 @@ void vanka_smooth(
 	float c_H_c = 0.0f;
 
 	float rnorm = 1.0f;
-	float rnorm0 = -1.0f;
-	float tol = 0.000001f;
+	// Squared relative Newton step: iterate until the remaining patch
+	// correction is below a step_tolerance fraction of the state (or the
+	// step cap). fp32 state updates much below ~1e-7 relative are lost to
+	// rounding anyway.
+	float tol = step_tolerance*step_tolerance;
 	int k = 0;
 
 	float J[81] = {0};
@@ -1458,14 +1461,14 @@ void vanka_smooth(
             // additive pseudo-transient continuation in physical time
             // units: mc_damping = 1/dtau [1/a], dominant when dt is large
             // and negligible when dt is small.
-            J[0]  *= (1.0f + ssa_damping);
-            J[10] *= (1.0f + ssa_damping);
-            J[20] *= (1.0f + ssa_damping);
-            J[30] *= (1.0f + ssa_damping);
-            J[40] *= (1.0f + ssa_damping);
-            J[50] *= (1.0f + ssa_damping);
-            J[60] *= (1.0f + ssa_damping);
-            J[70] *= (1.0f + ssa_damping);
+            J[0]  -= ssa_damping;
+            J[10] -= ssa_damping;
+            J[20] -= ssa_damping;
+            J[30] -= ssa_damping;
+            J[40] -= ssa_damping;
+            J[50] -= ssa_damping;
+            J[60] -= ssa_damping;
+            J[70] -= ssa_damping;
             J[80] += mc_damping;
 
 	    if (j == 0) {
@@ -1532,11 +1535,17 @@ void vanka_smooth(
 	    float s_eq[9];
 	    equilibrate<9>(J, r, s_eq);
 
-	    // Dimensionless convergence measure: the equilibrated patch
-	    // residual, relative to its value on the first Newton iteration
+	    // Dimensionless convergence measure: the equilibrated residual is
+	    // (to leading order) the scaled Newton step, so rn/|x~|^2 is the
+	    // squared step size relative to the state. Converged patches exit
+	    // on their first iteration, with no reference to physical units;
+	    // unconverged patches run to the step cap.
 	    float rn = r[0]*r[0] + r[1]*r[1] + r[2]*r[2] + r[3]*r[3] + r[4]*r[4] + r[5]*r[5] + r[6]*r[6] + r[7]*r[7] + r[8]*r[8];
-	    if (rnorm0 < 0.0f) rnorm0 = fmaxf(rn, 1e-30f);
-	    rnorm = rn / rnorm0;
+	    float xs[9] = {ud_l, ud_r, vd_t, vd_b, u_l, u_r, v_t, v_b, H_c};
+	    float xnorm2 = 1e-30f;
+	    #pragma unroll
+	    for (int a = 0; a < 9; ++a) { float xt = xs[a]/s_eq[a]; xnorm2 += xt*xt; }
+	    rnorm = rn / xnorm2;
 
             lu_factor<9>(J);
 	    lu_solve_factored<9>(J,r,delta_x);
@@ -1701,14 +1710,14 @@ void vanka_smooth_adjoint(
 	// Damping matches the forward smoother: relative on the
 	// sign-definite velocity rows, additive physical-time PTC on the
 	// transport row (see vanka_smooth)
-	J[0]  *= (1.0f + ssa_damping);
-        J[10] *= (1.0f + ssa_damping);
-        J[20] *= (1.0f + ssa_damping);
-        J[30] *= (1.0f + ssa_damping);
-        J[40] *= (1.0f + ssa_damping);
-        J[50] *= (1.0f + ssa_damping);
-        J[60] *= (1.0f + ssa_damping);
-        J[70] *= (1.0f + ssa_damping);
+	J[0]  -= ssa_damping;
+        J[10] -= ssa_damping;
+        J[20] -= ssa_damping;
+        J[30] -= ssa_damping;
+        J[40] -= ssa_damping;
+        J[50] -= ssa_damping;
+        J[60] -= ssa_damping;
+        J[70] -= ssa_damping;
         J[80] += mc_damping;
 
         rhs[0] = get_vfacet(r_adj_ud, i, j, ny, nx);

@@ -261,6 +261,7 @@ class ForwardOperators:
                 grid.ny, grid.nx, stride, halo,
                 cp.int32(self.vanka_config.newton_config.steps),
                 cp.float32(self.vanka_config.newton_config.relaxation),
+                cp.float32(self.vanka_config.newton_config.step_tolerance),
                 cp.float32(self.vanka_config.newton_config.ssa_damping),
                 cp.float32(self.vanka_config.newton_config.mc_damping))
         )
@@ -367,11 +368,20 @@ class ForwardOperators:
 class NewtonConfig:
     steps: int = 30
     relaxation: cp.float32 = cp.float32(0.5)
-    # ssa_damping is RELATIVE and dimensionless: the (sign-definite)
-    # velocity diagonals of the Vanka patch are stiffened by
-    # J_ii *= (1 + ssa_damping). mc_damping is additive pseudo-transient
-    # continuation on the transport row, in units of 1/time (an effective
-    # pseudo-timestep of 1/mc_damping that dominates when dt is large).
+    # Dimensionless patch Newton exit: iterate until the remaining
+    # correction falls below this fraction of the patch state (measured in
+    # the equilibrated metric). Converged patches exit on their first
+    # iteration; loosening speeds sweeps at the cost of smoothing depth.
+    step_tolerance: cp.float32 = cp.float32(1e-5)
+    # Both dampings are ABSOLUTE diagonal shifts acting as pseudo-transient
+    # continuation: ssa_damping on the velocity rows (in the model's head
+    # units), mc_damping on the transport row (units of 1/time; an
+    # effective pseudo-timestep of 1/mc_damping that dominates when dt is
+    # large). A relative/multiplicative velocity damping was tried and
+    # abandoned: the patches that need protection are those whose diagonals
+    # are small relative to their off-diagonal coupling, and damping
+    # proportional to the diagonal gives exactly those patches the least
+    # absolute protection (destabilizes Greenland-scale problems).
     ssa_damping: cp.float32 = cp.float32(0.01)
     mc_damping: cp.float32 = cp.float32(1.0)
 

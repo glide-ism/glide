@@ -112,6 +112,9 @@ beta_0 = cp.array(grid.sliding.beta.data)
 solver.fas_options.maximum_vcycles.set(40)
 solver.fas_options.relative_tolerance.set(cp.float32(1e-8))
 solver.fas_options.absolute_tolerance.set(cp.float32(1e-4))
+# ...and let the patch solves polish far past the production default, so
+# the solver floor sits below the FD signal
+solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-8))
 
 def misfit():
     du = (grid.state.u.data - u_obs).astype(cp.float64)
