@@ -47,23 +47,14 @@ grid.forward_operators.vanka_sweep(dt,4000)
 grid.state.mask.data[:,:] = cp.random.randint(0,2,size=(ny,nx)).astype(cp.float32)
 
 grid.forward_operators.var_u[:,:] = cp.random.randn(ny,nx+1,dtype=cp.float32)
-grid.forward_operators.var_u[:,0].fill(0)
-grid.forward_operators.var_u[:,-1].fill(0)
 
 grid.forward_operators.var_v[:,:] = cp.random.randn(ny+1,nx,dtype=cp.float32)
-grid.forward_operators.var_v[0].fill(0)
-grid.forward_operators.var_v[-1].fill(0)
 
 grid.forward_operators.var_ud[:,:] = cp.random.randn(ny,nx+1,dtype=cp.float32)
-grid.forward_operators.var_ud[:,0].fill(0)
-grid.forward_operators.var_ud[:,-1].fill(0)
 
 grid.forward_operators.var_vd[:,:] = cp.random.randn(ny+1,nx,dtype=cp.float32)
-grid.forward_operators.var_vd[0].fill(0)
-grid.forward_operators.var_vd[-1].fill(0)
 
 grid.forward_operators.var_H[:,:] = cp.random.randn(ny,nx,dtype=cp.float32)
-grid.forward_operators.var_H[grid.state.mask.data>0.5] = 0
 
 grid.forward_operators.compute_jvp(dt)
 

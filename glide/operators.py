@@ -423,6 +423,14 @@ class AdjointOperators:
         self.delta_lambda_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
         self.delta_lambda_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
 
+        # Row-projected multipliers for the vjp launch (see the constraint
+        # convention in cuda/common.cu)
+        self.lam_free_u = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.lam_free_v = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.lam_free_ud = cp.zeros((grid.ny,grid.nx+1),dtype=cp.float32)
+        self.lam_free_vd = cp.zeros((grid.ny+1,grid.nx),dtype=cp.float32)
+        self.lam_free_H = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
+
         self.gamma = cp.zeros((grid.ny,grid.nx),dtype=cp.float32)
         self.gamma.fill(grid.geometry.thklim.value)
 
@@ -436,39 +444,64 @@ class AdjointOperators:
         grid_size = (self.grid.nx // stride + 1, self.grid.ny // stride + 1)
         return grid_size, block_size, stride, halo
 
-    def compute_residual(self, dt, 
-            use_mask=True, 
-            freeze_calving=False, 
-            return_norms=False):
+    def _launch_vjp(self, out_u, out_v, out_ud, out_vd, out_H, dt,
+            use_mask=True,
+            use_forcing=False,
+            freeze_calving=False):
+        """Apply the exact transpose J^T lambda (minus f when use_forcing).
 
+        The kernel computes the pure physics transpose. The constrained-row
+        structure of the Jacobian - identity rows at Dirichlet facets and on
+        the active set (see the constraint convention in cuda/common.cu) - is
+        applied here, once: multipliers are projected off constrained rows
+        before launch (their rows have no off-diagonal entries), and the
+        identity parts lambda_c are added to the outputs afterwards.
+        Constrained COLUMNS are genuine and handled by the kernel.
+        """
         kernel = self.kernels.get_function('compute_vjp')
         grid_size, block_size, stride, halo = self._kernel_config
-  
+
         grid = self.grid
         state = grid.state
         adjoint = grid.adjoint
-        geometry = grid.geometry        
+        geometry = grid.geometry
         rheology = grid.rheology
         sliding = grid.sliding
         calving = grid.calving
-        forcing = grid.forcing
 
         if freeze_calving:
             calving_rate = cp.float32(0.0)
         else:
             calving_rate = calving.calving_rate.value
 
-        self.r_u.fill(0)
-        self.r_v.fill(0)
-        self.r_ud.fill(0)
-        self.r_vd.fill(0)
-        self.r_H.fill(0)
-        use_forcing=True
+        # Row projection
+        self.lam_free_u[:,:] = adjoint.lambda_u.data
+        self.lam_free_u[:,0] = 0.0
+        self.lam_free_u[:,-1] = 0.0
+        self.lam_free_ud[:,:] = adjoint.lambda_ud.data
+        self.lam_free_ud[:,0] = 0.0
+        self.lam_free_ud[:,-1] = 0.0
+        self.lam_free_v[:,:] = adjoint.lambda_v.data
+        self.lam_free_v[0,:] = 0.0
+        self.lam_free_v[-1,:] = 0.0
+        self.lam_free_vd[:,:] = adjoint.lambda_vd.data
+        self.lam_free_vd[0,:] = 0.0
+        self.lam_free_vd[-1,:] = 0.0
+        if use_mask:
+            self.lam_free_H[:,:] = (1.0 - state.mask.data)*adjoint.lambda_H.data
+        else:
+            self.lam_free_H[:,:] = adjoint.lambda_H.data
+
+        out_u.fill(0)
+        out_v.fill(0)
+        out_ud.fill(0)
+        out_vd.fill(0)
+        out_H.fill(0)
         kernel(grid_size, block_size,
-               (self.r_u, self.r_v, self.r_ud, self.r_vd, self.r_H,
+               (out_u, out_v, out_ud, out_vd, out_H,
                 state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data,
-                adjoint.lambda_u.data, adjoint.lambda_v.data,
-                adjoint.lambda_ud.data, adjoint.lambda_vd.data, adjoint.lambda_H.data,
+                self.lam_free_u, self.lam_free_v,
+                self.lam_free_ud, self.lam_free_vd, self.lam_free_H,
                 state.phi.data, state.xi.data, state.mask.data,
                 self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
                 geometry.bed.data,
@@ -483,61 +516,41 @@ class AdjointOperators:
                 calving_rate, calving.flotation_reg_calving.value,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo))
+
+        # Identity rows: (J^T lambda)_c = lambda_c + interior contributions
+        # (the latter already accumulated by the kernel)
+        out_u[:,0] += adjoint.lambda_u.data[:,0]
+        out_u[:,-1] += adjoint.lambda_u.data[:,-1]
+        out_ud[:,0] += adjoint.lambda_ud.data[:,0]
+        out_ud[:,-1] += adjoint.lambda_ud.data[:,-1]
+        out_v[0,:] += adjoint.lambda_v.data[0,:]
+        out_v[-1,:] += adjoint.lambda_v.data[-1,:]
+        out_vd[0,:] += adjoint.lambda_vd.data[0,:]
+        out_vd[-1,:] += adjoint.lambda_vd.data[-1,:]
+        if use_mask:
+            out_H += state.mask.data*adjoint.lambda_H.data
+
+    def compute_residual(self, dt,
+            use_mask=True,
+            freeze_calving=False,
+            return_norms=False):
+
+        self._launch_vjp(self.r_u, self.r_v, self.r_ud, self.r_vd, self.r_H,
+                dt, use_mask=use_mask, use_forcing=True,
+                freeze_calving=freeze_calving)
 
         if return_norms:
             return (cp.linalg.norm(self.r_u),cp.linalg.norm(self.r_v),
                     cp.linalg.norm(self.r_ud),cp.linalg.norm(self.r_vd),
                     cp.linalg.norm(self.r_H))
 
-
-
-    def compute_vjp(self, dt, 
+    def compute_vjp(self, dt,
             use_mask=True,
-            use_forcing=False,
             freeze_calving=False):
 
-        kernel = self.kernels.get_function('compute_vjp')
-        grid_size, block_size, stride, halo = self._kernel_config
-  
-        grid = self.grid
-        state = grid.state
-        adjoint = grid.adjoint
-        geometry = grid.geometry        
-        rheology = grid.rheology
-        sliding = grid.sliding
-        calving = grid.calving
-        forcing = grid.forcing
-
-        if freeze_calving:
-            calving_rate = cp.float32(0.0)
-        else:
-            calving_rate = calving.calving_rate.value
-
-        use_forcing=False
-        self.vjp_u.fill(0)
-        self.vjp_v.fill(0)
-        self.vjp_ud.fill(0)
-        self.vjp_vd.fill(0)
-        self.vjp_H.fill(0)
-        kernel(grid_size, block_size,
-               (self.vjp_u, self.vjp_v, self.vjp_ud, self.vjp_vd, self.vjp_H,
-                state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data,
-                adjoint.lambda_u.data, adjoint.lambda_v.data,
-                adjoint.lambda_ud.data, adjoint.lambda_vd.data, adjoint.lambda_H.data,
-                state.phi.data, state.xi.data, state.mask.data,
-                self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
-                geometry.bed.data,
-                rheology.B.data,
-                sliding.beta.data,
-                self.gamma,
-                use_forcing, use_mask,
-                rheology.n.value, rheology.eps_reg.value, rheology.H_reg.value,
-                geometry.sigmoid_c.value,
-                sliding.m.value, sliding.u_reg.value,
-                sliding.water_drag.value, sliding.flotation_reg_sliding.value,
-                calving_rate, calving.flotation_reg_calving.value,
-                grid.dx, dt,
-                grid.ny, grid.nx, stride, halo))
+        self._launch_vjp(self.vjp_u, self.vjp_v, self.vjp_ud, self.vjp_vd,
+                self.vjp_H, dt, use_mask=use_mask, use_forcing=False,
+                freeze_calving=freeze_calving)
 
 
     def vanka_smooth(self, dt,
@@ -661,10 +674,14 @@ class AdjointOperators:
 
 
     def compute_gradient_H_prev(self, dt):
-        self.grid.state.H_prev.grad[:,:] = -self.grid.adjoint.lambda_H.data[:,:]/dt
+        # Active-set rows are identity rows with no H_prev dependence; project
+        # out their multipliers (see the constraint convention in cuda/common.cu)
+        free = 1.0 - self.grid.state.mask.data
+        self.grid.state.H_prev.grad[:,:] = -free*self.grid.adjoint.lambda_H.data[:,:]/dt
 
     def compute_gradient_smb(self):
-        self.grid.forcing.smb.grad[:,:] = -self.grid.adjoint.lambda_H.data[:,:] 
+        free = 1.0 - self.grid.state.mask.data
+        self.grid.forcing.smb.grad[:,:] = -free*self.grid.adjoint.lambda_H.data[:,:]
   
     
 

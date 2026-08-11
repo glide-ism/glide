@@ -65,7 +65,10 @@ void compute_gradient_beta(
 	    float beta_c = get_cell(beta,i,j,ny,nx);
 	    TauBxJacobian j_tau_bx = get_tau_bx_jac({ub_l,ub_ll,ub_r,vb_tl,vb_tr,vb_bl,vb_br,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
 
-	    float lam_eff = get_vfacet(lambda_u,i,j,ny,nx) - get_vfacet(lambda_ud,i,j,ny,nx);
+	    // Dirichlet rows are identity rows with no beta dependence:
+	    // project out their multipliers (constraint convention, common.cu)
+	    float row_free = (j > 0 && j < nx);
+	    float lam_eff = row_free * (get_vfacet(lambda_u,i,j,ny,nx) - get_vfacet(lambda_ud,i,j,ny,nx));
 
 	    if (j>0     )  {atomicAdd(&grad_beta[i * nx + j - 1],lam_eff * j_tau_bx.d_beta_l);}
 	    if (j<(nx-1))  {atomicAdd(&grad_beta[i * nx + j]    ,lam_eff * j_tau_bx.d_beta_r);}
@@ -90,7 +93,8 @@ void compute_gradient_beta(
 
 	    TauByJacobian j_tau_by = get_tau_by_jac({vb_t,vb_tt,vb_b,ub_tl,ub_tr,ub_bl,ub_br,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
 
-	    float lam_eff = get_hfacet(lambda_v,i,j,ny,nx) - get_hfacet(lambda_vd,i,j,ny,nx);
+	    float row_free = (i > 0 && i < ny);
+	    float lam_eff = row_free * (get_hfacet(lambda_v,i,j,ny,nx) - get_hfacet(lambda_vd,i,j,ny,nx));
 
 	    if (i>0     ) {atomicAdd(&grad_beta[(i-1) * nx + j],lam_eff * j_tau_by.d_beta_t);}
 	    if (i<(ny-1)) {atomicAdd(&grad_beta[i * nx + j]    ,lam_eff * j_tau_by.d_beta_b);}
@@ -153,8 +157,9 @@ void compute_gradient_bed(
 	    float phi_c  = get_cell(phi,i,j,ny,nx);
 	    TauDxJacobian j_tau_dx = get_tau_dx_jac({H_l,H_c,bed_l,bed_c,phi_l,phi_c,flotation_reg_driving},dx_inv,i,j,ny,nx);
 
-            float lambda_u_l    = get_vfacet(lambda_u,i,j,ny,nx);
-	    
+            // Dirichlet rows have no bed dependence (constraint convention)
+            float lambda_u_l    = (j > 0 && j < nx) ? get_vfacet(lambda_u,i,j,ny,nx) : 0.0f;
+
 	    if (j>0     )  {atomicAdd(&grad_bed[i * nx + j - 1],-lambda_u_l * j_tau_dx.d_bed_l);}
 	    if (j<(nx-1))  {atomicAdd(&grad_bed[i * nx + j]    ,-lambda_u_l * j_tau_dx.d_bed_r);}
 	    }
@@ -171,8 +176,8 @@ void compute_gradient_bed(
 
 	    TauDyJacobian j_tau_dy = get_tau_dy_jac({H_t,H_c,bed_t,bed_c,phi_t,phi_c,flotation_reg_driving},dx_inv,i,j,ny,nx);
             
-	    float lambda_v_t    = get_hfacet(lambda_v,i,j,ny,nx);
-	    
+	    float lambda_v_t    = (i > 0 && i < ny) ? get_hfacet(lambda_v,i,j,ny,nx) : 0.0f;
+
 	    if (i>0     ) {atomicAdd(&grad_bed[(i-1) * nx + j],-lambda_v_t * j_tau_dy.d_bed_t);}
 	    if (i<(ny-1)) {atomicAdd(&grad_bed[i * nx + j]    ,-lambda_v_t * j_tau_dy.d_bed_b);}
 	    }	    

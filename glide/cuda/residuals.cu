@@ -611,8 +611,9 @@ void compute_jvp(
 	    DualFloat q_calve_b = get_facet_calving_dual({H_c,H_b,phi_c,phi_b,calving_rate,flotation_reg_calving},i+1,j,ny,nx);
 	    d_rH += q_calve_b.d*dx_inv;
 
+	    // Identity row on the active set, mirroring compute_residual
 	    float masked = use_mask ? get_cell(mask,i,j,ny,nx) : 0.0f;
-            jvp_H[i * nx + j] = (1.0f - masked) * d_rH;
+            jvp_H[i * nx + j] = (1.0f - masked) * d_rH + masked * get_cell(d_H,i,j,ny,nx);
 
 	}
 
@@ -782,7 +783,11 @@ void compute_jvp(
 	    d_ru_l -= tau_dx.d;
 	    }
 
-	    if (j <= 0 || j >= nx) {d_ru_l = 0.0f; d_rud_l = 0.0f;}
+	    // Identity rows at Dirichlet facets, mirroring compute_residual
+	    if (j <= 0 || j >= nx) {
+		d_ru_l = get_vfacet(d_u,i,j,ny,nx);
+		d_rud_l = get_vfacet(d_ud,i,j,ny,nx);
+	    }
 	    jvp_u[i * (nx + 1) + j] = d_ru_l;
 	    jvp_ud[i * (nx + 1) + j] = d_rud_l;
 
@@ -951,7 +956,11 @@ void compute_jvp(
 	    d_rv_t -= tau_dy.d;
 	    }
 
-	    if (i <= 0 || i >= ny) { d_rv_t = 0.0f; d_rvd_t = 0.0f;}
+	    // Identity rows at Dirichlet facets, mirroring compute_residual
+	    if (i <= 0 || i >= ny) {
+		d_rv_t = get_hfacet(d_v,i,j,ny,nx);
+		d_rvd_t = get_hfacet(d_vd,i,j,ny,nx);
+	    }
 	    jvp_v[i * nx + j] = d_rv_t;
 	    jvp_vd[i * nx + j] = d_rvd_t;
 
@@ -1051,7 +1060,10 @@ void compute_vjp(
 
 	if (has_cell){
 	    float H_c        = get_cell(H,i,j,ny,nx);
-	    float lambda_H_c = get_masked_cell(lambda_H,mask,i,j,ny,nx);
+	    // Row projection of lambda_H (active set) is applied by the
+	    // Python wrapper before launch; the kernel is the pure physics
+	    // transpose (see the constraint convention in common.cu)
+	    float lambda_H_c = get_cell(lambda_H,i,j,ny,nx);
 
 	    // Mass matrix contribution
 	    atomicAdd(&s_adj_H[bi][bj], lambda_H_c/dt);
@@ -1716,6 +1728,9 @@ void compute_vjp(
     int g_base_x = blockIdx.x * stride - halo;
 
 
+    // Flushes are pure bounds checks: constrained COLUMNS are genuine
+    // entries of J^T and are kept (see constraint convention in common.cu)
+
     // Flush U (16x17)
     for (int k = tid; k < 272; k += 256) {
 
@@ -1725,7 +1740,7 @@ void compute_vjp(
         if (fabsf(val) > 0.0f) {
             int gy = g_base_y + r;
             int gx = g_base_x + c;
-            if (gy >= 0 && gy < ny && gx > 0 && gx < nx) // Global Bounds Check incl. Dirichlet masking
+            if (gy >= 0 && gy < ny && gx >= 0 && gx <= nx)
                 atomicAdd(&vjp_u[gy * (nx+1) + gx], val);
         }
     }
@@ -1739,7 +1754,7 @@ void compute_vjp(
         if (fabsf(val) > 0.0f) {
             int gy = g_base_y + r;
             int gx = g_base_x + c;
-            if (gy >= 0 && gy < ny && gx > 0 && gx < nx) // Global Bounds Check incl. Dirichlet masking
+            if (gy >= 0 && gy < ny && gx >= 0 && gx <= nx)
                 atomicAdd(&vjp_ud[gy * (nx+1) + gx], val);
         }
     }
@@ -1752,7 +1767,7 @@ void compute_vjp(
         if (fabsf(val) > 0.0f) {
             int gy = g_base_y + r;
             int gx = g_base_x + c;
-            if (gy > 0 && gy < ny && gx >= 0 && gx < nx)
+            if (gy >= 0 && gy <= ny && gx >= 0 && gx < nx)
                 atomicAdd(&vjp_v[gy * nx + gx], val);
         }
     }
@@ -1765,7 +1780,7 @@ void compute_vjp(
         if (fabsf(val) > 0.0f) {
             int gy = g_base_y + r;
             int gx = g_base_x + c;
-            if (gy > 0 && gy < ny && gx >= 0 && gx < nx)
+            if (gy >= 0 && gy <= ny && gx >= 0 && gx < nx)
                 atomicAdd(&vjp_vd[gy * nx + gx], val);
         }
     }
@@ -1776,8 +1791,6 @@ void compute_vjp(
         if (fabsf(val) > 0.0f) {
             int gy = g_base_y + bi;
             int gx = g_base_x + bj;
-	    float masked = get_cell(mask,gy,gx,ny,nx);
-	    if (masked > 0.0f) { val = 0.0f; }
             if (gy >= 0 && gy < ny && gx >= 0 && gx < nx)
                 atomicAdd(&vjp_H[gy * nx + gx], val);
         }

@@ -136,11 +136,30 @@ __device__ __forceinline__ DualFloat get_cell(const float* __restrict__ arr, con
     return {arr[idx],darr[idx]};
 }
 
-__device__ __forceinline__ float get_masked_cell(const float* __restrict__ arr, const float* __restrict__ mask, int i, int j, int ny, int nx) {
-    i = max(min(i,ny - 1),0);
-    j = max(min(j,nx - 1),0);
-    int idx = i * nx + j;
-    return arr[idx]*(1.0f - mask[idx]);
-}
+/* =====================================================================
+   CONSTRAINT CONVENTION (single source of truth)
+
+   Constrained dofs are Dirichlet velocity facets (u/ud at j in {0,nx},
+   v/vd at i in {0,ny}) and active-set thickness cells (mask = 1).
+   compute_residual defines the convention: constrained dofs have IDENTITY
+   residual rows, R_c = x_c - x_bc (r_u = u, r_H = H - thklim), while all
+   other rows retain their genuine stencil dependence on constrained dofs.
+   Everything else follows verbatim:
+
+   - compute_jvp is the exact derivative: constrained rows return the
+     direction component; nothing else is masked.
+   - compute_vjp is the exact transpose: the kernel computes the pure
+     physics transpose, and the constrained-row structure (project
+     multipliers off constrained rows, add the identity part lambda_c) is
+     applied ONCE in the Python wrapper (operators.py, _launch_vjp).
+   - Parameter gradient kernels project out constrained-row multipliers
+     explicitly (dR_c/dp = 0), so they are correct for any lambda.
+   - The Vanka patch solves use identity-ROW-only elimination (columns
+     kept), so the patch matrix is the restriction of the true Jacobian
+     and the adjoint patch is its literal transpose.
+
+   Under this convention lambda at constrained dofs is the constraint
+   multiplier (not zero); no consumer may assume it vanishes.
+   ===================================================================== */
 
 
