@@ -22,23 +22,25 @@ class GlideStep(torch.autograd.Function):
 
         u_torch = torch.tensor(model.mg[level].state.u.data)
         v_torch = torch.tensor(model.mg[level].state.v.data)
+        ud_torch = torch.tensor(model.mg[level].state.ud.data)
+        vd_torch = torch.tensor(model.mg[level].state.vd.data)
         H_torch = torch.tensor(model.mg[level].state.H.data)
         mask_torch = torch.tensor(model.mg[level].state.mask.data)
         phi_torch = torch.tensor(model.mg[level].state.phi.data)
         xi_torch = torch.tensor(model.mg[level].state.xi.data)
 
-        ctx.save_for_backward(u_torch,v_torch,H_torch,mask_torch,phi_torch,xi_torch,H_prev,bed,beta,smb)
+        ctx.save_for_backward(u_torch,v_torch,ud_torch,vd_torch,H_torch,mask_torch,phi_torch,xi_torch,H_prev,bed,beta,smb)
         ctx.mark_non_differentiable(mask_torch)
-  
-        return u_torch, v_torch, H_torch, mask_torch
+
+        return u_torch, v_torch, ud_torch, vd_torch, H_torch, mask_torch
 
     @staticmethod
-    def backward(ctx, gu, gv, gH, gM):
+    def backward(ctx, gu, gv, gud, gvd, gH, gM):
         t = ctx.t
         dt = ctx.dt
         model = ctx.model
         level = ctx.level
-        u_torch,v_torch,H_torch,mask_torch,phi_torch,xi_torch,H_prev,bed,beta,smb = ctx.saved_tensors
+        u_torch,v_torch,ud_torch,vd_torch,H_torch,mask_torch,phi_torch,xi_torch,H_prev,bed,beta,smb = ctx.saved_tensors
 
         model.mg.state.H_prev.set(cp.asarray(H_prev.data),start_level=level)
         model.mg.geometry.bed.set(cp.asarray(bed.data),start_level=level)
@@ -47,12 +49,17 @@ class GlideStep(torch.autograd.Function):
 
         model.mg.state.u.set(cp.asarray(u_torch.data),start_level=level)
         model.mg.state.v.set(cp.asarray(v_torch.data),start_level=level)
+        model.mg.state.ud.set(cp.asarray(ud_torch.data),start_level=level)
+        model.mg.state.vd.set(cp.asarray(vd_torch.data),start_level=level)
         model.mg.state.H.set(cp.asarray(H_torch.data),start_level=level)
         model.mg.state.phi.set(cp.asarray(phi_torch.data),start_level=level)
         model.mg.state.xi.set(cp.asarray(xi_torch.data),start_level=level)
         model.mg.state.mask.set(cp.asarray(mask_torch.data),start_level=level)
 
-        converged = model.backward(t,dt,dJdu=cp.asarray(gu),dJdv=cp.asarray(gv),dJdH=cp.asarray(gH))
+        converged = model.backward(t,dt,
+                dJdu=cp.asarray(gu),dJdv=cp.asarray(gv),
+                dJdud=cp.asarray(gud),dJdvd=cp.asarray(gvd),
+                dJdH=cp.asarray(gH))
 
 
         g_H_prev = torch.tensor(model.mg[level].state.H_prev.grad)
