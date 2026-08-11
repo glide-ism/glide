@@ -37,6 +37,37 @@ __device__ __forceinline__ void lu_factor(float* __restrict__ A)
     }
 }
 
+// Symmetric Jacobi equilibration of an N x N patch system: s_i =
+// 1/sqrt(|A_ii|), floored against the row's infinity norm so a degenerate
+// diagonal cannot produce unbounded scale factors. Rescales A <- S A S and
+// b <- S b in place; the solution of the original system is x = S y where
+// y solves the scaled one (the caller multiplies by s after the solve).
+// The patch rows span shear (eta*H/(H^2+H_reg^2)), membrane (eta*H/dx^2),
+// drag, and transport (1/dt) scales - many decades apart at margins -
+// which the no-pivot fp32 LU cannot otherwise absorb. Symmetric scaling
+// preserves the symmetry of the stress block and commutes with
+// transposition ((S A S)^T = S A^T S), so the forward and adjoint
+// smoothers share identical machinery.
+template <int N>
+__device__ __forceinline__ void equilibrate(float* __restrict__ A,
+                                            float* __restrict__ b,
+                                            float* __restrict__ s)
+{
+    #pragma unroll
+    for (int i = 0; i < N; ++i) {
+        float rmax = 0.0f;
+        #pragma unroll
+        for (int j = 0; j < N; ++j) rmax = fmaxf(rmax, fabsf(A[i*N + j]));
+        s[i] = rsqrtf(fmaxf(fabsf(A[i*N + i]), fmaxf(1e-6f*rmax, 1e-30f)));
+    }
+    #pragma unroll
+    for (int i = 0; i < N; ++i) {
+        #pragma unroll
+        for (int j = 0; j < N; ++j) A[i*N + j] *= s[i]*s[j];
+        b[i] *= s[i];
+    }
+}
+
 // Solve A x = b using factors produced by lu_factor<N>. b is overwritten
 // (it holds y after forward substitution). x may not alias A.
 template <int N>
@@ -1484,8 +1515,12 @@ void vanka_smooth(
 
 
 	    float delta_x[9] = {0};
+	    float s_eq[9];
+	    equilibrate<9>(J, r, s_eq);
             lu_factor<9>(J);
 	    lu_solve_factored<9>(J,r,delta_x);
+	    #pragma unroll
+	    for (int a = 0; a < 9; ++a) delta_x[a] *= s_eq[a];
 	    //relaxation = 0.5f;
 
 	    float y_ud_l = -relaxation*delta_x[0] - c_ud_l;
@@ -1705,6 +1740,11 @@ void vanka_smooth_adjoint(
 	    J[80] = 1.0f;
 	}
 
+        // Equilibrate before transposing: (S J S)^T = S J^T S, so the
+        // adjoint solve uses the same scale factors as the forward patch
+        float s_eq[9];
+        equilibrate<9>(J, rhs, s_eq);
+
         float J_T[81];
         #pragma unroll
         for(int r=0; r<9; ++r) {
@@ -1717,6 +1757,8 @@ void vanka_smooth_adjoint(
 	float delta_lambda[9] = {0};
 	lu_factor<9>(J_T);
 	lu_solve_factored<9>(J_T,rhs,delta_lambda);
+	#pragma unroll
+	for (int a = 0; a < 9; ++a) delta_lambda[a] *= s_eq[a];
 
 	atomicAdd(&lambda_ud_out[i * (nx + 1) + j],      0.5f*delta_lambda[0]);
 	atomicAdd(&lambda_ud_out[i * (nx + 1) + j + 1],  0.5f*delta_lambda[1]);
