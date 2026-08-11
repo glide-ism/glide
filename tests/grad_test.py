@@ -99,14 +99,16 @@ grid.adjoint_operators.compute_gradient_beta()
 
 beta_pert = cp.random.randn(*grid.sliding.beta.data.shape,dtype=cp.float32)
 
-eps = cp.float32(1e-3)
+eps = cp.float32(3e-3)
 beta_0 = cp.array(grid.sliding.beta.data)
 
-# The FD signal J_1 - J_0 is ~5e-5 of J itself, so the warm-started forward
-# re-solves are the dominant error source unless driven to the solver's
-# floor: from a warm start the relative tolerance is measured against a tiny
-# initial residual, so give the solver a hard absolute target and enough
-# V-cycles to grind there. J is accumulated in float64 for the same reason.
+# The FD signal J_1 - J_0 is a ~1e-4 relative difference of J, so the
+# warm-started forward re-solves are the dominant error source: from a warm
+# start the relative tolerance is measured against a tiny initial residual,
+# so give the solver a hard absolute target and enough V-cycles to grind to
+# its floor, accumulate J in float64, and use an eps large enough to lift
+# the signal above the residual solver noise (the L1-kink error this adds
+# is only ~1e-2 relative at this eps).
 solver.fas_options.maximum_vcycles.set(40)
 solver.fas_options.relative_tolerance.set(cp.float32(1e-8))
 solver.fas_options.absolute_tolerance.set(cp.float32(1e-4))

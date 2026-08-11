@@ -1422,7 +1422,9 @@ void vanka_smooth(
 	     
 	    if (j == 0) {
 	    	for(int k=0; k<9; ++k) J[0*9 + k] = 0.0f;
+	    	for(int k=0; k<9; ++k) J[k*9 + 0] = 0.0f;
 	    	for(int k=0; k<9; ++k) J[4*9 + k] = 0.0f;
+	    	for(int k=0; k<9; ++k) J[k*9 + 4] = 0.0f;
                 J[0]  = 1.0f;
                 r[0] = ud_l;
 
@@ -1432,7 +1434,9 @@ void vanka_smooth(
 
 	    if (j == (nx - 1)) {
 	    	for(int k=0; k<9; ++k) J[1*9 + k] = 0.0f;
+	    	for(int k=0; k<9; ++k) J[k*9 + 1] = 0.0f;
 	    	for(int k=0; k<9; ++k) J[5*9 + k] = 0.0f;
+	    	for(int k=0; k<9; ++k) J[k*9 + 5] = 0.0f;
                 J[10] = 1.0f;
                 r[1] = ud_r;
 
@@ -1442,7 +1446,9 @@ void vanka_smooth(
 
 	    if (i == 0) {
 	    	for(int k=0; k<9; ++k) J[2*9 + k] = 0.0f;
+	    	for(int k=0; k<9; ++k) J[k*9 + 2] = 0.0f;
 	    	for(int k=0; k<9; ++k) J[6*9 + k] = 0.0f;
+	    	for(int k=0; k<9; ++k) J[k*9 + 6] = 0.0f;
 		J[20] = 1.0f;
 		r[2] = vd_t;
 		J[60] = 1.0f;
@@ -1451,7 +1457,9 @@ void vanka_smooth(
 
 	    if (i == (ny-1)) {
 	    	for(int k=0; k<9; ++k) J[3*9 + k] = 0.0f;
+	    	for(int k=0; k<9; ++k) J[k*9 + 3] = 0.0f;
 	    	for(int k=0; k<9; ++k) J[7*9 + k] = 0.0f;
+	    	for(int k=0; k<9; ++k) J[k*9 + 7] = 0.0f;
 		J[30] = 1.0f;
 		r[3] = vd_b;
 		J[70] = 1.0f;
@@ -1463,6 +1471,7 @@ void vanka_smooth(
 		// Active set constraint: Force H = thklim
 		masked = 1.0f;
 		for(int k=0; k<9; ++k) J[8*9 + k] = 0.0f;
+		for(int k=0; k<9; ++k) J[k*9 + 8] = 0.0f;
 		J[80] = 1.0f;
 		r[8] = H_c - thklim;
 	    } else {
@@ -1655,28 +1664,36 @@ void vanka_smooth_adjoint(
 
 	if (j == 0) {
 	    for(int k=0; k<9; ++k) J[0*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 0] = 0.0f;
 	    for(int k=0; k<9; ++k) J[4*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 4] = 0.0f;
 	    J[0]  = 1.0f;
 	    J[40] = 1.0f;
 	}
 
 	if (j == (nx - 1)) {
 	    for(int k=0; k<9; ++k) J[1*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 1] = 0.0f;
 	    for(int k=0; k<9; ++k) J[5*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 5] = 0.0f;
 	    J[10] = 1.0f;
 	    J[50] = 1.0f;
 	}
 
 	if (i == 0) {
 	    for(int k=0; k<9; ++k) J[2*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 2] = 0.0f;
 	    for(int k=0; k<9; ++k) J[6*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 6] = 0.0f;
 	    J[20] = 1.0f;
 	    J[60] = 1.0f;
 	}
 
 	if (i == (ny-1)) {
 	    for(int k=0; k<9; ++k) J[3*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 3] = 0.0f;
 	    for(int k=0; k<9; ++k) J[7*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 7] = 0.0f;
 	    J[30] = 1.0f;
 	    J[70] = 1.0f;
 	}
@@ -1684,6 +1701,7 @@ void vanka_smooth_adjoint(
 	if (masked > 0.5) {
 	    // Active set constraint: Force H = thklim
 	    for(int k=0; k<9; ++k) J[8*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 8] = 0.0f;
 	    J[80] = 1.0f;
 	}
 
@@ -1798,7 +1816,9 @@ void vanka_dump(
 
 	if (j == 0) {
 	    for(int k=0; k<9; ++k) J[0*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 0] = 0.0f;
 	    for(int k=0; k<9; ++k) J[4*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 4] = 0.0f;
 	    J[0]  = 1.0f;
 	    r[0] = ud_l;
 
@@ -1808,7 +1828,9 @@ void vanka_dump(
 
 	if (j == (nx - 1)) {
 	    for(int k=0; k<9; ++k) J[1*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 1] = 0.0f;
 	    for(int k=0; k<9; ++k) J[5*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 5] = 0.0f;
 	    J[10] = 1.0f;
 	    r[1] = ud_r;
 
@@ -1818,7 +1840,9 @@ void vanka_dump(
 
 	if (i == 0) {
 	    for(int k=0; k<9; ++k) J[2*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 2] = 0.0f;
 	    for(int k=0; k<9; ++k) J[6*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 6] = 0.0f;
 	    J[20] = 1.0f;
 	    r[2] = vd_t;
 	    J[60] = 1.0f;
@@ -1827,7 +1851,9 @@ void vanka_dump(
 
 	if (i == (ny-1)) {
 	    for(int k=0; k<9; ++k) J[3*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 3] = 0.0f;
 	    for(int k=0; k<9; ++k) J[7*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 7] = 0.0f;
 	    J[30] = 1.0f;
 	    r[3] = vd_b;
 	    J[70] = 1.0f;
@@ -1838,6 +1864,7 @@ void vanka_dump(
 	if ((H_c - dt*r[8]) <= (thklim)) {
 	    // Active set constraint: Force H = thklim
 	    for(int k=0; k<9; ++k) J[8*9 + k] = 0.0f;
+	    for(int k=0; k<9; ++k) J[k*9 + 8] = 0.0f;
 	    J[80] = 1.0f;
 	    r[8] = H_c - thklim;
 	}

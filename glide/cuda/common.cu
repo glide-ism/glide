@@ -154,9 +154,16 @@ __device__ __forceinline__ DualFloat get_cell(const float* __restrict__ arr, con
      applied ONCE in the Python wrapper (operators.py, _launch_vjp).
    - Parameter gradient kernels project out constrained-row multipliers
      explicitly (dR_c/dp = 0), so they are correct for any lambda.
-   - The Vanka patch solves use identity-ROW-only elimination (columns
-     kept), so the patch matrix is the restriction of the true Jacobian
-     and the adjoint patch is its literal transpose.
+   - The Vanka patch solves are PRECONDITIONERS and deliberately deviate
+     from the true Jacobian at constrained dofs: they use symmetric
+     row+column elimination (unit diagonal). Identity-row-only patches
+     are exact but unstable when a cell ENTERS the active set - the
+     momentum rows then extrapolate the full H -> thklim collapse
+     linearly through their d/dH columns, which blows up velocities at
+     thin margins. Fixed points are unaffected: the smoother rhs is
+     always the exact residual (never zeroed), so the forward smoother
+     converges to R = 0 and the adjoint smoother converges lambda_c to
+     its true multiplier equation.
 
    Under this convention lambda at constrained dofs is the constraint
    multiplier (not zero); no consumer may assume it vanishes.
