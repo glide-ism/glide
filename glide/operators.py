@@ -383,15 +383,19 @@ class NewtonConfig:
     # are small relative to their off-diagonal coupling, and damping
     # proportional to the diagonal gives exactly those patches the least
     # absolute protection (destabilizes Greenland-scale problems).
-    # momentum_damping < 1 risks patch Newton divergence (NaNs) at
-    # hard-to-predict moments in difficult configurations (thin ice, low
-    # water drag, large dt); >= 1 is robust in practice.
-    momentum_damping: cp.float32 = cp.float32(1.0)
+    # The stable operating point couples momentum_damping to the Schwarz
+    # relaxation omega: at omega = 0.5, momentum_damping < 1 risks patch
+    # Newton divergence (NaNs) at hard-to-predict moments in difficult
+    # configurations (thin ice, low water drag, large dt). Halving omega to
+    # 0.25 admits a 10x smaller damping, which converges faster overall and
+    # removes the slow-shelf transient (over-damped floating ice taking
+    # several timesteps to spin up).
+    momentum_damping: cp.float32 = cp.float32(0.1)
     mc_damping: cp.float32 = cp.float32(1.0)
 
 @dataclass
 class VankaConfig:
-    omega: cp.float32 = cp.float32(0.5)
+    omega: cp.float32 = cp.float32(0.25)
     newton_config: NewtonConfig = field(default_factory = lambda: NewtonConfig())
     relax_phi: cp.float32 = cp.float32(0.0)
     hook_interval: int = 1
@@ -455,7 +459,8 @@ class AdjointOperators:
 
         # The adjoint solve is LINEAR: it does not need the heavy damping
         # that protects the forward patch Newton iteration from divergence,
-        # and momentum_damping ~ 1 severely degrades its convergence rate.
+        # and momentum_damping ~ 1 severely degrades its convergence rate
+        # (0.01 is field-tested on Greenland and Antarctica).
         self.vanka_config = VankaConfig(
                 newton_config=NewtonConfig(momentum_damping=cp.float32(0.01)))
 
