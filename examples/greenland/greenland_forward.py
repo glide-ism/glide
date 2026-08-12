@@ -45,7 +45,7 @@ B.fill(1e-17 ** (-1.0 / 3.0) / (917 * 9.81))
 mg.rheology.B.set(B)
 mg.rheology.eps_reg.set(1e-6)
 mg.rheology.n.set(3.0)
-#mg.rheology.H_reg.set(10.0)
+mg.rheology.H_reg.set(25.0)
 
 ### Initialize sliding
 #BETA_PATH = None
@@ -61,7 +61,7 @@ beta[beta>50] = 50
 
 mg.sliding.beta.set(beta)
 mg.sliding.m.set(1./3)
-mg.sliding.water_drag.set(1e-4)
+mg.sliding.water_drag.set(1.0e-4)
 
 ### Initialize calving
 # Specifies calving velocity for a non-conservative
@@ -70,19 +70,20 @@ mg.calving.calving_rate.set(2000.0)
 
 ### Initialize forcing
 smb = dataset.smb.values
-smb -= 1.0
+smb += 1.0
+#smb[:] = 0.0
 mg.forcing.smb.set(smb)
 
 ### Set multigrid solver parameters ###
 model.forward_solver.fas_options.set(
         coarsest_steps=200, pre_steps=10, 
-        post_steps=20, finest_steps=50,
+        post_steps=150, finest_steps=0,
         relative_tolerance=1e-2, absolute_tolerance=10.0,
         report_norms=True)
 
-#model.forward_solver.vanka_options.relax_phi.set(cp.float32(0.5))
-#model.forward_solver.vanka_options.newton_options.ssa_damping.set(cp.float32(0.1))
-
+model.forward_solver.vanka_options.omega.set(cp.float32(0.25))
+model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.01))
+model.forward_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
 
 # Derived surface velocity fields: with the MOLHO ansatz the surface
 # velocity is u_bar + u_d/(n+1). These are refreshed from the state in the
@@ -149,7 +150,7 @@ zarr_writer.initialize(mg[0],overwrite=True)
 # Run simulation
 t = cp.float32(0.0)
 t_end = cp.float32(1000.0)
-dt = cp.float32(20.0)
+dt = cp.float32(10.0)
 
 while t < t_end:
     print(f"Solving forward problem at t={t} with dt={dt:.2f}")

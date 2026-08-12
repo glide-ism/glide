@@ -51,7 +51,7 @@ B.fill(1e-17 ** (-1.0 / 3.0) / (917 * 9.81))
 mg.rheology.B.set(B)
 mg.rheology.eps_reg.set(1e-6)
 mg.rheology.n.set(3.0)
-#mg.rheology.H_reg.set(10.0)
+mg.rheology.H_reg.set(10.0)
 
 n_glen = 3.0
 
@@ -61,7 +61,7 @@ beta.fill(2.5)
 
 mg.sliding.beta.set(beta)
 mg.sliding.m.set(1./3.)
-mg.sliding.water_drag.set(1e-4)
+mg.sliding.water_drag.set(1e-3)
 
 ### Initialize calving
 mg.calving.calving_rate.set(2000.0)
@@ -88,12 +88,19 @@ model.forward_solver.fas_options.set(
         relative_tolerance=1e-2, absolute_tolerance=10.0,
         report_norms=False)
 
+model.forward_solver.vanka_options.omega.set(cp.float32(0.25))
+model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.1))
+model.forward_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
+
 model.adjoint_solver.fas_options.set(
         coarsest_steps=200, pre_steps=10,
         post_steps=150, finest_steps=0,
         relative_tolerance=1e-2, absolute_tolerance=1e-5, # Note that adjoint var
-        report_norms=False)                               # adjoint var is small 
+        report_norms=True)                               # adjoint var is small 
                                                           # in magnitude
+model.adjoint_solver.vanka_options.omega.set(cp.float32(0.25))
+model.adjoint_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.01))
+model.adjoint_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
 
 # Thin Pytorch wrapper of a single glide time step
 glide_step = GlideStep.apply
@@ -102,7 +109,7 @@ t = cp.float32(0.0) # Dummy time, which we don't use here
 n_level_epochs = 50
 
 # Index of coarsest grid to start solving inverse problem at
-coarsest_level = 5
+coarsest_level = 0
 log_beta = torch.log(torch.tensor(mg[coarsest_level].sliding.beta.data,device='cuda'))
 
 # Solve the inverse problem at progressively coarser levels
@@ -182,7 +189,7 @@ for level in range(coarsest_level,-1,-1):
         gy_ = gy[:,:-1]
         gx_ = gx[:-1]
         eps = 1e-6
-        J_L1 = 1e-8*(torch.sqrt(gy_**2 + gx_**2 + eps**2).sum())*dx**2
+        J_L1 = 0*(torch.sqrt(gy_**2 + gx_**2 + eps**2).sum())*dx**2
         
         # Combined objective - elastic net regularization
         J = J_data + J_L1 + J_L2
@@ -192,6 +199,7 @@ for level in range(coarsest_level,-1,-1):
 
         # Update parameter
         optimizer.step()
+        log_beta.data[log_beta.data > 3.5] = 3.5
         
         print(f"Level {level}, Iter. {j}/{n_level_epochs} | J: {J.item():.2f}, J_data: {J_data.item():.2f}, J_L1: {J_L1.item():.2f}, J_L2: {J_L2.item():.2f}")
         u_s_field.data[:,:] = mg[level].state.u.data + mg[level].state.ud.data/(n_glen + 1.0)

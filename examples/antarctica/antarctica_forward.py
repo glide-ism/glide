@@ -47,7 +47,7 @@ B.fill(1e-17 ** (-1.0 / 3.0) / (917 * 9.81))
 mg.rheology.B.set(B)
 mg.rheology.eps_reg.set(1e-6)
 mg.rheology.n.set(3.0)
-#mg.rheology.H_reg.set(10.0)
+mg.rheology.H_reg.set(25.0)
 
 n_glen = 3.0
 
@@ -77,7 +77,7 @@ mg.calving.calving_rate.set(0.0)
 smb = dataset.smb.values
 
 # We specify the calving front by imposing a strong melt rate on open water.
-smb[dataset.surface.values==0] = -50.0
+smb[dataset.surface.values==0] = -25.0
 
 # Subshelf melting - fixed over areas that are floating at t=0 (phi < 0.5)
 mg[0].forward_operators.compute_phi()
@@ -89,11 +89,12 @@ mg.forcing.smb.set(smb)
 model.forward_solver.fas_options.set(
         coarsest_steps=200, pre_steps=10, 
         post_steps=150, finest_steps=0,
-        relative_tolerance=2e-2, absolute_tolerance=10.0,
+        relative_tolerance=1e-3, absolute_tolerance=10.0,
         report_norms=True)
 
-# Antarctica likes it if we damp the transition between floating and grounded
-model.forward_solver.vanka_options.relax_phi.set(cp.float32(0.5))
+model.forward_solver.vanka_options.omega.set(cp.float32(0.25))
+model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.01))
+model.forward_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
 
 # Derived surface velocity fields: with the MOLHO ansatz the surface
 # velocity is u_bar + u_d/(n+1); refreshed from the state before each write
@@ -140,7 +141,7 @@ zarr_writer.initialize(mg[0],overwrite=True)
 # Run simulation
 t = cp.float32(0.0)
 t_end = cp.float32(1000.0)
-dt = cp.float32(10.0)
+dt = cp.float32(20.0)
 while t < t_end:
     print(f"Solving forward problem at t={t} with dt={dt:.2f}")
     model.forward(t,dt)

@@ -31,7 +31,7 @@ model = IceDynamics(n_levels=n_levels,ny=ny,nx=nx,dx=dx,
 mg = model.mg
 
 grid = mg.levels[0]
-dt = cp.float32(20.0)
+dt = cp.float32(10.0)
 
 ### Initialize state
 thk = gaussian_filter(dataset.thickness.values,1)
@@ -51,17 +51,18 @@ B.fill(1e-17 ** (-1.0 / 3.0) / (917 * 9.81))
 mg.rheology.B.set(B)
 mg.rheology.eps_reg.set(1e-6)
 mg.rheology.n.set(3.0)
-#mg.rheology.H_reg.set(10.0)
+mg.rheology.H_reg.set(25.0)
 
 n_glen = 3.0
 
 ### Initialize sliding
 beta = cp.zeros((ny,nx), dtype=cp.float32)
-beta.fill(1.0)
+beta.fill(2.5)
 
 mg.sliding.beta.set(beta)
 mg.sliding.m.set(1./3.)
-mg.sliding.water_drag.set(1e-5)
+mg.sliding.u_reg.set(1.0)
+mg.sliding.water_drag.set(1e-4)
 
 ### Initialize calving
 mg.calving.calving_rate.set(0.0)
@@ -89,23 +90,30 @@ model.forward_solver.fas_options.set(
         coarsest_steps=200, pre_steps=10, 
         post_steps=150, finest_steps=0,
         relative_tolerance=1e-2, absolute_tolerance=10.0,
-        report_norms=False)
+        report_norms=True)
+
+model.forward_solver.vanka_options.omega.set(cp.float32(0.25))
+model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.1))
+model.forward_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
 
 model.adjoint_solver.fas_options.set(
         coarsest_steps=200, pre_steps=10,
         post_steps=150, finest_steps=0,
         relative_tolerance=1e-2, absolute_tolerance=1e-5, # Note that adjoint var
-        report_norms=False)                               # adjoint var is small 
+        report_norms=True)                               # adjoint var is small 
                                                           # in magnitude
+model.adjoint_solver.vanka_options.omega.set(cp.float32(0.25))
+model.adjoint_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.01))
+model.adjoint_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
 
 # Thin Pytorch wrapper of a single glide time step
 glide_step = GlideStep.apply
 
 t = cp.float32(0.0) # Dummy time, which we don't use here
-n_level_epochs = 100
+n_level_epochs = 50
 
 # Index of coarsest grid to start solving inverse problem at
-coarsest_level = 3
+coarsest_level = 2
 log_beta = torch.log(torch.tensor(mg[coarsest_level].sliding.beta.data,device='cuda'))
 
 # Solve the inverse problem at progressively coarser levels
@@ -198,6 +206,7 @@ for level in range(coarsest_level,-1,-1):
 
         # Update parameter
         optimizer.step()
+        log_beta.data[log_beta.data > 3.5] = 3.5
         
         print(f"Level {level}, Iter. {j}/{n_level_epochs} | J: {J.item():.2f}, J_data: {J_data.item():.2f}, J_L1: {J_L1.item():.2f}, J_L2: {J_L2.item():.2f}")
         u_s_field.data[:,:] = mg[level].state.u.data + mg[level].state.ud.data/(n_glen + 1.0)
