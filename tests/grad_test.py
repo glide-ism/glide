@@ -49,7 +49,8 @@ mg.state.H_prev.set(thk)
 ### Initialize solver
 solver = FASCDSolver(mg)
 
-solver.vanka_options.omega.set(0.5)
+# omega and momentum_damping are a coupled pair (see NewtonConfig); rely
+# on the field-tested defaults rather than overriding one of them
 solver.vanka_options.newton_options.relaxation.set(0.5)
 solver.vanka_options.newton_options.steps.set(30)
 
@@ -91,8 +92,6 @@ adjoint_solver.fas_options.finest_steps.set(150)
 adjoint_solver.fas_options.maximum_vcycles.set(10)
 adjoint_solver.fas_options.absolute_tolerance.set(cp.float32(0.1))
 adjoint_solver.fas_options.relative_tolerance.set(cp.float32(1e-3))
-adjoint_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.1))
-adjoint_solver.vanka_options.omega.set(cp.float32(0.5))
 adjoint_solver.solve(dt)
 
 grid.adjoint_operators.compute_gradient_beta()
