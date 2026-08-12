@@ -242,11 +242,13 @@ class ForwardOperators:
 
         self.delta_u.fill(0.0)
         self.delta_v.fill(0.0)
-        self.delta_ud.fill(0.0)
-        self.delta_vd.fill(0.0)
         self.delta_H.fill(0.0)
+        if not grid.ssa:
+            # the SSA kernel build never scatters deformational deltas
+            self.delta_ud.fill(0.0)
+            self.delta_vd.fill(0.0)
         kernel(grid_size, block_size,
-               (self.delta_u, self.delta_v, self.delta_ud, self.delta_vd, self.delta_H, 
+               (self.delta_u, self.delta_v, self.delta_ud, self.delta_vd, self.delta_H,
                 state.mask.data,
                 state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data, 
                 state.phi.data, state.xi.data,
@@ -277,8 +279,9 @@ class ForwardOperators:
             self.vanka_smooth(dt,freeze_calving=freeze_calving,freeze_phi=freeze_phi)
             self.grid.state.u.data[:] += self.vanka_config.omega * self.delta_u
             self.grid.state.v.data[:] += self.vanka_config.omega * self.delta_v
-            self.grid.state.ud.data[:] += self.vanka_config.omega * self.delta_ud
-            self.grid.state.vd.data[:] += self.vanka_config.omega * self.delta_vd
+            if not self.grid.ssa:
+                self.grid.state.ud.data[:] += self.vanka_config.omega * self.delta_ud
+                self.grid.state.vd.data[:] += self.vanka_config.omega * self.delta_vd
             self.grid.state.H.data[:] += self.vanka_config.omega * self.delta_H
             self.vanka_config.hook_func(i)
 

@@ -83,8 +83,10 @@ class Multigrid:
     def restrict_state(self,fine_grid,coarse_grid):
         self.restrict_vfacet(fine_grid.state.u.data,coarse_grid.state.u.data)
         self.restrict_hfacet(fine_grid.state.v.data,coarse_grid.state.v.data)
-        self.restrict_vfacet(fine_grid.state.ud.data,coarse_grid.state.ud.data)
-        self.restrict_hfacet(fine_grid.state.vd.data,coarse_grid.state.vd.data)
+        if not fine_grid.ssa:
+            # SSA mode: ud/vd are identically zero on every level
+            self.restrict_vfacet(fine_grid.state.ud.data,coarse_grid.state.ud.data)
+            self.restrict_hfacet(fine_grid.state.vd.data,coarse_grid.state.vd.data)
         self.restrict_cell(fine_grid.state.H.data,coarse_grid.state.H.data)
         self.restrict_cell(fine_grid.state.H_prev.data,coarse_grid.state.H_prev.data)
         self.restrict_cell(fine_grid.state.phi.data,coarse_grid.state.phi.data)
@@ -121,8 +123,9 @@ class Multigrid:
     def restrict_residual(self,fine_grid,coarse_grid):
         self.restrict_vfacet(fine_grid.forward_operators.r_u,coarse_grid.forward_operators.r_u)
         self.restrict_hfacet(fine_grid.forward_operators.r_v,coarse_grid.forward_operators.r_v)
-        self.restrict_vfacet(fine_grid.forward_operators.r_ud,coarse_grid.forward_operators.r_ud)
-        self.restrict_hfacet(fine_grid.forward_operators.r_vd,coarse_grid.forward_operators.r_vd)
+        if not fine_grid.ssa:
+            self.restrict_vfacet(fine_grid.forward_operators.r_ud,coarse_grid.forward_operators.r_ud)
+            self.restrict_hfacet(fine_grid.forward_operators.r_vd,coarse_grid.forward_operators.r_vd)
         self.restrict_cell(fine_grid.forward_operators.r_H,coarse_grid.forward_operators.r_H)
    
     def restrict_vfacet(self,fine_field,coarse_field=None):
@@ -621,8 +624,9 @@ class FASCDSolver:
         if finest:
             level.scratch.w_u[:,:] = level.grid.state.u.data[:,:]
             level.scratch.w_v[:,:] = level.grid.state.v.data[:,:]
-            level.scratch.w_ud[:,:] = level.grid.state.ud.data[:,:]
-            level.scratch.w_vd[:,:] = level.grid.state.vd.data[:,:]
+            if not level.grid.ssa:
+                level.scratch.w_ud[:,:] = level.grid.state.ud.data[:,:]
+                level.scratch.w_vd[:,:] = level.grid.state.vd.data[:,:]
             level.scratch.w_H[:,:] = level.grid.state.H.data[:,:]
             level.scratch.chi[:,:] = level.grid.geometry.thklim.value - level.grid.state.H.data
 
@@ -656,16 +660,19 @@ class FASCDSolver:
         # Compute coarse grid correction
         level.scratch.y_u[:,:] = level.grid.state.u.data - level.scratch.w_u
         level.scratch.y_v[:,:] = level.grid.state.v.data - level.scratch.w_v
-        level.scratch.y_ud[:,:] = level.grid.state.ud.data - level.scratch.w_ud
-        level.scratch.y_vd[:,:] = level.grid.state.vd.data - level.scratch.w_vd
+        ssa = level.grid.ssa
+        if not ssa:
+            level.scratch.y_ud[:,:] = level.grid.state.ud.data - level.scratch.w_ud
+            level.scratch.y_vd[:,:] = level.grid.state.vd.data - level.scratch.w_vd
         level.scratch.y_H[:,:] = level.grid.state.H.data - level.scratch.w_H
 
         # Restrict solution to child
         mg.restrict_state(level.grid,next_level.grid)
         next_level.scratch.w_u[:,:] = next_level.grid.state.u.data[:,:]
         next_level.scratch.w_v[:,:] = next_level.grid.state.v.data[:,:]
-        next_level.scratch.w_ud[:,:] = next_level.grid.state.ud.data[:,:]
-        next_level.scratch.w_vd[:,:] = next_level.grid.state.vd.data[:,:]
+        if not ssa:
+            next_level.scratch.w_ud[:,:] = next_level.grid.state.ud.data[:,:]
+            next_level.scratch.w_vd[:,:] = next_level.grid.state.vd.data[:,:]
         next_level.scratch.w_H[:,:] = next_level.grid.state.H.data[:,:]
 
         # Compute and restrict residual
@@ -682,8 +689,9 @@ class FASCDSolver:
 
         next_level.grid.forward_operators.f_u[:,:] = next_level.grid.forward_operators.F_u[:,:] - next_level.grid.forward_operators.r_u[:,:]
         next_level.grid.forward_operators.f_v[:,:] = next_level.grid.forward_operators.F_v[:,:] - next_level.grid.forward_operators.r_v[:,:]
-        next_level.grid.forward_operators.f_ud[:,:] = next_level.grid.forward_operators.F_ud[:,:] - next_level.grid.forward_operators.r_ud[:,:]
-        next_level.grid.forward_operators.f_vd[:,:] = next_level.grid.forward_operators.F_vd[:,:] - next_level.grid.forward_operators.r_vd[:,:]
+        if not ssa:
+            next_level.grid.forward_operators.f_ud[:,:] = next_level.grid.forward_operators.F_ud[:,:] - next_level.grid.forward_operators.r_ud[:,:]
+            next_level.grid.forward_operators.f_vd[:,:] = next_level.grid.forward_operators.F_vd[:,:] - next_level.grid.forward_operators.r_vd[:,:]
         next_level.grid.forward_operators.f_H[:,:] = next_level.grid.forward_operators.F_H[:,:] - next_level.grid.forward_operators.r_H[:,:]
 
         # Recursive call
@@ -692,28 +700,32 @@ class FASCDSolver:
         # Compute coarse correction
         next_level.scratch.z_u[:] = next_level.grid.state.u.data - next_level.scratch.w_u
         next_level.scratch.z_v[:] = next_level.grid.state.v.data - next_level.scratch.w_v
-        next_level.scratch.z_ud[:] = next_level.grid.state.ud.data - next_level.scratch.w_ud
-        next_level.scratch.z_vd[:] = next_level.grid.state.vd.data - next_level.scratch.w_vd
+        if not ssa:
+            next_level.scratch.z_ud[:] = next_level.grid.state.ud.data - next_level.scratch.w_ud
+            next_level.scratch.z_vd[:] = next_level.grid.state.vd.data - next_level.scratch.w_vd
         next_level.scratch.z_H[:] = next_level.grid.state.H.data - next_level.scratch.w_H
 
         # Prolongate correction
         mg.prolongate_vfacet(next_level.scratch.z_u,level.scratch.z_u,method='bilinear')
         mg.prolongate_hfacet(next_level.scratch.z_v,level.scratch.z_v,method='bilinear')
-        mg.prolongate_vfacet(next_level.scratch.z_ud,level.scratch.z_ud,method='bilinear')
-        mg.prolongate_hfacet(next_level.scratch.z_vd,level.scratch.z_vd,method='bilinear')
+        if not ssa:
+            mg.prolongate_vfacet(next_level.scratch.z_ud,level.scratch.z_ud,method='bilinear')
+            mg.prolongate_hfacet(next_level.scratch.z_vd,level.scratch.z_vd,method='bilinear')
         mg.prolongate_cell(next_level.scratch.z_H,level.scratch.z_H,method='injection')
 
         # Apply correction
         level.scratch.z_u[:,:] += level.scratch.y_u[:,:]
         level.scratch.z_v[:,:] += level.scratch.y_v[:,:]
-        level.scratch.z_ud[:,:] += level.scratch.y_ud[:,:]
-        level.scratch.z_vd[:,:] += level.scratch.y_vd[:,:]
+        if not ssa:
+            level.scratch.z_ud[:,:] += level.scratch.y_ud[:,:]
+            level.scratch.z_vd[:,:] += level.scratch.y_vd[:,:]
         level.scratch.z_H[:,:] += level.scratch.y_H[:,:]
 
         level.grid.state.u.data[:,:] = level.scratch.w_u + level.scratch.z_u
         level.grid.state.v.data[:,:] = level.scratch.w_v + level.scratch.z_v
-        level.grid.state.ud.data[:,:] = level.scratch.w_ud + level.scratch.z_ud
-        level.grid.state.vd.data[:,:] = level.scratch.w_vd + level.scratch.z_vd
+        if not ssa:
+            level.grid.state.ud.data[:,:] = level.scratch.w_ud + level.scratch.z_ud
+            level.grid.state.vd.data[:,:] = level.scratch.w_vd + level.scratch.z_vd
         level.grid.state.H.data[:,:] = level.scratch.w_H + level.scratch.z_H
 
         # Post-smooth

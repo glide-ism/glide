@@ -995,10 +995,12 @@ void vanka_smooth(
                     dx, dt, ny, nx, i, j, bi, bj);
             
 
+#if GLIDE_MOLHO
 	    r[0] -= get_vfacet(f_ud,i,j,ny,nx);
 	    r[1] -= get_vfacet(f_ud,i,j+1,ny,nx);
 	    r[2] -= get_hfacet(f_vd,i,j,ny,nx);
 	    r[3] -= get_hfacet(f_vd,i+1,j,ny,nx);
+#endif
 	    r[4] -= get_vfacet(f_u,i,j,ny,nx);
 	    r[5] -= get_vfacet(f_u,i,j+1,ny,nx);
 	    r[6] -= get_hfacet(f_v,i,j,ny,nx);
