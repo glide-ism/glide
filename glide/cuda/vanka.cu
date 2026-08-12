@@ -1367,7 +1367,7 @@ void vanka_smooth(
     float dx, float dt,
     int ny, int nx, int stride, int halo,
     int newton_steps, float relaxation, float step_tolerance,
-    float momentum_damping, float mc_damping
+    float momentum_damping, float mc_damping, bool ssa
     )
 {
     const int bny = 16;
@@ -1516,7 +1516,21 @@ void vanka_smooth(
 		J[70] = 1.0f;
 		r[7] = v_b;
 	    }
-	    
+
+	    if (ssa) {
+		// SSA mode: all deformational dofs are pinned to zero
+		// (identity rows in compute_residual); eliminate them from
+		// the patch symmetrically, like the Dirichlet dofs above
+		for (int d = 0; d < 4; ++d) {
+		    for(int k=0; k<9; ++k) J[d*9 + k] = 0.0f;
+		    for(int k=0; k<9; ++k) J[k*9 + d] = 0.0f;
+		}
+		J[0]  = 1.0f;  r[0] = ud_l;
+		J[10] = 1.0f;  r[1] = ud_r;
+		J[20] = 1.0f;  r[2] = vd_t;
+		J[30] = 1.0f;  r[3] = vd_b;
+	    }
+
 
 	    if ((H_c - dt*r[8]) <= (thklim)) {
 		// Active set constraint: Force H = thklim
@@ -1655,7 +1669,7 @@ void vanka_smooth_adjoint(
     float calving_rate, float flotation_reg_calving,
     float dx, float dt,
     int ny, int nx, int stride, int halo,
-    float momentum_damping, float mc_damping
+    float momentum_damping, float mc_damping, bool ssa
     )
 {
     const int bny = 16;
@@ -1766,6 +1780,19 @@ void vanka_smooth_adjoint(
 	    J[70] = 1.0f;
 	}
 
+	if (ssa) {
+	    // SSA mode: deformational dofs are constrained everywhere;
+	    // symmetric elimination mirrors the forward smoother
+	    for (int d = 0; d < 4; ++d) {
+		for(int k=0; k<9; ++k) J[d*9 + k] = 0.0f;
+		for(int k=0; k<9; ++k) J[k*9 + d] = 0.0f;
+	    }
+	    J[0]  = 1.0f;
+	    J[10] = 1.0f;
+	    J[20] = 1.0f;
+	    J[30] = 1.0f;
+	}
+
 	if (masked > 0.5) {
 	    // Active set constraint: Force H = thklim
 	    for(int k=0; k<9; ++k) J[8*9 + k] = 0.0f;
@@ -1830,7 +1857,7 @@ void vanka_dump(
     float m, float u_reg, float water_drag, float flotation_reg_sliding,
     float calving_rate, float flotation_reg_calving,
     float dx, float dt,
-    int ny, int nx, int stride, int halo)
+    int ny, int nx, int stride, int halo, bool ssa)
 {
     const int bny = 16;
     const int bnx = 16;
@@ -1934,7 +1961,18 @@ void vanka_dump(
 	    J[70] = 1.0f;
 	    r[7] = v_b;
 	}
-	
+
+	if (ssa) {
+	    for (int d = 0; d < 4; ++d) {
+		for(int k=0; k<9; ++k) J[d*9 + k] = 0.0f;
+		for(int k=0; k<9; ++k) J[k*9 + d] = 0.0f;
+	    }
+	    J[0]  = 1.0f;  r[0] = ud_l;
+	    J[10] = 1.0f;  r[1] = ud_r;
+	    J[20] = 1.0f;  r[2] = vd_t;
+	    J[30] = 1.0f;  r[3] = vd_b;
+	}
+
 
 	if ((H_c - dt*r[8]) <= (thklim)) {
 	    // Active set constraint: Force H = thklim

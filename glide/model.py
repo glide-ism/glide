@@ -13,14 +13,18 @@ class IceDynamics:
     def __init__(self,mg=None,
             n_levels=None,grid=None,
             ny=None,nx=None,dx=None,
-            x0=cp.float32(0.0),y0=cp.float32(0.0),crs=None):
+            x0=cp.float32(0.0),y0=cp.float32(0.0),crs=None,
+            stress_scheme='molho'):
+        # stress_scheme: 'molho' (two-field, shear-resolving) or 'ssa'
+        # (deformational components pinned to zero). When an existing mg or
+        # grid is supplied, its stress_scheme governs.
         if mg is not None:
             self.mg = mg
         elif grid is not None and n_levels is not None:
             self.mg = Multigrid(n_levels,finest_grid=grid)
         elif ny and nx and dx and n_levels:
             self.mg = Multigrid(n_levels,ny=ny,nx=nx,dx=dx,
-                   x0=x0,y0=y0,crs=crs)
+                   x0=x0,y0=y0,crs=crs,stress_scheme=stress_scheme)
         else:
             raise ValueError('Must supply either (a) a multigrid object \
                               (b) a grid and number of levels \

@@ -141,6 +141,10 @@ __device__ __forceinline__ DualFloat get_cell(const float* __restrict__ arr, con
 
    Constrained dofs are Dirichlet velocity facets (u/ud at j in {0,nx},
    v/vd at i in {0,ny}) and active-set thickness cells (mask = 1).
+   In SSA mode (the ssa kernel flag / grid.stress_scheme == 'ssa'), EVERY
+   ud/vd facet is additionally constrained to zero, which reduces the
+   MOLHO momentum balance exactly to the SSA; all of the machinery below
+   applies to those dofs unchanged.
    compute_residual defines the convention: constrained dofs have IDENTITY
    residual rows, R_c = x_c - x_bc (r_u = u, r_H = H - thklim), while all
    other rows retain their genuine stencil dependence on constrained dofs.

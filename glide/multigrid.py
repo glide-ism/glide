@@ -9,7 +9,7 @@ class Multigrid:
     def __init__(self,n_levels: int,finest_grid=None,
             ny=None,nx=None,dx=None,
             x0=cp.float32(0.0),y0=cp.float32(0.0),crs=None,
-            use_fast_math=True):
+            use_fast_math=True,stress_scheme='molho'):
 
         cuda_dir = Path(__file__).parent / "cuda"
 
@@ -29,7 +29,8 @@ class Multigrid:
             self.finest_grid = finest_grid
         else:
             print("Instantiating multigrid from new grid")
-            self.finest_grid = Grid(ny,nx,dx,x0=x0,y0=y0,crs=crs)
+            self.finest_grid = Grid(ny,nx,dx,x0=x0,y0=y0,crs=crs,
+                    stress_scheme=stress_scheme)
 
         self.n_levels = n_levels
 
@@ -62,11 +63,12 @@ class Multigrid:
     def create_coarse_grid(self,parent_grid,restrict_fields=True):
         child_grid = Grid(
             parent_grid.ny // 2, parent_grid.nx // 2,
-            parent_grid.dx * 2, 
+            parent_grid.dx * 2,
             x0=parent_grid.x0 + parent_grid.dx/2,
             y0=parent_grid.y0 - parent_grid.dx/2,
             crs=parent_grid.crs,
-            parent=parent_grid
+            parent=parent_grid,
+            stress_scheme=parent_grid.stress_scheme
         )
         parent_grid.child = child_grid
         if restrict_fields == True:

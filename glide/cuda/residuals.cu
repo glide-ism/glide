@@ -26,7 +26,7 @@ void compute_residual(
     const float* __restrict__ B,
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
-    bool use_forcing, bool use_mask,
+    bool use_forcing, bool use_mask, bool ssa,
     float n, float eps_reg, float H_reg, float flotation_reg_driving,
     float m, float u_reg, float water_drag, float flotation_reg_sliding,
     float calving_rate, float flotation_reg_calving,
@@ -302,8 +302,12 @@ void compute_residual(
 
 	    if (j == 0 || j == nx) {
 		ru_l = get_vfacet(u,i,j,ny,nx);
+	    }
+	    // SSA mode pins the deformational component everywhere:
+	    // every ud row is an identity row (see common.cu convention)
+	    if (ssa || j == 0 || j == nx) {
                 rud_l = get_vfacet(ud,i,j,ny,nx);
-	    }	
+	    }
 	    r_u[i * (nx + 1) + j] = ru_l;
             r_ud[i * (nx + 1) + j] = rud_l;
 	}
@@ -492,8 +496,10 @@ void compute_residual(
 
 	    if (i == 0 || i == ny) {
 		rv_t = get_hfacet(v,i,j,ny,nx);
+	    }
+	    if (ssa || i == 0 || i == ny) {
                 rvd_t = get_hfacet(vd,i,j,ny,nx);
-	    }	
+	    }
 
 	    r_v[i * nx + j] = rv_t;
             r_vd[i * nx + j] = rvd_t;
@@ -535,7 +541,7 @@ void compute_jvp(
     const float* __restrict__ B,
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
-    bool use_mask,
+    bool use_mask, bool ssa,
     float n, float eps_reg, float H_reg, float flotation_reg_driving,
     float m, float u_reg, float water_drag, float flotation_reg_sliding,
     float calving_rate, float flotation_reg_calving,
@@ -783,9 +789,12 @@ void compute_jvp(
 	    d_ru_l -= tau_dx.d;
 	    }
 
-	    // Identity rows at Dirichlet facets, mirroring compute_residual
+	    // Identity rows at Dirichlet facets (and all ud rows in SSA
+	    // mode), mirroring compute_residual
 	    if (j <= 0 || j >= nx) {
 		d_ru_l = get_vfacet(d_u,i,j,ny,nx);
+	    }
+	    if (ssa || j <= 0 || j >= nx) {
 		d_rud_l = get_vfacet(d_ud,i,j,ny,nx);
 	    }
 	    jvp_u[i * (nx + 1) + j] = d_ru_l;
@@ -956,9 +965,12 @@ void compute_jvp(
 	    d_rv_t -= tau_dy.d;
 	    }
 
-	    // Identity rows at Dirichlet facets, mirroring compute_residual
+	    // Identity rows at Dirichlet facets (and all vd rows in SSA
+	    // mode), mirroring compute_residual
 	    if (i <= 0 || i >= ny) {
 		d_rv_t = get_hfacet(d_v,i,j,ny,nx);
+	    }
+	    if (ssa || i <= 0 || i >= ny) {
 		d_rvd_t = get_hfacet(d_vd,i,j,ny,nx);
 	    }
 	    jvp_v[i * nx + j] = d_rv_t;

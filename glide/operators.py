@@ -123,7 +123,7 @@ class ForwardOperators:
                 rheology.B.data, 
                 sliding.beta.data,
                 self.gamma,
-                use_forcing,use_mask,
+                use_forcing,use_mask,bool(grid.ssa),
                 rheology.n.value, rheology.eps_reg.value, rheology.H_reg.value,
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value, 
@@ -171,7 +171,7 @@ class ForwardOperators:
                 rheology.B.data,
                 sliding.beta.data,
                 self.gamma,
-                use_mask,
+                use_mask, bool(grid.ssa),
                 rheology.n.value, rheology.eps_reg.value, rheology.H_reg.value,
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value,
@@ -263,7 +263,8 @@ class ForwardOperators:
                 cp.float32(self.vanka_config.newton_config.relaxation),
                 cp.float32(self.vanka_config.newton_config.step_tolerance),
                 cp.float32(self.vanka_config.newton_config.momentum_damping),
-                cp.float32(self.vanka_config.newton_config.mc_damping))
+                cp.float32(self.vanka_config.newton_config.mc_damping),
+                bool(grid.ssa))
         )
 
     def vanka_sweep(self, dt, n_iter, 
@@ -295,7 +296,7 @@ class ForwardOperators:
                 grid.calving.calving_rate.value, grid.calving.flotation_reg_calving.value,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
-                )
+                bool(grid.ssa))
         )
 
         return J,r
@@ -506,15 +507,21 @@ class AdjointOperators:
         self.lam_free_u[:,:] = adjoint.lambda_u.data
         self.lam_free_u[:,0] = 0.0
         self.lam_free_u[:,-1] = 0.0
-        self.lam_free_ud[:,:] = adjoint.lambda_ud.data
-        self.lam_free_ud[:,0] = 0.0
-        self.lam_free_ud[:,-1] = 0.0
         self.lam_free_v[:,:] = adjoint.lambda_v.data
         self.lam_free_v[0,:] = 0.0
         self.lam_free_v[-1,:] = 0.0
-        self.lam_free_vd[:,:] = adjoint.lambda_vd.data
-        self.lam_free_vd[0,:] = 0.0
-        self.lam_free_vd[-1,:] = 0.0
+        if grid.ssa:
+            # SSA mode: every ud/vd row is an identity row, so all of their
+            # multipliers are projected off the physics transpose
+            self.lam_free_ud.fill(0.0)
+            self.lam_free_vd.fill(0.0)
+        else:
+            self.lam_free_ud[:,:] = adjoint.lambda_ud.data
+            self.lam_free_ud[:,0] = 0.0
+            self.lam_free_ud[:,-1] = 0.0
+            self.lam_free_vd[:,:] = adjoint.lambda_vd.data
+            self.lam_free_vd[0,:] = 0.0
+            self.lam_free_vd[-1,:] = 0.0
         if use_mask:
             self.lam_free_H[:,:] = (1.0 - state.mask.data)*adjoint.lambda_H.data
         else:
@@ -549,12 +556,16 @@ class AdjointOperators:
         # (the latter already accumulated by the kernel)
         out_u[:,0] += adjoint.lambda_u.data[:,0]
         out_u[:,-1] += adjoint.lambda_u.data[:,-1]
-        out_ud[:,0] += adjoint.lambda_ud.data[:,0]
-        out_ud[:,-1] += adjoint.lambda_ud.data[:,-1]
         out_v[0,:] += adjoint.lambda_v.data[0,:]
         out_v[-1,:] += adjoint.lambda_v.data[-1,:]
-        out_vd[0,:] += adjoint.lambda_vd.data[0,:]
-        out_vd[-1,:] += adjoint.lambda_vd.data[-1,:]
+        if grid.ssa:
+            out_ud += adjoint.lambda_ud.data
+            out_vd += adjoint.lambda_vd.data
+        else:
+            out_ud[:,0] += adjoint.lambda_ud.data[:,0]
+            out_ud[:,-1] += adjoint.lambda_ud.data[:,-1]
+            out_vd[0,:] += adjoint.lambda_vd.data[0,:]
+            out_vd[-1,:] += adjoint.lambda_vd.data[-1,:]
         if use_mask:
             out_H += state.mask.data*adjoint.lambda_H.data
 
@@ -623,7 +634,8 @@ class AdjointOperators:
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
                 cp.float32(self.vanka_config.newton_config.momentum_damping),
-                cp.float32(self.vanka_config.newton_config.mc_damping))
+                cp.float32(self.vanka_config.newton_config.mc_damping),
+                bool(grid.ssa))
         )
 
     def vanka_sweep(self, dt, n_iter,
@@ -650,12 +662,24 @@ class AdjointOperators:
         calving = grid.calving
         forcing = grid.forcing
 
+        if grid.ssa:
+            # SSA mode: all ud/vd rows are identity rows with no beta
+            # dependence; project their multipliers out of the drag
+            # transpose by passing zeroed arrays
+            self.lam_free_ud.fill(0.0)
+            self.lam_free_vd.fill(0.0)
+            lambda_ud = self.lam_free_ud
+            lambda_vd = self.lam_free_vd
+        else:
+            lambda_ud = adjoint.lambda_ud.data
+            lambda_vd = adjoint.lambda_vd.data
+
         sliding.beta.grad.fill(0)
         kernel(grid_size, block_size,
                (sliding.beta.grad,
                 state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data,
                 adjoint.lambda_u.data, adjoint.lambda_v.data,
-                adjoint.lambda_ud.data, adjoint.lambda_vd.data, adjoint.lambda_H.data,
+                lambda_ud, lambda_vd, adjoint.lambda_H.data,
                 state.phi.data, state.xi.data, state.mask.data,
                 geometry.bed.data, 
                 rheology.B.data, 

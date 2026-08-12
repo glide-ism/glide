@@ -195,9 +195,9 @@ class Grid:
     """
 
     def __init__(self, ny: int, nx: int, dx: cp.float32,
-            x0: cp.float32=cp.float32(0.0), 
-            y0: cp.float32=cp.float32(0.0), 
-            crs=None, 
+            x0: cp.float32=cp.float32(0.0),
+            y0: cp.float32=cp.float32(0.0),
+            crs=None,
             parent = None,
             state: State = None,
             adjoint: AdjointState = None,
@@ -206,10 +206,21 @@ class Grid:
             sliding: Sliding = None,
             calving: Calving = None,
             forcing: Forcing = None,
+            stress_scheme: str = 'molho',
             ):
 
         self.parent = parent
         self.child = None
+
+        # 'molho' solves the two-field shear-resolving model; 'ssa' pins the
+        # deformational components (ud, vd) to zero everywhere via identity
+        # rows, which reduces the momentum balance exactly to the SSA. The
+        # state always carries ud/vd (identically zero under SSA) so all
+        # downstream code is scheme-agnostic.
+        if stress_scheme not in ('molho', 'ssa'):
+            raise ValueError("stress_scheme must be 'molho' or 'ssa'")
+        self.stress_scheme = stress_scheme
+        self.ssa = stress_scheme == 'ssa'
         
         self.ny = ny
         self.nx = nx
