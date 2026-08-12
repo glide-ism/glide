@@ -931,12 +931,13 @@ class NewtonOptions:
     def __init__(self, levels, getter):
         self._levels = levels
         self._getter = getter  # level -> NewtonConfig
-        self.options = ['steps','relaxation','step_tolerance','momentum_damping','mc_damping']
+        self.options = ['steps','relaxation','step_tolerance','momentum_damping','shear_damping','mc_damping']
 
         self.steps = BroadcastOption(self._levels, self._getter, "steps")
         self.relaxation = BroadcastOption(self._levels, self._getter, "relaxation")
         self.step_tolerance = BroadcastOption(self._levels, self._getter, "step_tolerance")
         self.momentum_damping = BroadcastOption(self._levels, self._getter, "momentum_damping")
+        self.shear_damping = BroadcastOption(self._levels, self._getter, "shear_damping")
         self.mc_damping = BroadcastOption(self._levels, self._getter, "mc_damping")
 
     def set(self, **kwargs):
@@ -994,11 +995,18 @@ class FASAdjointSolver:
         base_damping = [
             lev.grid.adjoint_operators.vanka_config.newton_config.momentum_damping
             for lev in self.levels]
+        # An explicit shear_damping escalates alongside momentum_damping;
+        # None already follows momentum_damping at launch time.
+        base_shear = [
+            lev.grid.adjoint_operators.vanka_config.newton_config.shear_damping
+            for lev in self.levels]
 
         def _set_damping(scale):
-            for lev, base in zip(self.levels, base_damping):
-                lev.grid.adjoint_operators.vanka_config.newton_config.\
-                    momentum_damping = cp.float32(float(base)*scale)
+            for lev, base, bshear in zip(self.levels, base_damping, base_shear):
+                nc = lev.grid.adjoint_operators.vanka_config.newton_config
+                nc.momentum_damping = cp.float32(float(base)*scale)
+                if bshear is not None:
+                    nc.shear_damping = cp.float32(float(bshear)*scale)
 
         # Both failure modes of an attempt escalate the damping: outright
         # divergence (relative residual beyond divergence_threshold, caught
@@ -1085,9 +1093,10 @@ class FASAdjointSolver:
                         best_rel = rel
                         best_lambda = [f.data.copy() for f in lam_fields]
         finally:
-            for lev, base in zip(self.levels, base_damping):
-                lev.grid.adjoint_operators.vanka_config.newton_config.\
-                    momentum_damping = base
+            for lev, base, bshear in zip(self.levels, base_damping, base_shear):
+                nc = lev.grid.adjoint_operators.vanka_config.newton_config
+                nc.momentum_damping = base
+                nc.shear_damping = bshear
 
         if not converged:
             if best_lambda is not None:

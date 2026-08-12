@@ -399,6 +399,13 @@ class NewtonConfig:
     # several timesteps to spin up).
     momentum_damping: cp.float32 = cp.float32(0.1)
     mc_damping: cp.float32 = cp.float32(1.0)
+    # Optional separate damping for the deformational (ud/vd) rows of the
+    # ADJOINT patch: the shear block's H^(n+1)-scaled local response is what
+    # stiffens at steep margins, so it can carry stronger control without
+    # slowing the depth-averaged modes. None (default): follow
+    # momentum_damping (including the divergence-recovery escalation).
+    # Currently consumed by the adjoint smoother only.
+    shear_damping: cp.float32 = None
 
 @dataclass
 class VankaConfig:
@@ -469,10 +476,18 @@ class AdjointOperators:
 
         # The adjoint solve is LINEAR: it does not need the heavy damping
         # that protects the forward patch Newton iteration from divergence,
-        # and momentum_damping ~ 1 severely degrades its convergence rate
-        # (0.01 is field-tested on Greenland and Antarctica).
+        # and momentum_damping ~ 1 on the depth-averaged rows severely
+        # degrades its convergence rate (0.01 is field-tested on Greenland
+        # and Antarctica). The deformational (shear) rows are the opposite
+        # case: their H^(n+1)-scaled local response destabilizes the
+        # transposed smoother at steep margins at light damping, while
+        # strong damping costs nothing measurable on healthy problems
+        # (identical 8-cycle reduction on the Greenland benchmark for
+        # shear_damping anywhere in [0.01, 3]) - so they default to the
+        # same strong PTC as the transport row.
         self.vanka_config = VankaConfig(
-                newton_config=NewtonConfig(momentum_damping=cp.float32(0.01)))
+                newton_config=NewtonConfig(momentum_damping=cp.float32(0.01),
+                                           shear_damping=cp.float32(1.0)))
 
     @property
     def _kernel_config(self):
@@ -643,6 +658,9 @@ class AdjointOperators:
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
                 cp.float32(self.vanka_config.newton_config.momentum_damping),
+                cp.float32(self.vanka_config.newton_config.momentum_damping
+                           if self.vanka_config.newton_config.shear_damping is None
+                           else self.vanka_config.newton_config.shear_damping),
                 cp.float32(self.vanka_config.newton_config.mc_damping),
                 bool(grid.ssa))
         )

@@ -1258,7 +1258,7 @@ void vanka_smooth_adjoint(
     float calving_rate, float flotation_reg_calving,
     float dx, float dt,
     int ny, int nx, int stride, int halo,
-    float momentum_damping, float mc_damping, bool ssa
+    float momentum_damping, float shear_damping, float mc_damping, bool ssa
     )
 {
     const int bny = 16;
@@ -1310,13 +1310,16 @@ void vanka_smooth_adjoint(
 		calving_rate, flotation_reg_calving,
 		dx, dt, ny, nx, i, j, bi, bj);
 
-	// Damping matches the forward smoother: relative on the
-	// sign-definite velocity rows, additive physical-time PTC on the
-	// transport row (see vanka_smooth)
-	J[0]  -= momentum_damping;
-        J[10] -= momentum_damping;
-        J[20] -= momentum_damping;
-        J[30] -= momentum_damping;
+	// Additive diagonal shifts (pseudo-transient continuation), split by
+	// velocity mode: shear_damping on the deformational (ud/vd) rows,
+	// momentum_damping on the depth-averaged (u/v) rows, physical-time
+	// PTC on the transport row (see vanka_smooth). The shear block's
+	// H^(n+1)-scaled local response is what stiffens at steep margins,
+	// so it can carry stronger control without slowing the u/v modes.
+	J[0]  -= shear_damping;
+        J[10] -= shear_damping;
+        J[20] -= shear_damping;
+        J[30] -= shear_damping;
         J[40] -= momentum_damping;
         J[50] -= momentum_damping;
         J[60] -= momentum_damping;
