@@ -52,7 +52,7 @@ dx = x[1]-x[0]
 # ny and nx must both divide by 2^(n_levels - 1) cleanly!
 model = IceDynamics(n_levels=5,ny=ny,nx=nx,dx=dx,
         x0=x[0],y0=y[0],
-        crs=crs)
+        crs=crs,stress_scheme='ssa')
 mg = model.mg
 
 ### Initialize state

@@ -23,7 +23,7 @@ dataset = load_greenland_preprocessed()
 ny,nx,dx = dataset.ny,dataset.nx,dataset.dx
 model = IceDynamics(n_levels=6,ny=ny,nx=nx,dx=dx,
         x0=dataset.x[0].item(),y0=dataset.y[0].item(),
-        crs=pyproj.CRS("EPSG:3413"))
+        crs=pyproj.CRS("EPSG:3413"),stress_scheme='molho')
 mg = model.mg
 
 ### Initialize state
@@ -70,7 +70,7 @@ mg.calving.calving_rate.set(2000.0)
 
 ### Initialize forcing
 smb = dataset.smb.values
-smb += 1.0
+#smb += 1.0
 #smb[:] = 0.0
 mg.forcing.smb.set(smb)
 
@@ -150,7 +150,7 @@ zarr_writer.initialize(mg[0],overwrite=True)
 # Run simulation
 t = cp.float32(0.0)
 t_end = cp.float32(1000.0)
-dt = cp.float32(10.0)
+dt = cp.float32(20.0)
 
 while t < t_end:
     print(f"Solving forward problem at t={t} with dt={dt:.2f}")
