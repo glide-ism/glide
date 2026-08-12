@@ -1000,13 +1000,28 @@ class FASAdjointSolver:
                 lev.grid.adjoint_operators.vanka_config.newton_config.\
                     momentum_damping = cp.float32(float(base)*scale)
 
+        # Both failure modes of an attempt escalate the damping: outright
+        # divergence (relative residual beyond divergence_threshold, caught
+        # mid-solve) and exhausting the V-cycle allotment without converging
+        # (which can be slow divergence that never crossed the threshold, or
+        # marginal-stability stagnation - either way the multiplier is not
+        # trustworthy at this damping). Across attempts the best finite
+        # non-diverged multiplier is kept, so a solve that stalls even at
+        # maximum damping returns its best bounded approximation; only a
+        # solve whose every attempt diverged returns zeros.
         converged = False
+        reason = None
+        best_rel = float("inf")
+        best_lambda = None
+        adjoint = start_level_.adjoint
+        lam_fields = (adjoint.lambda_u, adjoint.lambda_v, adjoint.lambda_ud,
+                      adjoint.lambda_vd, adjoint.lambda_H)
         try:
             for attempt in range(self._fas_config.max_damping_restarts + 1):
                 if attempt > 0:
                     scale = self._fas_config.damping_escalation ** attempt
                     _set_damping(scale)
-                    print(f"  Adjoint V-cycles diverging: restarting with "
+                    print(f"  Adjoint V-cycles {reason}: restarting with "
                           f"momentum_damping x{scale:g}")
 
                 if zero_init or attempt > 0:
@@ -1054,26 +1069,44 @@ class FASAdjointSolver:
                         diverged = True
                         break
 
-                if not diverged:
-                    converged = iteration < self._fas_config.maximum_vcycles
+                if not diverged and iteration < self._fas_config.maximum_vcycles:
+                    converged = True
                     break
+
+                # Failed attempt: classify for the escalation notice and, for
+                # a stall (finite, non-diverged residual), remember the best
+                # multiplier seen across attempts.
+                if diverged:
+                    reason = "diverging"
+                else:
+                    reason = "stalled at the V-cycle limit"
+                    rel = float(relative_residual_norm)
+                    if rel == rel and rel < best_rel:
+                        best_rel = rel
+                        best_lambda = [f.data.copy() for f in lam_fields]
         finally:
             for lev, base in zip(self.levels, base_damping):
                 lev.grid.adjoint_operators.vanka_config.newton_config.\
                     momentum_damping = base
 
-        if diverged:
-            # Out of restarts and still amplifying: a garbage multiplier
-            # poisons every downstream gradient (NaN parameters within one
-            # optimizer step), while a zero multiplier merely drops this
-            # step's contribution. Fail safe.
-            start_level_.adjoint.lambda_u.data.fill(0.0)
-            start_level_.adjoint.lambda_v.data.fill(0.0)
-            start_level_.adjoint.lambda_ud.data.fill(0.0)
-            start_level_.adjoint.lambda_vd.data.fill(0.0)
-            start_level_.adjoint.lambda_H.data.fill(0.0)
-            print("  WARNING: adjoint solve diverged at maximum damping; "
-                  "multipliers zeroed (this step contributes no gradient)")
+        if not converged:
+            if best_lambda is not None:
+                # Keep the best stalled iterate: bounded and partially
+                # converged beats both a fresher-but-worse attempt and zeros.
+                for f, b in zip(lam_fields, best_lambda):
+                    f.data[:,:] = b
+                print(f"  WARNING: adjoint solve unconverged at maximum "
+                      f"damping; keeping best attempt (|r|/|r0| = "
+                      f"{best_rel:.2e})")
+            else:
+                # Every attempt diverged: a garbage multiplier poisons every
+                # downstream gradient (NaN parameters within one optimizer
+                # step), while a zero multiplier merely drops this step's
+                # contribution. Fail safe.
+                for f in lam_fields:
+                    f.data.fill(0.0)
+                print("  WARNING: adjoint solve diverged at maximum damping; "
+                      "multipliers zeroed (this step contributes no gradient)")
 
         return converged
 
@@ -1200,12 +1233,13 @@ class FASAdjointConfig:
     relative_tolerance: cp.float32 = cp.float32(1e-3)
     absolute_tolerance: cp.float32 = cp.float32(5.0)
     report_norms: bool = True
-    # Divergence recovery (see FASAdjointSolver.solve): a solve whose
-    # relative residual exceeds divergence_threshold is restarted with the
-    # momentum damping multiplied by damping_escalation, up to
-    # max_damping_restarts times. A solve that still diverges returns
-    # zeroed multipliers rather than amplified garbage.
-    divergence_threshold: float = 10.0
+    # Failure recovery (see FASAdjointSolver.solve): a solve whose relative
+    # residual exceeds divergence_threshold OR that exhausts maximum_vcycles
+    # without converging is restarted with the momentum damping multiplied
+    # by damping_escalation, up to max_damping_restarts times. If nothing
+    # converges, the best stalled multiplier across attempts is kept;
+    # zeroed multipliers are returned only when every attempt diverged.
+    divergence_threshold: float = 1.0
     damping_escalation: float = 10.0
     max_damping_restarts: int = 2
 
