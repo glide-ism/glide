@@ -568,8 +568,11 @@ class FASCDSolver:
         self.dt = None
 
     def solve(self,dt,start_level=0,report_norms=True):
-        self.dt = cp.float32(dt)
-        
+        # Coerce once: kernels take a 4-byte float, and cupy packs a python
+        # float as float64, silently misaligning every argument after dt
+        dt = cp.float32(dt)
+        self.dt = dt
+
         start_level_ = self.multigrid.levels[start_level]
         start_level_.forward_operators.set_rhs(dt)
         
@@ -973,52 +976,105 @@ class FASAdjointSolver:
         self.dt = None
 
     def solve(self,dt,start_level=0,report_norms=True,zero_init=True):
-        self.dt = cp.float32(dt)
-        
+        # Coerce once (see FASCDSolver.solve): a python-float dt reaches the
+        # kernels as float64 and corrupts the argument list after it
+        dt = cp.float32(dt)
+        self.dt = dt
+
         start_level_ = self.multigrid.levels[start_level]
 
-        if zero_init:
+        # The adjoint smoother's stability is state-dependent: the transposed
+        # transport coupling at steep margins on the active-set boundary can
+        # push the V-cycle growth factor above 1 at the fast default damping
+        # (observed on Alaska-scale terrain; the forward smoother at the same
+        # state is stable). Because the solve is linear and zero-initialized,
+        # divergence is detected cheaply (residual growth beyond
+        # divergence_threshold) and cured by restarting with the momentum
+        # damping escalated - stable solves keep the fast operating point.
+        base_damping = [
+            lev.grid.adjoint_operators.vanka_config.newton_config.momentum_damping
+            for lev in self.levels]
+
+        def _set_damping(scale):
+            for lev, base in zip(self.levels, base_damping):
+                lev.grid.adjoint_operators.vanka_config.newton_config.\
+                    momentum_damping = cp.float32(float(base)*scale)
+
+        converged = False
+        try:
+            for attempt in range(self._fas_config.max_damping_restarts + 1):
+                if attempt > 0:
+                    scale = self._fas_config.damping_escalation ** attempt
+                    _set_damping(scale)
+                    print(f"  Adjoint V-cycles diverging: restarting with "
+                          f"momentum_damping x{scale:g}")
+
+                if zero_init or attempt > 0:
+                    start_level_.adjoint.lambda_u.data.fill(0.0)
+                    start_level_.adjoint.lambda_v.data.fill(0.0)
+                    start_level_.adjoint.lambda_ud.data.fill(0.0)
+                    start_level_.adjoint.lambda_vd.data.fill(0.0)
+                    start_level_.adjoint.lambda_H.data.fill(0.0)
+
+                ru_init,rv_init,rud_init,rvd_init,rH_init = start_level_.adjoint_operators.compute_residual(dt,return_norms=True)
+                initial_residual_norm = cp.sqrt(ru_init**2 + rv_init**2 + rud_init**2 + rvd_init**2 + rH_init**2)
+                relative_residual_norm = cp.float32(1.0)
+
+                if self._fas_config.report_norms:
+                    print(f"  Initial:   |r0|     = {initial_residual_norm:.2e}, "
+                          f"|r_u| = {float(ru_init):.2e}, "
+                          f"|r_v| = {float(rv_init):.2e}, "
+                          f"|r_ud| = {float(rud_init):.2e}, "
+                          f"|r_vd| = {float(rvd_init):.2e}, "
+                          f"|r_H| = {float(rH_init):.2e}")
+
+                absolute_residual_norm = initial_residual_norm
+                iteration = 0
+                diverged = False
+
+                while (relative_residual_norm > self._fas_config.relative_tolerance
+                        and absolute_residual_norm > self._fas_config.absolute_tolerance
+                        and iteration < self._fas_config.maximum_vcycles):
+                    self.vcycle(start_level,finest=True)
+                    ru,rv,rud,rvd,rH = start_level_.adjoint_operators.compute_residual(dt,return_norms=True)
+
+                    absolute_residual_norm = cp.sqrt(ru**2 + rv**2 + rud**2 + rvd**2 + rH**2)
+                    relative_residual_norm = absolute_residual_norm / initial_residual_norm
+                    if self._fas_config.report_norms:
+                        print(f"  V-cycle {iteration}: |r|/|r0| = {relative_residual_norm:.2e}, "
+                              f"|r_u| = {float(ru):.2e}, "
+                              f"|r_v| = {float(rv):.2e}, "
+                              f"|r_ud| = {float(rud):.2e}, "
+                              f"|r_vd| = {float(rvd):.2e}, "
+                              f"|r_H| = {float(rH):.2e}")
+                    iteration += 1
+
+                    rel = float(relative_residual_norm)
+                    if rel > self._fas_config.divergence_threshold or rel != rel:
+                        diverged = True
+                        break
+
+                if not diverged:
+                    converged = iteration < self._fas_config.maximum_vcycles
+                    break
+        finally:
+            for lev, base in zip(self.levels, base_damping):
+                lev.grid.adjoint_operators.vanka_config.newton_config.\
+                    momentum_damping = base
+
+        if diverged:
+            # Out of restarts and still amplifying: a garbage multiplier
+            # poisons every downstream gradient (NaN parameters within one
+            # optimizer step), while a zero multiplier merely drops this
+            # step's contribution. Fail safe.
             start_level_.adjoint.lambda_u.data.fill(0.0)
             start_level_.adjoint.lambda_v.data.fill(0.0)
             start_level_.adjoint.lambda_ud.data.fill(0.0)
             start_level_.adjoint.lambda_vd.data.fill(0.0)
             start_level_.adjoint.lambda_H.data.fill(0.0)
+            print("  WARNING: adjoint solve diverged at maximum damping; "
+                  "multipliers zeroed (this step contributes no gradient)")
 
-        ru_init,rv_init,rud_init,rvd_init,rH_init = start_level_.adjoint_operators.compute_residual(dt,return_norms=True)
-        initial_residual_norm = cp.sqrt(ru_init**2 + rv_init**2 + rud_init**2 + rvd_init**2 + rH_init**2)
-        relative_residual_norm = cp.float32(1.0)
-
-        if self._fas_config.report_norms:
-            print(f"  Initial:   |r0|     = {initial_residual_norm:.2e}, "
-                  f"|r_u| = {float(ru_init):.2e}, "
-                  f"|r_v| = {float(rv_init):.2e}, "
-                  f"|r_ud| = {float(rud_init):.2e}, "
-                  f"|r_vd| = {float(rvd_init):.2e}, "
-                  f"|r_H| = {float(rH_init):.2e}")
-
-        absolute_residual_norm = initial_residual_norm
-        iteration = 0
-
-        while (relative_residual_norm > self._fas_config.relative_tolerance
-                and absolute_residual_norm > self._fas_config.absolute_tolerance
-                and iteration < self._fas_config.maximum_vcycles):
-            self.vcycle(start_level,finest=True)
-            ru,rv,rud,rvd,rH = start_level_.adjoint_operators.compute_residual(dt,return_norms=True)
-
-            absolute_residual_norm = cp.sqrt(ru**2 + rv**2 + rud**2 + rvd**2 + rH**2)
-            relative_residual_norm = absolute_residual_norm / initial_residual_norm
-            if self._fas_config.report_norms:
-                print(f"  V-cycle {iteration}: |r|/|r0| = {relative_residual_norm:.2e}, "
-                      f"|r_u| = {float(ru):.2e}, "
-                      f"|r_v| = {float(rv):.2e}, "
-                      f"|r_ud| = {float(rud):.2e}, "
-                      f"|r_vd| = {float(rvd):.2e}, "
-                      f"|r_H| = {float(rH):.2e}")
-            iteration += 1
-        if iteration < self._fas_config.maximum_vcycles:
-            converged = True
-        else:
-            converged = False
         return converged
 
     def vcycle(self, l, finest=False):
@@ -1048,6 +1104,7 @@ class FASAdjointSolver:
         mg.restrict_cell(level.grid.state.H.data,next_level.grid.state.H.data)
         mg.restrict_cell(level.grid.state.H_prev.data,next_level.grid.state.H_prev.data)
         mg.restrict_cell(level.grid.state.phi.data,next_level.grid.state.phi.data)
+        mg.restrict_cell(level.grid.state.xi.data,next_level.grid.state.xi.data)
         mg.restrict_cell(level.grid.state.mask.data,next_level.grid.state.mask.data,method='max')
 
         # Restrict adjoint solution to child
@@ -1143,6 +1200,14 @@ class FASAdjointConfig:
     relative_tolerance: cp.float32 = cp.float32(1e-3)
     absolute_tolerance: cp.float32 = cp.float32(5.0)
     report_norms: bool = True
+    # Divergence recovery (see FASAdjointSolver.solve): a solve whose
+    # relative residual exceeds divergence_threshold is restarted with the
+    # momentum damping multiplied by damping_escalation, up to
+    # max_damping_restarts times. A solve that still diverges returns
+    # zeroed multipliers rather than amplified garbage.
+    divergence_threshold: float = 10.0
+    damping_escalation: float = 10.0
+    max_damping_restarts: int = 2
 
 
 class FASAdjointOptions:
