@@ -238,6 +238,7 @@ __device__ void populate_viscosity(
 
     float eps_II_c = dudx*dudx + dvdy*dvdy + dudx*dvdy + eps_xy2_bar;
 
+#if GLIDE_MOLHO
     // Deformational membrane terms, same gathers on (ud,vd)
     float ud_l = get_vfacet(ud, i, j, ny, nx);
     float ud_r = get_vfacet(ud, i, j + 1, ny, nx);
@@ -274,6 +275,10 @@ __device__ void populate_viscosity(
     float shear2_c = 0.5f*(ud_l*ud_l + ud_r*ud_r + vd_t*vd_t + vd_b*vd_b)/(H_c*H_c + H_reg*H_reg + 1e-10f);
 
     float eps_II_bar = eps_II_c + K_1 * epsd_II_c + K_2 * shear2_c + eps_reg;
+#else
+    // SSA build: ud = vd = 0 identically, deformational terms vanish
+    float eps_II_bar = eps_II_c + eps_reg;
+#endif
 
     eta_local[bi][bj] = 0.5f*get_cell(B,i,j,ny,nx)*__powf(eps_II_bar,glen_exp);
 
@@ -343,6 +348,7 @@ __device__ void populate_viscosity(
 
     DualFloat eps_II_c = dudx*dudx + dvdy*dvdy + dudx*dvdy + eps_xy2_bar;
 
+#if GLIDE_MOLHO
     // Deformational membrane terms
     DualFloat ud_l = get_vfacet(ud, d_ud, i, j, ny, nx);
     DualFloat ud_r = get_vfacet(ud, d_ud, i, j + 1, ny, nx);
@@ -379,6 +385,11 @@ __device__ void populate_viscosity(
     DualFloat shear2_c = 0.5f*(ud_l*ud_l + ud_r*ud_r + vd_t*vd_t + vd_b*vd_b)*inv_den;
 
     DualFloat eps_II_bar = eps_II_c + K_1*epsd_II_c + K_2*shear2_c + eps_reg;
+#else
+    // SSA build: ud = vd = 0 identically (and their perturbation legs feed
+    // identity rows only), deformational terms vanish
+    DualFloat eps_II_bar = eps_II_c + eps_reg;
+#endif
 
     eta_local[bi][bj] = 0.5f*get_cell(B,i,j,ny,nx)*__powf(eps_II_bar,glen_exp);
 }
@@ -449,6 +460,7 @@ __device__ void populate_viscosity_vjp(
 
     DualFloat eps_II_c = dudx*dudx + dvdy*dvdy + dudx*dvdy + eps_xy2_bar;
 
+#if GLIDE_MOLHO
     // Deformational membrane terms (direction = lambda_ud, lambda_vd)
     DualFloat ud_l = get_vfacet(ud, lam_ud, i, j, ny, nx);
     DualFloat ud_r = get_vfacet(ud, lam_ud, i, j + 1, ny, nx);
@@ -492,6 +504,14 @@ __device__ void populate_viscosity_vjp(
     // dE2/dH = -K_2 * shear2 * 2H/(H^2 + H_reg^2)
     deta_dH_local[bi][bj] = glen_exp * eta.v / eps_II_bar.v *
         (-K_2 * shear2_c.v * 2.0f * H_c / den);
+#else
+    // SSA build: deformational terms vanish (ud = vd = 0, and their
+    // multipliers are projected off by the wrapper), and eta has no H
+    // dependence without the shear invariant
+    DualFloat eps_II_bar = eps_II_c + eps_reg;
+    eta_local[bi][bj] = 0.5f*get_cell(B,i,j,ny,nx)*__powf(eps_II_bar,glen_exp);
+    deta_dH_local[bi][bj] = 0.0f;
+#endif
 }
 
 

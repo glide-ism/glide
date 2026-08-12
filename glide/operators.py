@@ -20,6 +20,9 @@ class ForwardOperators:
             options=("--use_fast_math",)
         else:
             options=()
+        # Compile-time stress scheme specialization: the SSA build removes
+        # all deformational physics and solves 5x5 patches (see common.cu)
+        options += ("-DGLIDE_MOLHO=%d" % (0 if grid.ssa else 1),)
 
         self.kernels = cp.RawModule(code=cuda_source, options=options)
 
@@ -420,6 +423,9 @@ class AdjointOperators:
             options=("--use_fast_math",)
         else:
             options=()
+        # Compile-time stress scheme specialization: the SSA build removes
+        # all deformational physics and solves 5x5 patches (see common.cu)
+        options += ("-DGLIDE_MOLHO=%d" % (0 if grid.ssa else 1),)
 
         self.kernels = cp.RawModule(code=cuda_source, options=options)
 

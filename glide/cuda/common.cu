@@ -1,6 +1,17 @@
 // =====================================================================
 // COMMON UTILITIES: DualFloat, array access helpers, LU solvers
 // =====================================================================
+
+// Compile-time stress scheme switch. GLIDE_MOLHO=1 (default) compiles the
+// full two-field model; GLIDE_MOLHO=0 (passed as -DGLIDE_MOLHO=0 when
+// grid.stress_scheme == 'ssa') compiles out all deformational physics and
+// shrinks the Vanka patch solves to the 5 live dofs. The runtime `ssa`
+// kernel flag remains the semantic source of truth (see the constraint
+// convention below); the SSA build is its specialization and must produce
+// the same results as a MOLHO build running with ssa=true.
+#ifndef GLIDE_MOLHO
+#define GLIDE_MOLHO 1
+#endif
 struct DualFloat {
     float v; // Primal value
     float d; // Derivative/Perturbation component

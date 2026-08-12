@@ -104,502 +104,6 @@ __device__ __forceinline__ void lu_solve_factored(const float* __restrict__ A,
     }
 }
 
-// ============================================================
-// LU Solve for 5x5 Systems (Vanka smoother)
-// ============================================================
-__device__ void lu_5x5_solve(
-    const float* A,  // 25 entries: full 5x5 row-major
-    const float* b,  // 5 entries
-    float* x)        // 5 entries (output)
-{
-    float LU[5][5];
-
-    #pragma unroll
-    for (int i = 0; i < 5; i++) {
-        #pragma unroll
-        for (int j = 0; j < 5; j++) {
-            LU[i][j] = A[i * 5 + j];
-        }
-    }
-
-    // LU factorization (Doolittle, no pivoting)
-    #pragma unroll
-    for (int k = 0; k < 5; k++) {
-        float inv_diag = 1.0f / LU[k][k];
-        #pragma unroll
-        for (int i = k + 1; i < 5; i++) {
-            LU[i][k] *= inv_diag;
-            #pragma unroll
-            for (int j = k + 1; j < 5; j++) {
-                LU[i][j] -= LU[i][k] * LU[k][j];
-            }
-        }
-    }
-
-    // Forward solve: L*y = b
-    float y[5];
-    y[0] = b[0];
-    y[1] = b[1] - LU[1][0]*y[0];
-    y[2] = b[2] - LU[2][0]*y[0] - LU[2][1]*y[1];
-    y[3] = b[3] - LU[3][0]*y[0] - LU[3][1]*y[1] - LU[3][2]*y[2];
-    y[4] = b[4] - LU[4][0]*y[0] - LU[4][1]*y[1] - LU[4][2]*y[2] - LU[4][3]*y[3];
-
-    // Backward solve: U*x = y
-    x[4] = y[4] / LU[4][4];
-    x[3] = (y[3] - LU[3][4]*x[4]) / LU[3][3];
-    x[2] = (y[2] - LU[2][3]*x[3] - LU[2][4]*x[4]) / LU[2][2];
-    x[1] = (y[1] - LU[1][2]*x[2] - LU[1][3]*x[3] - LU[1][4]*x[4]) / LU[1][1];
-    x[0] = (y[0] - LU[0][1]*x[1] - LU[0][2]*x[2] - LU[0][3]*x[3] - LU[0][4]*x[4]) / LU[0][0];
-}
-
-__device__ __forceinline__
-void mat5x5_mat(const float* __restrict__ A,
-                const float* __restrict__ B,
-                float* __restrict__ C)
-{
-    #pragma unroll
-    for (int i = 0; i < 5; ++i)
-    {
-        #pragma unroll
-        for (int j = 0; j < 5; ++j)
-        {
-            float sum = 0.0;
-            #pragma unroll
-            for (int k = 0; k < 5; ++k)
-            {
-                sum += A[5*i + k] * B[5*k + j];
-            }
-            C[5*i + j] = sum;
-        }
-    }
-}
-
-__device__ __forceinline__
-void mat5x5_vec(const float* __restrict__ A,
-                const float* __restrict__ x,
-                float* __restrict__ y)
-{
-    #pragma unroll
-    for (int i = 0; i < 5; ++i)
-    {
-        double sum = 0.0;
-        #pragma unroll
-        for (int j = 0; j < 5; ++j)
-        {
-            sum += A[5*i + j] * x[j];
-        }
-        y[i] = sum;
-    }
-}
-	
-template <int height, int width>
-__device__ void build_5x5_vanka(
-    float* __restrict__ J,
-    float* __restrict__ r,
-    float u_l, float u_r,
-    float v_t, float v_b,
-    float H_c,
-    const float* __restrict__ u,
-    const float* __restrict__ v,
-    const float* __restrict__ H,
-    const float (&eta_local)[height][width], 
-    const float* __restrict__ phi,
-    const float* __restrict__ xi,
-    const float* __restrict__ bed,
-    const float* __restrict__ B,
-    const float* __restrict__ beta,
-    const float* __restrict__ gamma,
-    float n, float eps_reg, float flotation_reg_driving,
-    float m, float u_reg, float water_drag, float flotation_reg_sliding, 
-    float calving_rate, float flotation_reg_calving,
-    float dx, float dt,
-    int ny, int nx,
-    int i, int j,
-    int bi, int bj)
-{
-    float dx_inv = 1.0f/dx;
-
-    for (int k=0;k<25;k++) J[k] = 0.0f;
-    for (int k=0;k<5;k++) r[k] = 0.0f;
-
-    float phi_c = get_cell(phi,i,j,ny,nx);
-    float phi_l = get_cell(phi,i,j-1,ny,nx);
-    float phi_r = get_cell(phi,i,j+1,ny,nx);
-    float phi_t = get_cell(phi,i-1,j,ny,nx);
-    float phi_b = get_cell(phi,i+1,j,ny,nx);
-
-    // Mass Conservation Assembly
-    {
-    // Standard Mass Conservation: dH/dt + div(q) - smb = 0
-    J[24] = 1.0f / dt;
-    r[4] += H_c/dt;
-
-    // X-Fluxes
-    float H_l = get_cell(H,i,j-1,ny,nx);
-    HorizontalFluxJacobian j_l = get_horizontal_flux_jac({u_l, H_l, H_c}, i, j, ny, nx);
-    J[20] -= j_l.d_u   * dx_inv;
-    J[24] -= j_l.d_H_r * dx_inv;
-    r[4]  -= j_l.res   * dx_inv;
-
-
-    FacetCalvingJacobian j_calve_l = get_facet_calving_jac({H_c,H_l,phi_c,phi_l,calving_rate,flotation_reg_calving},i,j,ny,nx);
-    J[24] += j_calve_l.d_H_this * dx_inv;
-    r[4] += j_calve_l.res*dx_inv;
-
-    float H_r = get_cell(H,i,j+1,ny,nx);
-    HorizontalFluxJacobian j_r = get_horizontal_flux_jac({u_r, H_c, H_r}, i, j+1, ny, nx);
-    J[21] += j_r.d_u   * dx_inv;
-    J[24] += j_r.d_H_l * dx_inv;
-    r[4]  += j_r.res   * dx_inv;
-    
-    FacetCalvingJacobian j_calve_r = get_facet_calving_jac({H_c,H_r,phi_c,phi_r,calving_rate,flotation_reg_calving},i,j+1,ny,nx);
-    J[24] += j_calve_r.d_H_this * dx_inv;
-    r[4] += j_calve_r.res * dx_inv;
-
-    // Y-Fluxes (Vertical in grid coordinates)
-    float H_t = get_cell(H,i-1,j,ny,nx);
-    VerticalFluxJacobian j_t = get_vertical_flux_jac({v_t, H_t, H_c}, i, j, ny, nx);
-    J[22] += j_t.d_v   * dx_inv;
-    J[24] += j_t.d_H_b * dx_inv;
-    r[4]  += j_t.res   * dx_inv;
-
-    FacetCalvingJacobian j_calve_t = get_facet_calving_jac({H_c,H_t,phi_c,phi_t,calving_rate,flotation_reg_calving},i,j,ny,nx);
-    J[24] += j_calve_t.d_H_this * dx_inv;
-    r[4] += j_calve_t.res * dx_inv;
-
-    float H_b = get_cell(H,i+1,j,ny,nx);
-    VerticalFluxJacobian j_b = get_vertical_flux_jac({v_b, H_c, H_b}, i+1, j, ny, nx);
-    J[23] -= j_b.d_v   * dx_inv;
-    J[24] -= j_b.d_H_t * dx_inv;
-    r[4]  -= j_b.res   * dx_inv;
-
-    FacetCalvingJacobian j_calve_b = get_facet_calving_jac({H_c,H_b,phi_c,phi_b,calving_rate,flotation_reg_calving},i+1,j,ny,nx);
-    J[24] += j_calve_b.d_H_this * dx_inv;
-    r[4] += j_calve_b.res * dx_inv;
-    }
-    
-    {
-    float eta_c = eta_local[bi][bj];
-    EtaHCellJacobian eta_H_c = get_eta_H_cell_jac({eta_c,H_c});
-    
-    // Compute the contribution of sigma_xx at the center to both the left and right u-residuals (since it is used by both)
-    SigmaNormalJacobian sigma_xx_c = get_sigma_xx_jac({u_l,u_r,v_t,v_b,eta_H_c.res},dx_inv,i,j,ny,nx);
-    
-    r[0] += sigma_xx_c.res * dx_inv;
-    J[0] += sigma_xx_c.d_u_l * dx_inv;
-    J[1] += sigma_xx_c.d_u_r * dx_inv;
-    J[2] += sigma_xx_c.d_v_t * dx_inv;
-    J[3] += sigma_xx_c.d_v_b * dx_inv;
-    J[4] += sigma_xx_c.d_eta_H * eta_H_c.d_H * dx_inv;
-    
-    r[1] -= sigma_xx_c.res * dx_inv;
-    J[5] -= sigma_xx_c.d_u_l * dx_inv;
-    J[6] -= sigma_xx_c.d_u_r * dx_inv;
-    J[7] -= sigma_xx_c.d_v_t * dx_inv;
-    J[8] -= sigma_xx_c.d_v_b * dx_inv;
-    J[9] -= sigma_xx_c.d_eta_H * eta_H_c.d_H * dx_inv;
-
-    SigmaNormalJacobian sigma_yy_c = get_sigma_yy_jac({u_l,u_r,v_t,v_b,eta_H_c.res},dx_inv,i,j,ny,nx);
-    r[2]  -= sigma_yy_c.res * dx_inv;
-    J[10] -= sigma_yy_c.d_u_l * dx_inv;
-    J[11] -= sigma_yy_c.d_u_r * dx_inv;
-    J[12] -= sigma_yy_c.d_v_t * dx_inv;
-    J[13] -= sigma_yy_c.d_v_b * dx_inv;
-    J[14] -= sigma_yy_c.d_eta_H * eta_H_c.d_H * dx_inv;
-
-    r[3]  += sigma_yy_c.res * dx_inv;
-    J[15] += sigma_yy_c.d_u_l * dx_inv;
-    J[16] += sigma_yy_c.d_u_r * dx_inv;
-    J[17] += sigma_yy_c.d_v_t * dx_inv;
-    J[18] += sigma_yy_c.d_v_b * dx_inv;
-    J[19] += sigma_yy_c.d_eta_H * eta_H_c.d_H * dx_inv;
-    }
-
-    // Compute the contribution of sigma_xx from the left cell to the left u-residual
-    {
-    float eta_l  = eta_local[bi][bj - 1];
-    float H_l    = get_cell(H,i,j-1,ny,nx);
-    EtaHCellJacobian eta_H_l = get_eta_H_cell_jac({eta_l,H_l});
-
-    float u_ll   = get_vfacet(u,i,j-1,ny,nx);
-    float v_lt   = get_hfacet(v,i,j-1,ny,nx);
-    float v_lb   = get_hfacet(v,i+1,j-1,ny,nx);
-    SigmaNormalJacobian sigma_xx_l = get_sigma_xx_jac({u_ll,u_l,v_lt,v_lb,eta_H_l.res},dx_inv,i,j - 1,ny,nx);
-    r[0] -= sigma_xx_l.res * dx_inv;
-    J[0] -= sigma_xx_l.d_u_r * dx_inv;
-    }
-
-    // Compute the contribution of sigma_xx from the right cell to the right u-residual
-    {
-    float eta_r  = eta_local[bi][bj + 1];
-    float H_r    = get_cell(H,i,j+1,ny,nx);
-    EtaHCellJacobian eta_H_r = get_eta_H_cell_jac({eta_r,H_r});
-
-    float u_rr   = get_vfacet(u,i,j+2,ny,nx);
-    float v_rt   = get_hfacet(v,i,j+1,ny,nx);
-    float v_rb   = get_hfacet(v,i+1,j+1,ny,nx);
-    SigmaNormalJacobian sigma_xx_r = get_sigma_xx_jac({u_r,u_rr,v_rt,v_rb,eta_H_r.res},dx_inv,i,j + 1,ny,nx);
-    r[1] += sigma_xx_r.res * dx_inv;
-    J[6] += sigma_xx_r.d_u_l * dx_inv;
-    }
-
-    // Compute the contribution of sigma_yy from the top cell to the top v-residual
-    {
-    float eta_t  = eta_local[bi - 1][bj];
-    float H_t    = get_cell(H,i-1,j,ny,nx);
-    EtaHCellJacobian eta_H_t = get_eta_H_cell_jac({eta_t,H_t});
-
-    float u_tl   = get_vfacet(u,i-1,j,ny,nx);
-    float u_tr   = get_vfacet(u,i-1,j+1,ny,nx);
-    float v_tt   = get_hfacet(v,i-1,j,ny,nx);
-    SigmaNormalJacobian sigma_yy_t = get_sigma_yy_jac({u_tl,u_tr,v_tt,v_t,eta_H_t.res},dx_inv,i - 1,j,ny,nx);
-    r[2] += sigma_yy_t.res * dx_inv;
-    J[12] += sigma_yy_t.d_v_b * dx_inv;
-    }
-
-    // Compute the contribution of sigma_yy from the bottom cell to the bottom v-residual
-    {
-    float eta_b  = eta_local[bi + 1][bj];
-    float H_b    = get_cell(H,i + 1,j,ny,nx);
-    EtaHCellJacobian eta_H_b = get_eta_H_cell_jac({eta_b,H_b});
-
-    float u_bl   = get_vfacet(u,i+1,j,ny,nx);
-    float u_br   = get_vfacet(u,i+1,j+1,ny,nx);
-    float v_bb   = get_hfacet(v,i+2,j,ny,nx);
-    SigmaNormalJacobian sigma_yy_b = get_sigma_yy_jac({u_bl,u_br,v_b,v_bb,eta_H_b.res},dx_inv,i + 1,j,ny,nx);
-    r[3] -= sigma_yy_b.res * dx_inv;
-    J[18] -= sigma_yy_b.d_v_t * dx_inv;
-    }
-    
-    
-    // Compute the contribution of sigma_xy from the top-left corner to the left u-residual and top v-residual
-    {
-    float eta_tl = eta_local[bi - 1][bj - 1];
-    float eta_t  = eta_local[bi - 1][bj];
-    float eta_l  = eta_local[bi][bj - 1];
-    float eta_c  = eta_local[bi][bj];
-    
-    float H_tl   = get_cell(H,i-1,j-1,ny,nx);
-    float H_t    = get_cell(H,i-1,j,ny,nx);
-    float H_l    = get_cell(H,i,j-1,ny,nx);
-    
-    EtaHVertexJacobian eta_H_tl = get_eta_H_vertex_jac({eta_tl,eta_t,eta_l,eta_c,H_tl,H_t,H_l,H_c});
-    
-    float u_tl = get_vfacet(u,i-1,j,ny,nx);
-    float v_lt = get_hfacet(v,i,j-1,ny,nx);
-    
-    SigmaShearJacobian sigma_xy_tl = get_sigma_xy_jac({u_tl,u_l,v_lt,v_t,eta_H_tl.res},dx_inv,i,j,ny,nx);
-    r[0] += sigma_xy_tl.res * dx_inv;
-    J[0] += sigma_xy_tl.d_u_b * dx_inv;
-    J[4] += sigma_xy_tl.d_eta_H * eta_H_tl.d_H_br * dx_inv;
-
-    r[2] -= sigma_xy_tl.res * dx_inv;
-    J[12] -= sigma_xy_tl.d_v_r * dx_inv;
-    J[14] -= sigma_xy_tl.d_eta_H * eta_H_tl.d_H_br * dx_inv;
-    }
-
-    // Compute the contribution of sigma_xy from the top-right corner to the right u-residual and top v-residual
-    {
-    float eta_t  = eta_local[bi - 1][bj];
-    float eta_tr = eta_local[bi - 1][bj + 1];
-    float eta_c  = eta_local[bi][bj];
-    float eta_r  = eta_local[bi][bj + 1];
-    
-    float H_t    = get_cell(H,i-1,j,ny,nx);
-    float H_tr   = get_cell(H,i-1,j+1,ny,nx);
-    float H_r    = get_cell(H,i,j+1,ny,nx);
-    
-    EtaHVertexJacobian eta_H_tr = get_eta_H_vertex_jac({eta_t,eta_tr,eta_c,eta_r,H_t,H_tr,H_c,H_r});
-    
-    float u_tr = get_vfacet(u,i-1,j+1,ny,nx);
-    float v_rt = get_hfacet(v,i,j+1,ny,nx);
-    
-    SigmaShearJacobian sigma_xy_tr = get_sigma_xy_jac({u_tr,u_r,v_t,v_rt,eta_H_tr.res},dx_inv,i,j+1,ny,nx);
-    r[1] += sigma_xy_tr.res * dx_inv;
-    J[6] += sigma_xy_tr.d_u_b * dx_inv;
-    J[9] += sigma_xy_tr.d_eta_H * eta_H_tr.d_H_bl * dx_inv;
-
-    r[2] += sigma_xy_tr.res * dx_inv;
-    J[12] += sigma_xy_tr.d_v_l * dx_inv;
-    J[14] += sigma_xy_tr.d_eta_H * eta_H_tr.d_H_bl * dx_inv;
-    }
-
-    // Compute the contribution of sigma_xy from the bottom-left corner to the left u-residual and bottom v-residual
-    {
-    float eta_l  = eta_local[bi][bj - 1];
-    float eta_c  = eta_local[bi][bj];
-    float eta_bl = eta_local[bi + 1][bj - 1];
-    float eta_b  = eta_local[bi + 1][bj];
-    
-    float H_l    = get_cell(H,i,j-1,ny,nx);
-    float H_bl   = get_cell(H,i+1,j-1,ny,nx);
-    float H_b    = get_cell(H,i+1,j,ny,nx);
-
-    EtaHVertexJacobian eta_H_bl = get_eta_H_vertex_jac({eta_l,eta_c,eta_bl,eta_b,H_l,H_c,H_bl,H_b});
-    
-    float u_bl   = get_vfacet(u,i+1,j,ny,nx);
-    float v_lb   = get_hfacet(v,i+1,j-1,ny,nx);
-    SigmaShearJacobian sigma_xy_bl = get_sigma_xy_jac({u_l,u_bl,v_lb,v_b,eta_H_bl.res},dx_inv,i + 1,j,ny,nx);
-    r[0] -= sigma_xy_bl.res * dx_inv;
-    J[0] -= sigma_xy_bl.d_u_t * dx_inv;
-    J[4] -= sigma_xy_bl.d_eta_H * eta_H_bl.d_H_tr * dx_inv;
-
-    r[3] -= sigma_xy_bl.res * dx_inv;
-    J[18] -= sigma_xy_bl.d_v_r * dx_inv;
-    J[19] -= sigma_xy_bl.d_eta_H * eta_H_bl.d_H_tr * dx_inv;
-    }
-
-    // Compute the contribution of sigma_xy from the bottom-right corner to the right u-residual and bottom v-residual
-    {
-    float eta_c  = eta_local[bi][bj];
-    float eta_r  = eta_local[bi][bj + 1];
-    float eta_b  = eta_local[bi + 1][bj];
-    float eta_br = eta_local[bi + 1][bj + 1];
-    
-    float H_r    = get_cell(H,i,j+1,ny,nx);
-    float H_b    = get_cell(H,i+1,j,ny,nx);
-    float H_br   = get_cell(H,i+1,j+1,ny,nx);
-
-    EtaHVertexJacobian eta_H_br = get_eta_H_vertex_jac({eta_c,eta_r,eta_b,eta_br,H_c,H_r,H_b,H_br});
-    
-    float u_br   = get_vfacet(u,i+1,j+1,ny,nx);
-    float v_rb   = get_hfacet(v,i+1,j+1,ny,nx);
-    SigmaShearJacobian sigma_xy_br = get_sigma_xy_jac({u_r,u_br,v_b,v_rb,eta_H_br.res},dx_inv,i + 1,j + 1,ny,nx);
-    r[1] -= sigma_xy_br.res * dx_inv;
-    J[6] -= sigma_xy_br.d_u_t * dx_inv;
-    J[9] -= sigma_xy_br.d_eta_H * eta_H_br.d_H_tl * dx_inv;
-
-    r[3] += sigma_xy_br.res * dx_inv;
-    J[18] += sigma_xy_br.d_v_l * dx_inv;
-    J[19] += sigma_xy_br.d_eta_H * eta_H_br.d_H_tl * dx_inv;
-    }
-    
-    
-    // Basal shear stress for left momentum
-    {
-    float u_ll   = get_vfacet(u,i,j-1,ny,nx);
-    float v_tl   = get_hfacet(v,i,j-1,ny,nx);
-    float v_bl   = get_hfacet(v,i+1,j-1,ny,nx);
-
-    float H_l    = get_cell(H,i,j-1,ny,nx);
-    float beta_l = get_cell(beta,i,j-1,ny,nx);
-    float beta_c = get_cell(beta,i,j,ny,nx);
-    float xi_l = get_cell(xi,i,j-1,ny,nx);
-    float xi_c = get_cell(xi,i,j,ny,nx);
-
-    TauBxJacobian tau_bx_l = get_tau_bx_jac({u_l,u_ll,u_r,v_tl,v_t,v_bl,v_b,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
-    r[0] += tau_bx_l.res;
-    J[0] += tau_bx_l.d_u_c;
-    J[1] += tau_bx_l.d_u_r;
-    J[2] += tau_bx_l.d_v_tr;
-    J[3] += tau_bx_l.d_v_br;
-    J[4] += tau_bx_l.d_H_r;
-    }
-
-    // Basal shear stress for right momentum
-    {
-    float u_rr   = get_vfacet(u,i,j+2,ny,nx);
-    float v_tr   = get_hfacet(v,i,j+1,ny,nx);
-    float v_br   = get_hfacet(v,i+1,j+1,ny,nx);
-    
-    float H_r    = get_cell(H,i,j+1,ny,nx);
-    float beta_c = get_cell(beta,i,j,ny,nx);
-    float beta_r = get_cell(beta,i,j+1,ny,nx);
-    float xi_c = get_cell(xi,i,j,ny,nx);
-    float xi_r = get_cell(xi,i,j+1,ny,nx);
-
-    TauBxJacobian tau_bx_r = get_tau_bx_jac({u_r,u_l,u_rr,v_t,v_tr,v_b,v_br,H_c,H_r,xi_c,xi_r,beta_c,beta_r,m,u_reg,water_drag,flotation_reg_sliding});
-    r[1] += tau_bx_r.res;
-    J[5] += tau_bx_r.d_u_l;
-    J[6] += tau_bx_r.d_u_c;
-    J[7] += tau_bx_r.d_v_tl;
-    J[8] += tau_bx_r.d_v_bl;
-    J[9] += tau_bx_r.d_H_l;
-    }
-
-    // Basal shear stress for top momentum
-    {
-    float v_tt = get_hfacet(v,i-1,j,ny,nx);
-    float u_tl = get_vfacet(u,i-1,j,ny,nx);
-    float u_tr = get_vfacet(u,i-1,j+1,ny,nx);
-
-    float H_t    = get_cell(H,i-1,j,ny,nx);
-    float beta_t = get_cell(beta,i-1,j,ny,nx);
-    float beta_c = get_cell(beta,i,j,ny,nx);
-    float xi_t = get_cell(xi,i-1,j,ny,nx);
-    float xi_c = get_cell(xi,i,j,ny,nx);
-
-    TauByJacobian tau_by_t = get_tau_by_jac({v_t,v_tt,v_b,u_tl,u_tr,u_l,u_r,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
-    r[2]  += tau_by_t.res;
-    J[12] += tau_by_t.d_v_c;
-    J[13] += tau_by_t.d_v_b;
-    J[10] += tau_by_t.d_u_bl;
-    J[11] += tau_by_t.d_u_br;
-    J[14] += tau_by_t.d_H_b;
-    }
-
-    // Basal shear stress for bottom momentum
-    {
-    float v_bb = get_hfacet(v,i+2,j,ny,nx);
-    float u_bl = get_vfacet(u,i+1,j,ny,nx);
-    float u_br = get_vfacet(u,i+1,j+1,ny,nx);
-
-    float H_b    = get_cell(H,i+1,j,ny,nx);
-    float beta_c = get_cell(beta,i,j,ny,nx);
-    float beta_b = get_cell(beta,i+1,j,ny,nx);
-    float xi_c = get_cell(xi,i,j,ny,nx);
-    float xi_b = get_cell(xi,i+1,j,ny,nx);
-
-    TauByJacobian tau_by_b = get_tau_by_jac({v_b,v_t,v_bb,u_l,u_r,u_bl,u_br,H_c,H_b,xi_c,xi_b,beta_c,beta_b,m,u_reg,water_drag,flotation_reg_sliding});
-    r[3]  += tau_by_b.res;
-    J[18] += tau_by_b.d_v_c;
-    J[17] += tau_by_b.d_v_t;
-    J[15] += tau_by_b.d_u_tl;
-    J[16] += tau_by_b.d_u_tr;
-    J[19] += tau_by_b.d_H_t;
-    }
-    
-    // Driving stress for left momentum (u)
-    {
-    float H_l    = get_cell(H,i,j-1,ny,nx);
-    float bed_l  = get_cell(bed,i,j-1,ny,nx);
-    float bed_c  = get_cell(bed,i,j,ny,nx);
-    TauDxJacobian tau_dx_l = get_tau_dx_jac({H_l,H_c,bed_l,bed_c,phi_l,phi_c,flotation_reg_driving},dx_inv,i,j,ny,nx);
-    r[0] -= tau_dx_l.res;
-    J[4] -= tau_dx_l.d_H_r;
-    }
-
-    // Driving stress for right momentum (u)
-    {
-    float H_r    = get_cell(H,i,j+1,ny,nx);
-    float bed_c  = get_cell(bed,i,j,ny,nx);
-    float bed_r  = get_cell(bed,i,j+1,ny,nx);
-    TauDxJacobian tau_dx_r = get_tau_dx_jac({H_c,H_r,bed_c,bed_r,phi_c,phi_r,flotation_reg_driving},dx_inv,i,j+1,ny,nx);
-    r[1] -= tau_dx_r.res;
-    J[9] -= tau_dx_r.d_H_l;
-    }
-
-    // Driving stress for top momentum (v)
-    {
-    float H_t    = get_cell(H,i-1,j,ny,nx);
-    float bed_t  = get_cell(bed,i-1,j,ny,nx);
-    float bed_c  = get_cell(bed,i,j,ny,nx);
-    TauDyJacobian tau_dy_t = get_tau_dy_jac({H_t,H_c,bed_t,bed_c,phi_t,phi_c,flotation_reg_driving},dx_inv,i,j,ny,nx);
-    r[2]  -= tau_dy_t.res;
-    J[14] -= tau_dy_t.d_H_b;
-    }
-
-    // Driving stress for bottom momentum (v)
-    {
-    float H_b    = get_cell(H,i+1,j,ny,nx);
-    float bed_c  = get_cell(bed,i,j,ny,nx);
-    float bed_b  = get_cell(bed,i+1,j,ny,nx);
-    TauDyJacobian tau_dy_b = get_tau_dy_jac({H_c,H_b,bed_c,bed_b,phi_c,phi_b,flotation_reg_driving},dx_inv,i+1,j,ny,nx);
-    r[3]  -= tau_dy_b.res;
-    J[19] -= tau_dy_b.d_H_t;
-    }
-}
-
 template <int height, int width>
 __device__ void build_9x9_vanka(
     float* __restrict__ J,
@@ -632,7 +136,7 @@ __device__ void build_9x9_vanka(
     float dx_inv = 1.0f/dx;
 
     for (int k=0;k<81;k++) J[k] = 0.0f;
-    for (int k=0;k<25;k++) r[k] = 0.0f;
+    for (int k=0;k<9;k++) r[k] = 0.0f;
 
     float phi_c = get_cell(phi,i,j,ny,nx);
     float phi_l = get_cell(phi,i,j-1,ny,nx);
@@ -715,9 +219,10 @@ __device__ void build_9x9_vanka(
     J[52] -= sigma_xx_c.d_v_b * dx_inv;
     J[53] -= sigma_xx_c.d_eta_H * eta_H_c.d_H * dx_inv;
 
+#if GLIDE_MOLHO
     // Compute the contribution of sigma_xx at the center to both the left and right u-residuals (since it is used by both)
     SigmaNormalJacobian sigmad_xx_c = get_sigma_xx_jac({ud_l,ud_r,vd_t,vd_b,eta_H_c.res},dx_inv,i,j,ny,nx);
-    
+
     r[0] += K_1 * sigmad_xx_c.res * dx_inv;
     J[0] += K_1 * sigmad_xx_c.d_u_l * dx_inv;
     J[1] += K_1 * sigmad_xx_c.d_u_r * dx_inv;
@@ -731,6 +236,7 @@ __device__ void build_9x9_vanka(
     J[11] -= K_1 * sigmad_xx_c.d_v_t * dx_inv;
     J[12] -= K_1 * sigmad_xx_c.d_v_b * dx_inv;
     J[17] -= K_1 * sigmad_xx_c.d_eta_H * eta_H_c.d_H * dx_inv;
+#endif
 
     SigmaNormalJacobian sigma_yy_c = get_sigma_yy_jac({u_l,u_r,v_t,v_b,eta_H_c.res},dx_inv,i,j,ny,nx);
     r[6]  -= sigma_yy_c.res * dx_inv;
@@ -747,6 +253,7 @@ __device__ void build_9x9_vanka(
     J[70] += sigma_yy_c.d_v_b * dx_inv;
     J[71] += sigma_yy_c.d_eta_H * eta_H_c.d_H * dx_inv;
 
+#if GLIDE_MOLHO
     SigmaNormalJacobian sigmad_yy_c = get_sigma_yy_jac({ud_l,ud_r,vd_t,vd_b,eta_H_c.res},dx_inv,i,j,ny,nx);
     r[2]  -= K_1 * sigmad_yy_c.res * dx_inv;
     J[18] -= K_1 * sigmad_yy_c.d_u_l * dx_inv;
@@ -761,6 +268,7 @@ __device__ void build_9x9_vanka(
     J[29] += K_1 * sigmad_yy_c.d_v_t * dx_inv;
     J[30] += K_1 * sigmad_yy_c.d_v_b * dx_inv;
     J[35] += K_1 * sigmad_yy_c.d_eta_H * eta_H_c.d_H * dx_inv;
+#endif
     }
 
     // Compute the contribution of sigma_xx from the left cell to the left u-residual
@@ -776,12 +284,14 @@ __device__ void build_9x9_vanka(
     r[4] -= sigma_xx_l.res * dx_inv;
     J[40] -= sigma_xx_l.d_u_r * dx_inv;
 
+#if GLIDE_MOLHO
     float ud_ll   = get_vfacet(ud,i,j-1,ny,nx);
     float vd_lt   = get_hfacet(vd,i,j-1,ny,nx);
     float vd_lb   = get_hfacet(vd,i+1,j-1,ny,nx);
     SigmaNormalJacobian sigmad_xx_l = get_sigma_xx_jac({ud_ll,ud_l,vd_lt,vd_lb,eta_H_l.res},dx_inv,i,j - 1,ny,nx);
     r[0] -= K_1 * sigmad_xx_l.res * dx_inv;
     J[0] -= K_1 * sigmad_xx_l.d_u_r * dx_inv;
+#endif
     }
 
     // Compute the contribution of sigma_xx from the right cell to the right u-residual
@@ -797,12 +307,14 @@ __device__ void build_9x9_vanka(
     r[5] += sigma_xx_r.res * dx_inv;
     J[50] += sigma_xx_r.d_u_l * dx_inv;
 
+#if GLIDE_MOLHO
     float ud_rr   = get_vfacet(ud,i,j+2,ny,nx);
     float vd_rt   = get_hfacet(vd,i,j+1,ny,nx);
     float vd_rb   = get_hfacet(vd,i+1,j+1,ny,nx);
     SigmaNormalJacobian sigmad_xx_r = get_sigma_xx_jac({ud_r,ud_rr,vd_rt,vd_rb,eta_H_r.res},dx_inv,i,j + 1,ny,nx);
     r[1] += K_1 * sigmad_xx_r.res * dx_inv;
     J[10] += K_1 * sigmad_xx_r.d_u_l * dx_inv;
+#endif
     }
 
     // Compute the contribution of sigma_yy from the top cell to the top v-residual
@@ -818,12 +330,14 @@ __device__ void build_9x9_vanka(
     r[6] += sigma_yy_t.res * dx_inv;
     J[60] += sigma_yy_t.d_v_b * dx_inv;
 
+#if GLIDE_MOLHO
     float ud_tl   = get_vfacet(ud,i-1,j,ny,nx);
     float ud_tr   = get_vfacet(ud,i-1,j+1,ny,nx);
     float vd_tt   = get_hfacet(vd,i-1,j,ny,nx);
     SigmaNormalJacobian sigmad_yy_t = get_sigma_yy_jac({ud_tl,ud_tr,vd_tt,vd_t,eta_H_t.res},dx_inv,i - 1,j,ny,nx);
     r[2] += K_1 * sigmad_yy_t.res * dx_inv;
     J[20] += K_1 * sigmad_yy_t.d_v_b * dx_inv;
+#endif
     }
 
     // Compute the contribution of sigma_yy from the bottom cell to the bottom v-residual
@@ -839,13 +353,14 @@ __device__ void build_9x9_vanka(
     r[7] -= sigma_yy_b.res * dx_inv;
     J[70] -= sigma_yy_b.d_v_t * dx_inv;
 
+#if GLIDE_MOLHO
     float ud_bl   = get_vfacet(ud,i+1,j,ny,nx);
     float ud_br   = get_vfacet(ud,i+1,j+1,ny,nx);
     float vd_bb   = get_hfacet(vd,i+2,j,ny,nx);
     SigmaNormalJacobian sigmad_yy_b = get_sigma_yy_jac({ud_bl,ud_br,vd_b,vd_bb,eta_H_b.res},dx_inv,i + 1,j,ny,nx);
     r[3] -= K_1 * sigmad_yy_b.res * dx_inv;
     J[30] -= K_1 * sigmad_yy_b.d_v_t * dx_inv;
-
+#endif
     }
     
     
@@ -874,9 +389,10 @@ __device__ void build_9x9_vanka(
     J[60] -= sigma_xy_tl.d_v_r * dx_inv;
     J[62] -= sigma_xy_tl.d_eta_H * eta_H_tl.d_H_br * dx_inv;
 
+#if GLIDE_MOLHO
     float ud_tl = get_vfacet(ud,i-1,j,ny,nx);
     float vd_lt = get_hfacet(vd,i,j-1,ny,nx);
-    
+
     SigmaShearJacobian sigmad_xy_tl = get_sigma_xy_jac({ud_tl,ud_l,vd_lt,vd_t,eta_H_tl.res},dx_inv,i,j,ny,nx);
     r[0] += K_1 * sigmad_xy_tl.res * dx_inv;
     J[0] += K_1 * sigmad_xy_tl.d_u_b * dx_inv;
@@ -885,6 +401,7 @@ __device__ void build_9x9_vanka(
     r[2] -= K_1 * sigmad_xy_tl.res * dx_inv;
     J[20] -= K_1 * sigmad_xy_tl.d_v_r * dx_inv;
     J[26] -= K_1 * sigmad_xy_tl.d_eta_H * eta_H_tl.d_H_br * dx_inv;
+#endif
     }
 
 
@@ -913,9 +430,10 @@ __device__ void build_9x9_vanka(
     J[60] += sigma_xy_tr.d_v_l * dx_inv;
     J[62] += sigma_xy_tr.d_eta_H * eta_H_tr.d_H_bl * dx_inv;
 
+#if GLIDE_MOLHO
     float ud_tr = get_vfacet(ud,i-1,j+1,ny,nx);
     float vd_rt = get_hfacet(vd,i,j+1,ny,nx);
-    
+
     SigmaShearJacobian sigmad_xy_tr = get_sigma_xy_jac({ud_tr,ud_r,vd_t,vd_rt,eta_H_tr.res},dx_inv,i,j+1,ny,nx);
     r[1] += K_1 * sigmad_xy_tr.res * dx_inv;
     J[10] += K_1 * sigmad_xy_tr.d_u_b * dx_inv;
@@ -924,7 +442,7 @@ __device__ void build_9x9_vanka(
     r[2] += K_1 * sigmad_xy_tr.res * dx_inv;
     J[20] += K_1 * sigmad_xy_tr.d_v_l * dx_inv;
     J[26] += K_1 * sigmad_xy_tr.d_eta_H * eta_H_tr.d_H_bl * dx_inv;
-
+#endif
     }
 
     // Compute the contribution of sigma_xy from the bottom-left corner to the left u-residual and bottom v-residual
@@ -951,6 +469,7 @@ __device__ void build_9x9_vanka(
     J[70] -= sigma_xy_bl.d_v_r * dx_inv;
     J[71] -= sigma_xy_bl.d_eta_H * eta_H_bl.d_H_tr * dx_inv;
 
+#if GLIDE_MOLHO
     float ud_bl   = get_vfacet(ud,i+1,j,ny,nx);
     float vd_lb   = get_hfacet(vd,i+1,j-1,ny,nx);
     SigmaShearJacobian sigmad_xy_bl = get_sigma_xy_jac({ud_l,ud_bl,vd_lb,vd_b,eta_H_bl.res},dx_inv,i + 1,j,ny,nx);
@@ -961,6 +480,7 @@ __device__ void build_9x9_vanka(
     r[3] -= K_1 * sigmad_xy_bl.res * dx_inv;
     J[30] -= K_1 * sigmad_xy_bl.d_v_r * dx_inv;
     J[35] -= K_1 * sigmad_xy_bl.d_eta_H * eta_H_bl.d_H_tr * dx_inv;
+#endif
     }
 
     // Compute the contribution of sigma_xy from the bottom-right corner to the right u-residual and bottom v-residual
@@ -987,6 +507,7 @@ __device__ void build_9x9_vanka(
     J[70] += sigma_xy_br.d_v_l * dx_inv;
     J[71] += sigma_xy_br.d_eta_H * eta_H_br.d_H_tl * dx_inv;
 
+#if GLIDE_MOLHO
     float ud_br   = get_vfacet(ud,i+1,j+1,ny,nx);
     float vd_rb   = get_hfacet(vd,i+1,j+1,ny,nx);
     SigmaShearJacobian sigmad_xy_br = get_sigma_xy_jac({ud_r,ud_br,vd_b,vd_rb,eta_H_br.res},dx_inv,i + 1,j + 1,ny,nx);
@@ -997,9 +518,11 @@ __device__ void build_9x9_vanka(
     r[3] += K_1 * sigmad_xy_br.res * dx_inv;
     J[30] += K_1 * sigmad_xy_br.d_v_l * dx_inv;
     J[35] += K_1 * sigmad_xy_br.d_eta_H * eta_H_br.d_H_tl * dx_inv;
+#endif
     }
 
     
+#if GLIDE_MOLHO
     // Vertical shear for left momentum
     {
     float eta_l = eta_local[bi][bj-1];
@@ -1067,8 +590,9 @@ __device__ void build_9x9_vanka(
     J[30] += get_sigma_vert_dvisc(vd_b,eta_c,eta_b,H_c,H_b,B_c,B_b,c_1,S_1,n,H_reg);
     J[35] += sigmad_yz_b.d_H_t;
     }
-    
-    
+#endif
+
+
     // Basal shear stress for left momentum
     {
 
@@ -1078,16 +602,20 @@ __device__ void build_9x9_vanka(
     float vb_b = v_b - vd_b;
 
     float u_ll  = get_vfacet(u,i,j-1,ny,nx);
-    float ud_ll = get_vfacet(ud,i,j-1,ny,nx);
-    float ub_ll = u_ll - ud_ll; 
-
     float v_tl  = get_hfacet(v,i,j-1,ny,nx);
+    float v_bl  = get_hfacet(v,i+1,j-1,ny,nx);
+#if GLIDE_MOLHO
+    float ud_ll = get_vfacet(ud,i,j-1,ny,nx);
+    float ub_ll = u_ll - ud_ll;
     float vd_tl = get_hfacet(vd,i,j-1,ny,nx);
     float vb_tl = v_tl - vd_tl;
-
-    float v_bl  = get_hfacet(v,i+1,j-1,ny,nx);
     float vd_bl = get_hfacet(vd,i+1,j-1,ny,nx);
-    float vb_bl = v_bl - vd_bl; 
+    float vb_bl = v_bl - vd_bl;
+#else
+    float ub_ll = u_ll;
+    float vb_tl = v_tl;
+    float vb_bl = v_bl;
+#endif
 
     float H_l    = get_cell(H,i,j-1,ny,nx);
     float beta_l = get_cell(beta,i,j-1,ny,nx);
@@ -1115,6 +643,7 @@ __device__ void build_9x9_vanka(
     // thickness dependence (currently ignored)
     J[44] += tau_bx_l.d_H_r;
 
+#if GLIDE_MOLHO
     // Residual for deformational component
     r[0]  -= tau_bx_l.res;
 
@@ -1123,7 +652,7 @@ __device__ void build_9x9_vanka(
     J[1]  += tau_bx_l.d_u_r;
     J[2]  += tau_bx_l.d_v_tr;
     J[3]  += tau_bx_l.d_v_br;
-    
+
     // Horizontal cross terms
     J[4]  -= tau_bx_l.d_u_c;
     J[5]  -= tau_bx_l.d_u_r;
@@ -1132,6 +661,7 @@ __device__ void build_9x9_vanka(
 
     // thickness dependence
     J[8]  -= tau_bx_l.d_H_r;
+#endif
     }
 
     // Basal shear stress for right momentum
@@ -1142,16 +672,20 @@ __device__ void build_9x9_vanka(
     float vb_b = v_b - vd_b;
 
     float u_rr   = get_vfacet(u,i,j+2,ny,nx);
+    float v_tr   = get_hfacet(v,i,j+1,ny,nx);
+    float v_br   = get_hfacet(v,i+1,j+1,ny,nx);
+#if GLIDE_MOLHO
     float ud_rr  = get_vfacet(ud,i,j+2,ny,nx);
     float ub_rr  = u_rr - ud_rr;
-
-    float v_tr   = get_hfacet(v,i,j+1,ny,nx);
     float vd_tr  = get_hfacet(vd,i,j+1,ny,nx);
     float vb_tr  = v_tr - vd_tr;
-    
-    float v_br   = get_hfacet(v,i+1,j+1,ny,nx);
     float vd_br  = get_hfacet(vd,i+1,j+1,ny,nx);
     float vb_br  = v_br - vd_br;
+#else
+    float ub_rr  = u_rr;
+    float vb_tr  = v_tr;
+    float vb_br  = v_br;
+#endif
     
     float H_r    = get_cell(H,i,j+1,ny,nx);
     float beta_c = get_cell(beta,i,j,ny,nx);
@@ -1173,18 +707,20 @@ __device__ void build_9x9_vanka(
     J[52] += tau_bx_r.d_v_bl;
     J[53] += tau_bx_r.d_H_l;
     
+#if GLIDE_MOLHO
     r[1]  -= tau_bx_r.res;
     J[9]  += tau_bx_r.d_u_l;
     J[10] += tau_bx_r.d_u_c;
     J[11] += tau_bx_r.d_v_tl;
     J[12] += tau_bx_r.d_v_bl;
-    
+
     J[13] -= tau_bx_r.d_u_l;
     J[14] -= tau_bx_r.d_u_c;
     J[15] -= tau_bx_r.d_v_tl;
     J[16] -= tau_bx_r.d_v_bl;
 
     J[17] -= tau_bx_r.d_H_l;
+#endif
     }
 
     // Basal shear stress for top momentum
@@ -1195,16 +731,20 @@ __device__ void build_9x9_vanka(
     float vb_b = v_b - vd_b;
 
     float v_tt = get_hfacet(v,i-1,j,ny,nx);
+    float u_tl = get_vfacet(u,i-1,j,ny,nx);
+    float u_tr = get_vfacet(u,i-1,j+1,ny,nx);
+#if GLIDE_MOLHO
     float vd_tt = get_hfacet(vd,i-1,j,ny,nx);
     float vb_tt = v_tt - vd_tt;
-
-    float u_tl = get_vfacet(u,i-1,j,ny,nx);
     float ud_tl = get_vfacet(ud,i-1,j,ny,nx);
     float ub_tl = u_tl - ud_tl;
-    
-    float u_tr = get_vfacet(u,i-1,j+1,ny,nx);
     float ud_tr = get_vfacet(ud,i-1,j+1,ny,nx);
     float ub_tr = u_tr - ud_tr;
+#else
+    float vb_tt = v_tt;
+    float ub_tl = u_tl;
+    float ub_tr = u_tr;
+#endif
 
     float H_t    = get_cell(H,i-1,j,ny,nx);
     float beta_t = get_cell(beta,i-1,j,ny,nx);
@@ -1227,19 +767,21 @@ __device__ void build_9x9_vanka(
     
     J[62] += tau_by_t.d_H_b;
     
+#if GLIDE_MOLHO
     r[2]  -= tau_by_t.res;
 
     J[18] += tau_by_t.d_u_bl;
     J[19] += tau_by_t.d_u_br;
     J[20] += tau_by_t.d_v_c;
     J[21] += tau_by_t.d_v_b;
-    
+
     J[22] -= tau_by_t.d_u_bl;
     J[23] -= tau_by_t.d_u_br;
     J[24] -= tau_by_t.d_v_c;
     J[25] -= tau_by_t.d_v_b;
 
     J[26] -= tau_by_t.d_H_b;
+#endif
     }
 
     // Basal shear stress for bottom momentum
@@ -1250,16 +792,20 @@ __device__ void build_9x9_vanka(
     float vb_b = v_b - vd_b;
 
     float v_bb = get_hfacet(v,i+2,j,ny,nx);
+    float u_bl = get_vfacet(u,i+1,j,ny,nx);
+    float u_br = get_vfacet(u,i+1,j+1,ny,nx);
+#if GLIDE_MOLHO
     float vd_bb = get_hfacet(vd,i+2,j,ny,nx);
     float vb_bb = v_bb - vd_bb;
-
-    float u_bl = get_vfacet(u,i+1,j,ny,nx);
     float ud_bl = get_vfacet(ud,i+1,j,ny,nx);
     float ub_bl = u_bl - ud_bl;
-
-    float u_br = get_vfacet(u,i+1,j+1,ny,nx);
     float ud_br = get_vfacet(ud,i+1,j+1,ny,nx);
     float ub_br = u_br - ud_br;
+#else
+    float vb_bb = v_bb;
+    float ub_bl = u_bl;
+    float ub_br = u_br;
+#endif
 
     float H_b    = get_cell(H,i+1,j,ny,nx);
     float beta_c = get_cell(beta,i,j,ny,nx);
@@ -1281,6 +827,7 @@ __device__ void build_9x9_vanka(
     J[70] += tau_by_b.d_v_c;
     J[71] += tau_by_b.d_H_t;
     
+#if GLIDE_MOLHO
     r[3]  -= tau_by_b.res;
 
     J[27] += tau_by_b.d_u_tl;
@@ -1294,8 +841,9 @@ __device__ void build_9x9_vanka(
     J[34] -= tau_by_b.d_v_c;
 
     J[35] -= tau_by_b.d_H_t;
+#endif
     }
-    
+
     // Driving stress for left momentum (u)
     {
     float H_l    = get_cell(H,i,j-1,ny,nx);
@@ -1398,10 +946,15 @@ void vanka_smooth(
 	float v_t = get_hfacet(v, i, j, ny, nx);
 	float v_b = get_hfacet(v, i + 1, j, ny, nx);
 
+#if GLIDE_MOLHO
 	float ud_l = get_vfacet(ud, i, j, ny, nx);
 	float ud_r = get_vfacet(ud, i, j + 1, ny, nx);
 	float vd_t = get_hfacet(vd, i, j, ny, nx);
 	float vd_b = get_hfacet(vd, i + 1, j, ny, nx);
+#else
+	// SSA build: deformational components are identically zero
+	float ud_l = 0.0f, ud_r = 0.0f, vd_t = 0.0f, vd_b = 0.0f;
+#endif
 
 	float H_c = get_cell(H, i, j, ny, nx);
 	float thklim = get_cell(gamma,i,j,ny,nx);
@@ -1517,6 +1070,7 @@ void vanka_smooth(
 		r[7] = v_b;
 	    }
 
+#if GLIDE_MOLHO
 	    if (ssa) {
 		// SSA mode: all deformational dofs are pinned to zero
 		// (identity rows in compute_residual); eliminate them from
@@ -1530,6 +1084,9 @@ void vanka_smooth(
 		J[20] = 1.0f;  r[2] = vd_t;
 		J[30] = 1.0f;  r[3] = vd_b;
 	    }
+#endif
+	    // (in the SSA build the deformational rows/columns are ignored
+	    // entirely: only the trailing 5x5 block is solved below)
 
 
 	    if ((H_c - dt*r[8]) <= (thklim)) {
@@ -1546,6 +1103,7 @@ void vanka_smooth(
 	    
 
 	    float delta_x[9] = {0};
+#if GLIDE_MOLHO
 	    float s_eq[9];
 	    equilibrate<9>(J, r, s_eq);
 
@@ -1565,6 +1123,33 @@ void vanka_smooth(
 	    lu_solve_factored<9>(J,r,delta_x);
 	    #pragma unroll
 	    for (int a = 0; a < 9; ++a) delta_x[a] *= s_eq[a];
+#else
+	    // SSA build: solve only the trailing 5x5 block (u_l,u_r,v_t,v_b,H).
+	    // The deformational rows/columns were never assembled; extracting
+	    // the live block reproduces the pinned 9x9 solve exactly (the
+	    // eliminated rows contribute unit pivots and zero couplings).
+	    float J5[25], r5[5], d5[5] = {0};
+	    #pragma unroll
+	    for (int a = 0; a < 5; ++a) {
+		r5[a] = r[4 + a];
+		#pragma unroll
+		for (int b = 0; b < 5; ++b) J5[a*5 + b] = J[(4 + a)*9 + (4 + b)];
+	    }
+	    float s_eq[5];
+	    equilibrate<5>(J5, r5, s_eq);
+
+	    float rn = r5[0]*r5[0] + r5[1]*r5[1] + r5[2]*r5[2] + r5[3]*r5[3] + r5[4]*r5[4];
+	    float xs[5] = {u_l, u_r, v_t, v_b, H_c};
+	    float xnorm2 = 1e-30f;
+	    #pragma unroll
+	    for (int a = 0; a < 5; ++a) { float xt = xs[a]/s_eq[a]; xnorm2 += xt*xt; }
+	    rnorm = rn / xnorm2;
+
+	    lu_factor<5>(J5);
+	    lu_solve_factored<5>(J5,r5,d5);
+	    #pragma unroll
+	    for (int a = 0; a < 5; ++a) delta_x[4 + a] = d5[a]*s_eq[a];
+#endif
 	    //relaxation = 0.5f;
 
 	    float y_ud_l = -relaxation*delta_x[0] - c_ud_l;
@@ -1617,20 +1202,22 @@ void vanka_smooth(
             
         }
 	
-	float ud_l_prev = get_vfacet(ud, i, j, ny, nx);
-	float ud_r_prev = get_vfacet(ud, i, j + 1, ny, nx);
-	float vd_t_prev = get_hfacet(vd, i, j, ny, nx);
-	float vd_b_prev = get_hfacet(vd, i + 1, j, ny, nx);
 	float u_l_prev = get_vfacet(u, i, j, ny, nx);
 	float u_r_prev = get_vfacet(u, i, j + 1, ny, nx);
 	float v_t_prev = get_hfacet(v, i, j, ny, nx);
 	float v_b_prev = get_hfacet(v, i + 1, j, ny, nx);
 	float H_c_prev = get_cell(H, i, j, ny, nx);
 
+#if GLIDE_MOLHO
+	float ud_l_prev = get_vfacet(ud, i, j, ny, nx);
+	float ud_r_prev = get_vfacet(ud, i, j + 1, ny, nx);
+	float vd_t_prev = get_hfacet(vd, i, j, ny, nx);
+	float vd_b_prev = get_hfacet(vd, i + 1, j, ny, nx);
 	atomicAdd(&delta_ud[i * (nx + 1) + j],       0.5f*(ud_l - ud_l_prev));
 	atomicAdd(&delta_ud[i * (nx + 1) + j + 1],   0.5f*(ud_r - ud_r_prev));
 	atomicAdd(&delta_vd[i * nx + j],             0.5f*(vd_t - vd_t_prev));
 	atomicAdd(&delta_vd[(i + 1) * nx + j ],      0.5f*(vd_b - vd_b_prev));
+#endif
 	atomicAdd(&delta_u[i * (nx + 1) + j],       0.5f*(u_l - u_l_prev));
 	atomicAdd(&delta_u[i * (nx + 1) + j + 1],   0.5f*(u_r - u_r_prev));
 	atomicAdd(&delta_v[i * nx + j],             0.5f*(v_t - v_t_prev));
@@ -1780,6 +1367,7 @@ void vanka_smooth_adjoint(
 	    J[70] = 1.0f;
 	}
 
+#if GLIDE_MOLHO
 	if (ssa) {
 	    // SSA mode: deformational dofs are constrained everywhere;
 	    // symmetric elimination mirrors the forward smoother
@@ -1792,6 +1380,7 @@ void vanka_smooth_adjoint(
 	    J[20] = 1.0f;
 	    J[30] = 1.0f;
 	}
+#endif
 
 	if (masked > 0.5) {
 	    // Active set constraint: Force H = thklim
@@ -1800,6 +1389,8 @@ void vanka_smooth_adjoint(
 	    J[80] = 1.0f;
 	}
 
+	float delta_lambda[9] = {0};
+#if GLIDE_MOLHO
         // Equilibrate before transposing: (S J S)^T = S J^T S, so the
         // adjoint solve uses the same scale factors as the forward patch
         float s_eq[9];
@@ -1814,11 +1405,44 @@ void vanka_smooth_adjoint(
             }
         }
 
-	float delta_lambda[9] = {0};
 	lu_factor<9>(J_T);
 	lu_solve_factored<9>(J_T,rhs,delta_lambda);
 	#pragma unroll
 	for (int a = 0; a < 9; ++a) delta_lambda[a] *= s_eq[a];
+#else
+	// SSA build: transpose-solve only the live 5x5 block
+	float J5[25], rhs5[5], d5[5] = {0};
+	#pragma unroll
+	for (int a = 0; a < 5; ++a) {
+	    rhs5[a] = rhs[4 + a];
+	    #pragma unroll
+	    for (int b = 0; b < 5; ++b) J5[a*5 + b] = J[(4 + a)*9 + (4 + b)];
+	}
+	float s_eq[5];
+	equilibrate<5>(J5, rhs5, s_eq);
+
+	float J5_T[25];
+	#pragma unroll
+	for(int r=0; r<5; ++r) {
+	    #pragma unroll
+	    for(int c=0; c<5; ++c) {
+		J5_T[r*5 + c] = J5[c*5 + r];
+	    }
+	}
+
+	lu_factor<5>(J5_T);
+	lu_solve_factored<5>(J5_T,rhs5,d5);
+	#pragma unroll
+	for (int a = 0; a < 5; ++a) delta_lambda[4 + a] = d5[a]*s_eq[a];
+
+	// The constrained lambda_ud/vd equations are identity rows whose
+	// transposed patch solve reduces to a Jacobi update (unit pivot,
+	// zero couplings): delta = gathered adjoint residual
+	delta_lambda[0] = rhs[0];
+	delta_lambda[1] = rhs[1];
+	delta_lambda[2] = rhs[2];
+	delta_lambda[3] = rhs[3];
+#endif
 
 	atomicAdd(&lambda_ud_out[i * (nx + 1) + j],      0.5f*delta_lambda[0]);
 	atomicAdd(&lambda_ud_out[i * (nx + 1) + j + 1],  0.5f*delta_lambda[1]);
