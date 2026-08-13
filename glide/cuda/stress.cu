@@ -2,21 +2,23 @@ struct SigmaVertXZStencil {
     float u_c;
     float eta_l, eta_r;
     float H_l, H_r;
+    float B_l, B_r;   // rate factor, for the eta-free spring scale
 };
 
 struct SigmaVertXZStencilDual {
     DualFloat u_c;
     DualFloat eta_l, eta_r;
     DualFloat H_l, H_r;
+    float B_l, B_r;   // parameter: no perturbation leg
 
     __device__ __forceinline__
     SigmaVertXZStencil get_primals() const {
-        return {u_c.v, eta_l.v,eta_r.v,H_l.v,H_r.v};
+        return {u_c.v, eta_l.v,eta_r.v,H_l.v,H_r.v,B_l,B_r};
     }
-    
+
     __device__ __forceinline__
     SigmaVertXZStencil get_diffs() const {
-        return {u_c.d,eta_l.d,eta_r.d,H_l.d,H_r.d};
+        return {u_c.d,eta_l.d,eta_r.d,H_l.d,H_r.d,0.0f,0.0f};
     }
 };
 
@@ -39,7 +41,7 @@ struct SigmaVertXZJacobian {
 __device__ __forceinline__
 SigmaVertXZJacobian get_sigma_xz_jac(
     SigmaVertXZStencil s,
-    float c_1, float S_1, float H_reg,
+    float c_1, float S_1, float H_reg, float n, float eps_reg,
     int i, int j,  // Defined on cells - the i,j for the cell
     int ny, int nx) {
 
@@ -47,19 +49,47 @@ SigmaVertXZJacobian get_sigma_xz_jac(
 
     // 2*K_2 = 2*(c_1*S_1/4): the leading 2 matches the J = 2*eta*H*E2
     // convention used by the membrane stresses (cf. get_sigma_xx_jac).
-    // eta/H is regularized to eta*H/(H^2 + H_reg^2), consistent with the
-    // shear invariant's 1/(H^2 + H_reg^2) in populate_viscosity.
+    // eta/H is regularized to eta*H/(H^2 + H_reg^2): this is the exact
+    // variational derivative of the H-weighted dissipation with the
+    // regularized strain (u_d/H_eff)^2 - i.e. it is FORCED by consistency
+    // with the shear invariant's 1/(H^2 + H_reg^2) in populate_viscosity,
+    // which the vjp's symmetric lambda-direction blocks rely on. Do not
+    // reshape it (e.g. to eta/H_eff): that breaks J = J^T of the viscous
+    // block. Its price is that the resistance VANISHES as H -> 0,
+    // unpinning ud on thklim columns; the spring below repairs that.
     float factr = -1.0f * c_1 * S_1 / 2.0f;
     float den_l = s.H_l * s.H_l + H_reg * H_reg + 1e-10f;
     float den_r = s.H_r * s.H_r + H_reg * H_reg + 1e-10f;
-    float shear = s.eta_l * s.H_l / den_l + s.eta_r * s.H_r / den_r;
+
+    // Thin-ice reactive spring: an eta-FREE potential term
+    // (1/2)*kappa(H)*ud^2 with kappa = eta_floor*(H_eff - H)/den,
+    // H_eff = sqrt(den), eta_floor = B/2 * eps_reg^((1-n)/(2n)) (the
+    // viscosity at the strain floor - a parameter, not state, so the
+    // Jacobian stays a Hessian). The combined resistance
+    // eta*H/den + kappa follows the bounded eta/H_eff profile: it
+    // saturates at ~eta_floor/H_reg as H -> 0 (pinning ud on bare
+    // columns) and dies like H_reg^2/H^3 for H >> H_reg. Zero when
+    // H_reg = 0.
+    float glen_exp = (1.0f - n) / (2.0f * n);
+    float eta_floor_l = 0.5f * s.B_l * __powf(eps_reg, glen_exp);
+    float eta_floor_r = 0.5f * s.B_r * __powf(eps_reg, glen_exp);
+    float Heff_l = sqrtf(den_l);
+    float Heff_r = sqrtf(den_r);
+    float spring_l = eta_floor_l * (Heff_l - s.H_l) / den_l;
+    float spring_r = eta_floor_r * (Heff_r - s.H_r) / den_r;
+    // d(spring)/dH = eta_floor * (2H^2 - den - H*H_eff)/den^2
+    float dspring_l = eta_floor_l * (2.0f*s.H_l*s.H_l - den_l - s.H_l*Heff_l) / (den_l * den_l);
+    float dspring_r = eta_floor_r * (2.0f*s.H_r*s.H_r - den_r - s.H_r*Heff_r) / (den_r * den_r);
+
+    float shear = s.eta_l * s.H_l / den_l + s.eta_r * s.H_r / den_r
+                + spring_l + spring_r;
 
     jac.res = factr * shear * s.u_c;
     jac.d_u_c = factr * shear;
     jac.d_eta_l = factr * s.H_l / den_l * s.u_c;
     jac.d_eta_r = factr * s.H_r / den_r * s.u_c;
-    jac.d_H_l = factr * s.eta_l * (H_reg * H_reg - s.H_l * s.H_l) / (den_l * den_l) * s.u_c;
-    jac.d_H_r = factr * s.eta_r * (H_reg * H_reg - s.H_r * s.H_r) / (den_r * den_r) * s.u_c;
+    jac.d_H_l = factr * (s.eta_l * (H_reg * H_reg - s.H_l * s.H_l) / (den_l * den_l) + dspring_l) * s.u_c;
+    jac.d_H_r = factr * (s.eta_r * (H_reg * H_reg - s.H_r * s.H_r) / (den_r * den_r) + dspring_r) * s.u_c;
 
     return jac;
 }
@@ -68,21 +98,23 @@ struct SigmaVertYZStencil {
     float v_c;
     float eta_t, eta_b;
     float H_t, H_b;
+    float B_t, B_b;   // rate factor, for the eta-free spring scale
 };
 
 struct SigmaVertYZStencilDual {
     DualFloat v_c;
     DualFloat eta_t, eta_b;
     DualFloat H_t, H_b;
+    float B_t, B_b;   // parameter: no perturbation leg
 
     __device__ __forceinline__
     SigmaVertYZStencil get_primals() const {
-        return {v_c.v, eta_t.v,eta_b.v,H_t.v,H_b.v};
+        return {v_c.v, eta_t.v,eta_b.v,H_t.v,H_b.v,B_t,B_b};
     }
-    
+
     __device__ __forceinline__
     SigmaVertYZStencil get_diffs() const {
-        return {v_c.d,eta_t.d,eta_b.d,H_t.d,H_b.d};
+        return {v_c.d,eta_t.d,eta_b.d,H_t.d,H_b.d,0.0f,0.0f};
     }
 };
 
@@ -105,25 +137,37 @@ struct SigmaVertYZJacobian {
 __device__ __forceinline__
 SigmaVertYZJacobian get_sigma_yz_jac(
     SigmaVertYZStencil s,
-    float c_1, float S_1, float H_reg,
+    float c_1, float S_1, float H_reg, float n, float eps_reg,
     int i, int j,  // Defined on cells - the i,j for the cell
     int ny, int nx) {
 
     SigmaVertYZJacobian jac = {0};
 
     // 2*K_2, matching the J = 2*eta*H*E2 convention (cf. get_sigma_xx_jac),
-    // with eta/H regularized as in get_sigma_xz_jac
+    // with eta/H regularized and the thin-ice spring as in get_sigma_xz_jac
     float factr = -1.0f * c_1 * S_1 / 2.0f;
     float den_t = s.H_t * s.H_t + H_reg * H_reg + 1e-10f;
     float den_b = s.H_b * s.H_b + H_reg * H_reg + 1e-10f;
-    float shear = s.eta_t * s.H_t / den_t + s.eta_b * s.H_b / den_b;
+
+    float glen_exp = (1.0f - n) / (2.0f * n);
+    float eta_floor_t = 0.5f * s.B_t * __powf(eps_reg, glen_exp);
+    float eta_floor_b = 0.5f * s.B_b * __powf(eps_reg, glen_exp);
+    float Heff_t = sqrtf(den_t);
+    float Heff_b = sqrtf(den_b);
+    float spring_t = eta_floor_t * (Heff_t - s.H_t) / den_t;
+    float spring_b = eta_floor_b * (Heff_b - s.H_b) / den_b;
+    float dspring_t = eta_floor_t * (2.0f*s.H_t*s.H_t - den_t - s.H_t*Heff_t) / (den_t * den_t);
+    float dspring_b = eta_floor_b * (2.0f*s.H_b*s.H_b - den_b - s.H_b*Heff_b) / (den_b * den_b);
+
+    float shear = s.eta_t * s.H_t / den_t + s.eta_b * s.H_b / den_b
+                + spring_t + spring_b;
 
     jac.res = factr * shear * s.v_c;
     jac.d_v_c = factr * shear;
     jac.d_eta_t = factr * s.H_t / den_t * s.v_c;
     jac.d_eta_b = factr * s.H_b / den_b * s.v_c;
-    jac.d_H_t = factr * s.eta_t * (H_reg * H_reg - s.H_t * s.H_t) / (den_t * den_t) * s.v_c;
-    jac.d_H_b = factr * s.eta_b * (H_reg * H_reg - s.H_b * s.H_b) / (den_b * den_b) * s.v_c;
+    jac.d_H_t = factr * (s.eta_t * (H_reg * H_reg - s.H_t * s.H_t) / (den_t * den_t) + dspring_t) * s.v_c;
+    jac.d_H_b = factr * (s.eta_b * (H_reg * H_reg - s.H_b * s.H_b) / (den_b * den_b) + dspring_b) * s.v_c;
 
     return jac;
 }
@@ -131,20 +175,20 @@ SigmaVertYZJacobian get_sigma_yz_jac(
 __device__ __forceinline__
 DualFloat get_sigma_xz_dual(
     SigmaVertXZStencilDual s,
-    float c_1, float S_1, float H_reg,
+    float c_1, float S_1, float H_reg, float n, float eps_reg,
     int i, int j,
     int ny, int nx) {
-    SigmaVertXZJacobian jac = get_sigma_xz_jac(s.get_primals(),c_1,S_1,H_reg,i,j,ny,nx);
+    SigmaVertXZJacobian jac = get_sigma_xz_jac(s.get_primals(),c_1,S_1,H_reg,n,eps_reg,i,j,ny,nx);
     return {jac.res,jac.apply_jvp(s.get_diffs())};
 }
 
 __device__ __forceinline__
 DualFloat get_sigma_yz_dual(
     SigmaVertYZStencilDual s,
-    float c_1, float S_1, float H_reg,
+    float c_1, float S_1, float H_reg, float n, float eps_reg,
     int i, int j,
     int ny, int nx) {
-    SigmaVertYZJacobian jac = get_sigma_yz_jac(s.get_primals(),c_1,S_1,H_reg,i,j,ny,nx);
+    SigmaVertYZJacobian jac = get_sigma_yz_jac(s.get_primals(),c_1,S_1,H_reg,n,eps_reg,i,j,ny,nx);
     return {jac.res,jac.apply_jvp(s.get_diffs())};
 }
 

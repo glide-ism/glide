@@ -532,7 +532,7 @@ __device__ void build_9x9_vanka(
     float B_l = get_cell(B,i,j-1,ny,nx);
     float B_c = get_cell(B,i,j,ny,nx);
 
-    SigmaVertXZJacobian sigmad_xz_l = get_sigma_xz_jac({ud_l,eta_l,eta_c,H_l,H_c},c_1,S_1,H_reg,i,j,ny,nx);
+    SigmaVertXZJacobian sigmad_xz_l = get_sigma_xz_jac({ud_l,eta_l,eta_c,H_l,H_c,B_l,B_c},c_1,S_1,H_reg,n,eps_reg,i,j,ny,nx);
 
     r[0] += sigmad_xz_l.res;
     J[0] += sigmad_xz_l.d_u_c;
@@ -549,7 +549,7 @@ __device__ void build_9x9_vanka(
     float B_c = get_cell(B,i,j,ny,nx);
     float B_r = get_cell(B,i,j+1,ny,nx);
 
-    SigmaVertXZJacobian sigmad_xz_r = get_sigma_xz_jac({ud_r,eta_c,eta_r,H_c,H_r},c_1,S_1,H_reg,i,j,ny,nx);
+    SigmaVertXZJacobian sigmad_xz_r = get_sigma_xz_jac({ud_r,eta_c,eta_r,H_c,H_r,B_c,B_r},c_1,S_1,H_reg,n,eps_reg,i,j,ny,nx);
 
     r[1] += sigmad_xz_r.res;
     J[10] += sigmad_xz_r.d_u_c;
@@ -566,7 +566,7 @@ __device__ void build_9x9_vanka(
     float B_t = get_cell(B,i-1,j,ny,nx);
     float B_c = get_cell(B,i,j,ny,nx);
 
-    SigmaVertYZJacobian sigmad_yz_t = get_sigma_yz_jac({vd_t,eta_t,eta_c,H_t,H_c},c_1,S_1,H_reg,i,j,ny,nx);
+    SigmaVertYZJacobian sigmad_yz_t = get_sigma_yz_jac({vd_t,eta_t,eta_c,H_t,H_c,B_t,B_c},c_1,S_1,H_reg,n,eps_reg,i,j,ny,nx);
 
     r[2] += sigmad_yz_t.res;
     J[20] += sigmad_yz_t.d_v_c;
@@ -583,7 +583,7 @@ __device__ void build_9x9_vanka(
     float B_c = get_cell(B,i,j,ny,nx);
     float B_b = get_cell(B,i+1,j,ny,nx);
 
-    SigmaVertYZJacobian sigmad_yz_b = get_sigma_yz_jac({vd_b,eta_c,eta_b,H_c,H_b},c_1,S_1,H_reg,i,j,ny,nx);
+    SigmaVertYZJacobian sigmad_yz_b = get_sigma_yz_jac({vd_b,eta_c,eta_b,H_c,H_b,B_c,B_b},c_1,S_1,H_reg,n,eps_reg,i,j,ny,nx);
 
     r[3] += sigmad_yz_b.res;
     J[30] += sigmad_yz_b.d_v_c;

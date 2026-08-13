@@ -94,7 +94,14 @@ class Rheology:
                                  shear terms: 1/H^2 -> 1/(H^2 + H_reg^2) \
                                  in the shear invariant, and consistently \
                                  eta/H -> eta*H/(H^2 + H_reg^2) in the \
-                                 shear residual. Zero recovers the \
+                                 shear residual (the variational pair - \
+                                 see get_sigma_xz_jac), plus a thin-ice \
+                                 reactive spring kappa(H)*ud that pins \
+                                 the deformational velocity on columns \
+                                 thinner than ~H_reg, where the \
+                                 regularized shear resistance would \
+                                 otherwise vanish and let bare steep \
+                                 terrain flow. Zero recovers the \
                                  unregularized model.")})
         )
 

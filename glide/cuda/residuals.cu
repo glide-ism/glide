@@ -247,7 +247,7 @@ void compute_residual(
             float H_l = get_cell(H,i,j-1,ny,nx);
             float H_c = get_cell(H,i,j,ny,nx);
             float ud_l = get_vfacet(ud,i,j,ny,nx);
-            SigmaVertXZJacobian sigmad_xz_l = get_sigma_xz_jac({ud_l,eta_l,eta_c,H_l,H_c},c_1,S_1,H_reg,i,j,ny,nx);
+            SigmaVertXZJacobian sigmad_xz_l = get_sigma_xz_jac({ud_l,eta_l,eta_c,H_l,H_c,get_cell(B,i,j-1,ny,nx),get_cell(B,i,j,ny,nx)},c_1,S_1,H_reg,n,eps_reg,i,j,ny,nx);
 
             rud_l += sigmad_xz_l.res;
             }
@@ -450,7 +450,7 @@ void compute_residual(
             float H_t = get_cell(H,i-1,j,ny,nx);
             float H_b = get_cell(H,i,j,ny,nx);
             float vd_t = get_hfacet(vd,i,j,ny,nx);
-            SigmaVertYZJacobian sigmad_yz_l = get_sigma_yz_jac({vd_t,eta_t,eta_b,H_t,H_b},c_1,S_1,H_reg,i,j,ny,nx);
+            SigmaVertYZJacobian sigmad_yz_l = get_sigma_yz_jac({vd_t,eta_t,eta_b,H_t,H_b,get_cell(B,i-1,j,ny,nx),get_cell(B,i,j,ny,nx)},c_1,S_1,H_reg,n,eps_reg,i,j,ny,nx);
 
             rvd_t += sigmad_yz_l.res;
             }
@@ -774,7 +774,7 @@ void compute_jvp(
             DualFloat H_c = get_cell(H,d_H,i,j,ny,nx);
 #if GLIDE_MOLHO
             DualFloat ud_l = get_vfacet(ud,d_ud,i,j,ny,nx);
-            DualFloat sigmad_xz_l = get_sigma_xz_dual({ud_l,eta_l,eta_c,H_l,H_c},c_1,S_1,H_reg,i,j,ny,nx);
+            DualFloat sigmad_xz_l = get_sigma_xz_dual({ud_l,eta_l,eta_c,H_l,H_c,get_cell(B,i,j-1,ny,nx),get_cell(B,i,j,ny,nx)},c_1,S_1,H_reg,n,eps_reg,i,j,ny,nx);
 
             d_rud_l += sigmad_xz_l.d;
 #endif
@@ -957,7 +957,7 @@ void compute_jvp(
             DualFloat H_t = get_cell(H,d_H,i-1,j,ny,nx);
             DualFloat H_b = get_cell(H,d_H,i,j,ny,nx);
             DualFloat vd_t = get_hfacet(vd,d_vd,i,j,ny,nx);
-            DualFloat sigmad_yz_t = get_sigma_yz_dual({vd_t,eta_t,eta_b,H_t,H_b},c_1,S_1,H_reg,i,j,ny,nx);
+            DualFloat sigmad_yz_t = get_sigma_yz_dual({vd_t,eta_t,eta_b,H_t,H_b,get_cell(B,i-1,j,ny,nx),get_cell(B,i,j,ny,nx)},c_1,S_1,H_reg,n,eps_reg,i,j,ny,nx);
 
             d_rvd_t += sigmad_yz_t.d;
             }
@@ -1408,7 +1408,7 @@ void compute_vjp(
 	    float ud_l = get_vfacet(ud,i,j,ny,nx);
 	    float lambda_ud_l = get_vfacet(lambda_ud,i,j,ny,nx);
 
-	    SigmaVertXZJacobian j_sigmad_xz_l = get_sigma_xz_jac({ud_l,eta_l.v,eta_c.v,H_l,H_c},c_1,S_1,H_reg,i,j,ny,nx);
+	    SigmaVertXZJacobian j_sigmad_xz_l = get_sigma_xz_jac({ud_l,eta_l.v,eta_c.v,H_l,H_c,get_cell(B,i,j-1,ny,nx),get_cell(B,i,j,ny,nx)},c_1,S_1,H_reg,n,eps_reg,i,j,ny,nx);
 
 	    float lambda_sigmad_xz_l = j_sigmad_xz_l.apply_jvp({lambda_ud_l,eta_l.d,eta_c.d,0.0f,0.0f});
 
@@ -1721,7 +1721,7 @@ void compute_vjp(
 	    float vd_t = get_hfacet(vd,i,j,ny,nx);
 	    float lambda_vd_t = get_hfacet(lambda_vd,i,j,ny,nx);
 
-	    SigmaVertYZJacobian j_sigmad_yz_t = get_sigma_yz_jac({vd_t,eta_t.v,eta_b.v,H_t,H_b},c_1,S_1,H_reg,i,j,ny,nx);
+	    SigmaVertYZJacobian j_sigmad_yz_t = get_sigma_yz_jac({vd_t,eta_t.v,eta_b.v,H_t,H_b,get_cell(B,i-1,j,ny,nx),get_cell(B,i,j,ny,nx)},c_1,S_1,H_reg,n,eps_reg,i,j,ny,nx);
 
 	    float lambda_sigmad_yz_t = j_sigmad_yz_t.apply_jvp({lambda_vd_t,eta_t.d,eta_b.d,0.0f,0.0f});
 
