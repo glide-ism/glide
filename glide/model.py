@@ -93,6 +93,7 @@ class IceDynamics:
         self.mg.levels[self.top_level].adjoint_operators.compute_gradient_H_prev(dt)
         self.mg.levels[self.top_level].adjoint_operators.compute_gradient_smb()
 
+
         return converged
         
 
