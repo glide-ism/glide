@@ -48,8 +48,8 @@ mg.rheology.n.set(3.0)
 mg.rheology.H_reg.set(25.0)
 
 ### Initialize sliding
-#BETA_PATH = None
-BETA_PATH = "./inverse/level_0/beta_opt.nc"
+BETA_PATH = None
+#BETA_PATH = "./inverse/level_0/beta_opt.nc"
 if BETA_PATH:
     import xarray as xr
     beta = cp.array(xr.load_dataarray(BETA_PATH))
@@ -70,7 +70,7 @@ mg.calving.calving_rate.set(2000.0)
 
 ### Initialize forcing
 smb = dataset.smb.values
-#smb += 1.0
+smb -= 1.0
 #smb[:] = 0.0
 mg.forcing.smb.set(smb)
 
@@ -110,7 +110,12 @@ v_b = Field(
         grid_entity=GridEntity.HORIZONTAL_FACET,
         dx=mg[0].dx, grid=mg[0], name='v_b', units='m a^{-1}',
         attrs={'long_name':'Basal velocity (y)'})
-
+srf  = Field(
+        data=cp.zeros((ny,nx),dtype=cp.float32),
+        grid_entity=GridEntity.CELL,
+        dx=mg[0].dx, grid=mg[0], name='srf', units='m',
+        attrs={'long_name':'Surface Elevation'})
+            
 
 def update_surface_velocity():
     u_s.data[:,:] = mg[0].state.u.data + mg[0].state.ud.data/(n_glen + 1.0)
@@ -120,11 +125,15 @@ def update_basal_velocity():
     u_b.data[:,:] = mg[0].state.u.data - mg[0].state.ud.data
     v_b.data[:,:] = mg[0].state.v.data - mg[0].state.vd.data
 
+def update_surface_elevation():
+    srf.data[:,:] = mg[0].state.H.data + mg[0].geometry.bed.data
+
 # Examples of different writing utilities - First writes to vti/pvd
 vti_writer = VTIWriter('forward/vti/', base='greenland', dx=mg[0].dx,
         static_fields={'bed':mg[0].geometry.bed,
                        'beta':mg[0].sliding.beta,},
         dynamic_fields={'H':mg[0].state.H,
+                        'srf':srf,
                         'U':[mg[0].state.u, mg[0].state.v],
                         'U_s':[u_s, v_s],
                         'U_b':[u_b, v_b],
@@ -160,6 +169,7 @@ while t < t_end:
     # Write
     update_surface_velocity()
     update_basal_velocity()
+    update_surface_elevation()
     vti_writer.append(mg[0],time=t)
     vti_writer.write_pvd()
     zarr_writer.append(mg[0],time=t)

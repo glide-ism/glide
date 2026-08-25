@@ -52,8 +52,8 @@ mg.rheology.H_reg.set(25.0)
 n_glen = 3.0
 
 ### Initialize sliding
-#BETA_PATH = None
-BETA_PATH = "./inverse/level_0/beta_opt.nc"
+BETA_PATH = None
+#BETA_PATH = "./inverse/level_0/beta_opt.nc"
 if BETA_PATH:
     import xarray as xr
     beta = cp.array(xr.load_dataarray(BETA_PATH))
