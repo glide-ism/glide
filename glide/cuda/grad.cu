@@ -12,6 +12,7 @@ void compute_gradient_beta(
     const float* __restrict__ lambda_vd,
     const float* __restrict__ lambda_H,
     const float* __restrict__ phi,
+    const float* __restrict__ psi,
     const float* __restrict__ xi,
     const float* __restrict__ mask,
     const float* __restrict__ bed,
@@ -20,7 +21,7 @@ void compute_gradient_beta(
     const float* __restrict__ gamma,
     float n, float eps_reg, float sigmoid_c,
     float m, float u_reg, float water_drag, float p,
-    float calving_rate, float flotation_reg_calving,
+    float calving_rate,
     float dx, float dt,
     int ny, int nx, int stride, int halo)
 {
@@ -112,6 +113,7 @@ void compute_gradient_bed(
     const float* __restrict__ lambda_v,
     const float* __restrict__ lambda_H,
     const float* __restrict__ phi,
+    const float* __restrict__ psi,
     const float* __restrict__ xi,
     const float* __restrict__ mask,
     const float* __restrict__ bed,
@@ -120,7 +122,7 @@ void compute_gradient_bed(
     const float* __restrict__ gamma,
     float n, float eps_reg, float sigmoid_c,
     float m, float u_reg, float water_drag, float p,     
-    float calving_rate, float flotation_reg_calving,
+    float calving_rate,
     float dx, float dt,
     int ny, int nx, int stride, int halo)
 {
@@ -155,6 +157,7 @@ void compute_gradient_bed(
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float phi_l  = get_cell(phi,i,j-1,ny,nx);
 	    float phi_c  = get_cell(phi,i,j,ny,nx);
+	    float psi_c = get_cell(psi,i,j,ny,nx);
 	    TauDxJacobian j_tau_dx = get_tau_dx_jac({H_l,H_c,bed_l,bed_c,phi_l,phi_c,sigmoid_c},dx_inv,i,j,ny,nx);
 
             // Dirichlet rows have no bed dependence (constraint convention)
@@ -173,6 +176,7 @@ void compute_gradient_bed(
 	    float bed_c = get_cell(bed,i,j,ny,nx);
 	    float phi_t  = get_cell(phi,i-1,j,ny,nx);
 	    float phi_c  = get_cell(phi,i,j,ny,nx);
+	    float psi_c = get_cell(psi,i,j,ny,nx);
 
 	    TauDyJacobian j_tau_dy = get_tau_dy_jac({H_t,H_c,bed_t,bed_c,phi_t,phi_c,sigmoid_c},dx_inv,i,j,ny,nx);
             

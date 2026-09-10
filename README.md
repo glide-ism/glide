@@ -164,8 +164,9 @@ where:
 
 The grounded-to-floating transition is handled with a smoothed (sigmoid)
 flotation criterion (`geometry.sigmoid_c`), and a
-non-conservative calving flux is applied between adjacent floating cells
-(`calving.calving_rate`).
+non-conservative calving flux is applied between adjacent cells that are both
+below a height-above-buoyancy threshold: ice calves where H < (1 + q) H_f
+(`calving.calving_rate`, `calving.q`; q = 0 calves exactly the floating ice).
 
 > Note: driving stress is measured in units of head, so the `ρg` factor is folded
 > into the definitions of `beta` and `B` (see the example scripts).

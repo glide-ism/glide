@@ -90,6 +90,7 @@ class Multigrid:
         self.restrict_cell(fine_grid.state.H.data,coarse_grid.state.H.data)
         self.restrict_cell(fine_grid.state.H_prev.data,coarse_grid.state.H_prev.data)
         self.restrict_cell(fine_grid.state.phi.data,coarse_grid.state.phi.data)
+        self.restrict_cell(fine_grid.state.psi.data,coarse_grid.state.psi.data)
         self.restrict_cell(fine_grid.state.xi.data,coarse_grid.state.xi.data)
         self.restrict_cell(fine_grid.state.mask.data,coarse_grid.state.mask.data,method='max')
 
@@ -114,7 +115,7 @@ class Multigrid:
 
     def restrict_calving(self,fine_grid,coarse_grid):
         coarse_grid.calving.calving_rate.set(fine_grid.calving.calving_rate.value)
-        coarse_grid.calving.flotation_reg_calving.set(fine_grid.calving.flotation_reg_calving.value)
+        coarse_grid.calving.q.set(fine_grid.calving.q.value)
     
     def restrict_forcing(self,fine_grid,coarse_grid):
         self.restrict_cell(fine_grid.forcing.smb.data,coarse_grid.forcing.smb.data)
@@ -345,6 +346,12 @@ class MGStateManager:
             restrict=lambda f,c: mg.restrict_cell(f.data,c.data,method='avg'),
             name="phi",
         )
+        self.psi = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.state.psi,
+            restrict=lambda f,c: mg.restrict_cell(f.data,c.data,method='avg'),
+            name="psi",
+        )
         self.xi = HierarchyFieldManager(
             mg.levels,
             getter=lambda g: g.state.xi,
@@ -520,11 +527,11 @@ class MGCalvingManager:
             name="calving_rate",
         )
         
-        self.flotation_reg_calving = HierarchyFieldManager(
+        self.q = HierarchyFieldManager(
             mg.levels,
-            getter=lambda g: g.calving.flotation_reg_calving,
+            getter=lambda g: g.calving.q,
             restrict=lambda f,c: c.set(f.value),
-            name="flotation_reg_calving",
+            name="q",
         )
 
     def __repr__(self):
@@ -1138,6 +1145,7 @@ class FASAdjointSolver:
         mg.restrict_cell(level.grid.state.H.data,next_level.grid.state.H.data)
         mg.restrict_cell(level.grid.state.H_prev.data,next_level.grid.state.H_prev.data)
         mg.restrict_cell(level.grid.state.phi.data,next_level.grid.state.phi.data)
+        mg.restrict_cell(level.grid.state.psi.data,next_level.grid.state.psi.data)
         mg.restrict_cell(level.grid.state.xi.data,next_level.grid.state.xi.data)
         mg.restrict_cell(level.grid.state.mask.data,next_level.grid.state.mask.data,method='max')
 

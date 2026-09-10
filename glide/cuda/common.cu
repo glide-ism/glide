@@ -125,6 +125,15 @@ __device__ __forceinline__ float get_flotation_fraction(const float H, const flo
    return fminf(fmaxf(z / (RHO_I_OVER_RHO_W*Hf), 0.0f), 1.0f);
 }
 
+// Calving flag psi = sigmoid(c (z - q rho_i/rho_w H)): the height-above-
+// buoyancy criterion. psi -> 0 where H < (1 + q) H_f, i.e. where the ice
+// is within a fraction q of its flotation thickness; the calving sink on a
+// facet is (1 - psi_this)(1 - psi_other). q = 0 makes psi identical to phi.
+__device__ __forceinline__ float get_calving_flag(const float H, const float depth, const float sigmoid_c, const float q)
+{
+   return sigmoid(flotation_excess(H, depth) - q*RHO_I_OVER_RHO_W*H, sigmoid_c);
+}
+
 __device__ __forceinline__ float get_vfacet(const float* __restrict__ u, int i, int j, int ny, int nx) {
     //if (i < 0 || i >= ny || j < 0 || j > nx) return 0.0f;
     i = max(min(i,ny - 1),0);

@@ -101,6 +101,7 @@ class ForwardOperators:
         if not freeze_phi:
             self.compute_phi()
             self.compute_xi()
+            self.compute_psi()
 
         if operator_only:
             out_u = self.F_u
@@ -120,7 +121,7 @@ class ForwardOperators:
         kernel(grid_size, block_size,
                (out_u, out_v, out_ud, out_vd, out_H,
                 state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data, 
-                state.phi.data, state.xi.data, state.mask.data,
+                state.phi.data, state.psi.data, state.xi.data, state.mask.data,
                 self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
                 geometry.bed.data, 
                 rheology.B.data, 
@@ -131,7 +132,7 @@ class ForwardOperators:
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value, 
                 sliding.water_drag.value, sliding.p.value,
-                calving_rate, calving.flotation_reg_calving.value,
+                calving_rate,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo)) 
 
@@ -163,12 +164,13 @@ class ForwardOperators:
         if not freeze_phi:
             self.compute_phi()
             self.compute_xi()
+            self.compute_psi()
 
         kernel(grid_size, block_size,
                (self.jvp_u, self.jvp_v, self.jvp_ud, self.jvp_vd, self.jvp_H,
                 state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data,
                 self.var_u, self.var_v, self.var_ud, self.var_vd, self.var_H,
-                state.phi.data, state.xi.data, state.mask.data,
+                state.phi.data, state.psi.data, state.xi.data, state.mask.data,
                 self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
                 geometry.bed.data,
                 rheology.B.data,
@@ -179,7 +181,7 @@ class ForwardOperators:
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value,
                 sliding.water_drag.value, sliding.p.value,
-                calving_rate, calving.flotation_reg_calving.value,
+                calving_rate,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo))
 
@@ -214,6 +216,20 @@ class ForwardOperators:
                     grid.ny, grid.nx, 
                     stride, halo))
 
+    def compute_psi(self, relaxation=cp.float32(0.0)):
+        kernel = self.kernels.get_function('compute_calving_flag')
+        grid_size, block_size, stride, halo = self._kernel_config
+
+        grid = self.grid
+        kernel(grid_size, block_size,
+                   (grid.state.psi.data,
+                    grid.state.H.data, grid.geometry.depth.data,
+                    grid.geometry.sigmoid_c.value,
+                    grid.calving.q.value,
+                    relaxation,
+                    grid.ny, grid.nx,
+                    stride, halo))
+
     def vanka_smooth(self, dt,
             freeze_calving=False,
             freeze_phi=False):
@@ -237,6 +253,7 @@ class ForwardOperators:
         if not freeze_phi:
             self.compute_phi(relaxation=self.vanka_config.relax_phi)
             self.compute_xi(relaxation=self.vanka_config.relax_phi)
+            self.compute_psi(relaxation=self.vanka_config.relax_phi)
 
         self.delta_u.fill(0.0)
         self.delta_v.fill(0.0)
@@ -249,7 +266,7 @@ class ForwardOperators:
                (self.delta_u, self.delta_v, self.delta_ud, self.delta_vd, self.delta_H,
                 state.mask.data,
                 state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data, 
-                state.phi.data, state.xi.data,
+                state.phi.data, state.psi.data, state.xi.data,
                 self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
                 geometry.bed.data, rheology.B.data, sliding.beta.data,
                 self.gamma,
@@ -259,7 +276,6 @@ class ForwardOperators:
                 sliding.water_drag.value,
                 sliding.p.value,
                 calving_rate,
-                calving.flotation_reg_calving.value,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
                 cp.int32(self.vanka_config.newton_config.steps),
@@ -297,7 +313,7 @@ class ForwardOperators:
                 grid.geometry.bed.data, grid.rheology.B.data, grid.sliding.beta.data, self.gamma,
                 grid.rheology.n.value, grid.rheology.eps_reg.value, grid.rheology.H_reg.value, grid.geometry.sigmoid_c.value,
                 grid.sliding.m.value, grid.sliding.u_reg.value, grid.sliding.water_drag.value, grid.sliding.p.value,
-                grid.calving.calving_rate.value, grid.calving.flotation_reg_calving.value,
+                grid.calving.calving_rate.value,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
                 bool(grid.ssa))
@@ -559,7 +575,7 @@ class AdjointOperators:
                 state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data,
                 self.lam_free_u, self.lam_free_v,
                 self.lam_free_ud, self.lam_free_vd, self.lam_free_H,
-                state.phi.data, state.xi.data, state.mask.data,
+                state.phi.data, state.psi.data, state.xi.data, state.mask.data,
                 self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
                 geometry.bed.data,
                 rheology.B.data,
@@ -570,7 +586,7 @@ class AdjointOperators:
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value,
                 sliding.water_drag.value, sliding.p.value,
-                calving_rate, calving.flotation_reg_calving.value,
+                calving_rate,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo))
 
@@ -642,7 +658,7 @@ class AdjointOperators:
                (self.delta_lambda_u, self.delta_lambda_v,
                 self.delta_lambda_ud, self.delta_lambda_vd, self.delta_lambda_H,
                 state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data,
-                state.phi.data, state.xi.data, state.mask.data,
+                state.phi.data, state.psi.data, state.xi.data, state.mask.data,
                 self.r_u, self.r_v, self.r_ud, self.r_vd, self.r_H,
                 geometry.bed.data, rheology.B.data, sliding.beta.data,
                 self.gamma,
@@ -652,7 +668,6 @@ class AdjointOperators:
                 sliding.water_drag.value,
                 sliding.p.value,
                 calving_rate,
-                calving.flotation_reg_calving.value,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
                 cp.float32(self.vanka_config.newton_config.momentum_damping),
@@ -705,7 +720,7 @@ class AdjointOperators:
                 state.u.data, state.v.data, state.ud.data, state.vd.data, state.H.data,
                 adjoint.lambda_u.data, adjoint.lambda_v.data,
                 lambda_ud, lambda_vd, adjoint.lambda_H.data,
-                state.phi.data, state.xi.data, state.mask.data,
+                state.phi.data, state.psi.data, state.xi.data, state.mask.data,
                 geometry.bed.data, 
                 rheology.B.data, 
                 sliding.beta.data,
@@ -714,7 +729,7 @@ class AdjointOperators:
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value, 
                 sliding.water_drag.value, sliding.p.value,
-                calving.calving_rate.value, calving.flotation_reg_calving.value,
+                calving.calving_rate.value,
                 grid.dx, cp.float32(0.0),
                 grid.ny, grid.nx, stride, halo)) 
 
@@ -736,7 +751,7 @@ class AdjointOperators:
                (geometry.bed.grad,
                 state.u.data, state.v.data, state.H.data, 
                 adjoint.lambda_u.data, adjoint.lambda_v.data, adjoint.lambda_H.data, 
-                state.phi.data, state.xi.data, state.mask.data,
+                state.phi.data, state.psi.data, state.xi.data, state.mask.data,
                 geometry.bed.data, 
                 rheology.B.data, 
                 sliding.beta.data,
@@ -745,7 +760,7 @@ class AdjointOperators:
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value, 
                 sliding.water_drag.value, sliding.p.value,
-                calving.calving_rate.value, calving.flotation_reg_calving.value,
+                calving.calving_rate.value,
                 grid.dx, cp.float32(0.0),
                 grid.ny, grid.nx, stride, halo)) 
 

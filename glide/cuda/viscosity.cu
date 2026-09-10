@@ -45,6 +45,29 @@ void compute_flotation_fraction(
     xi[i * nx + j] = (1.0f - relaxation_parameter) * xi_new + relaxation_parameter * xi_old;
 }
 
+extern "C" __global__
+void compute_calving_flag(
+    float* __restrict__ psi,
+    const float* __restrict__ H,
+    const float* __restrict__ depth,
+    float sigmoid_c,
+    float q,
+    float relaxation_parameter,
+    int ny, int nx,
+    int stride, int halo
+    )
+{
+    int j = blockIdx.x * stride + (threadIdx.x - halo);
+    int i = blockIdx.y * stride + (threadIdx.y - halo);    
+
+    if (i < 0 || i >= ny || j<0 || j >= nx) return;
+
+    float H_c = get_cell(H,i,j,ny,nx);
+    float depth_c = get_cell(depth,i,j,ny,nx);
+    float psi_old = psi[i * nx + j];
+    psi[i * nx + j] = (1.0f - relaxation_parameter) * get_calving_flag(H_c,depth_c,sigmoid_c,q) + relaxation_parameter * psi_old;
+}
+
 
 /*==================================================
   ================ VISCOSITY =======================

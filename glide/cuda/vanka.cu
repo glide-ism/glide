@@ -120,6 +120,7 @@ __device__ void build_9x9_vanka(
     const float* __restrict__ H,
     const float (&eta_local)[height][width], 
     const float* __restrict__ phi,
+    const float* __restrict__ psi,
     const float* __restrict__ xi,
     const float* __restrict__ bed,
     const float* __restrict__ B,
@@ -127,7 +128,7 @@ __device__ void build_9x9_vanka(
     const float* __restrict__ gamma,
     float n, float eps_reg, float H_reg, float sigmoid_c,
     float m, float u_reg, float water_drag, float p,
-    float calving_rate, float flotation_reg_calving,
+    float calving_rate,
     float dx, float dt,
     int ny, int nx,
     int i, int j,
@@ -139,10 +140,17 @@ __device__ void build_9x9_vanka(
     for (int k=0;k<9;k++) r[k] = 0.0f;
 
     float phi_c = get_cell(phi,i,j,ny,nx);
+
+    float psi_c = get_cell(psi,i,j,ny,nx);
     float phi_l = get_cell(phi,i,j-1,ny,nx);
     float phi_r = get_cell(phi,i,j+1,ny,nx);
     float phi_t = get_cell(phi,i-1,j,ny,nx);
     float phi_b = get_cell(phi,i+1,j,ny,nx);
+
+    float psi_l = get_cell(psi,i,j-1,ny,nx);
+    float psi_r = get_cell(psi,i,j+1,ny,nx);
+    float psi_t = get_cell(psi,i-1,j,ny,nx);
+    float psi_b = get_cell(psi,i+1,j,ny,nx);
 
     float K_1 = 1.0f / (2.0f * n + 3.0f);
     float S_1 = (n + 2.0f) * (n + 2.0f) / (2.0f * n + 1.0f);
@@ -162,7 +170,7 @@ __device__ void build_9x9_vanka(
     r[8]  -= j_l.res   * dx_inv;
 
 
-    FacetCalvingJacobian j_calve_l = get_facet_calving_jac({H_c,H_l,phi_c,phi_l,calving_rate,flotation_reg_calving},i,j,ny,nx);
+    FacetCalvingJacobian j_calve_l = get_facet_calving_jac({H_c,H_l,psi_c,psi_l,calving_rate},i,j,ny,nx);
     J[80] += j_calve_l.d_H_this * dx_inv;
     r[8] += j_calve_l.res*dx_inv;
 
@@ -172,7 +180,7 @@ __device__ void build_9x9_vanka(
     J[80] += j_r.d_H_l * dx_inv;
     r[8]  += j_r.res   * dx_inv;
     
-    FacetCalvingJacobian j_calve_r = get_facet_calving_jac({H_c,H_r,phi_c,phi_r,calving_rate,flotation_reg_calving},i,j+1,ny,nx);
+    FacetCalvingJacobian j_calve_r = get_facet_calving_jac({H_c,H_r,psi_c,psi_r,calving_rate},i,j+1,ny,nx);
     J[80] += j_calve_r.d_H_this * dx_inv;
     r[8] += j_calve_r.res * dx_inv;
 
@@ -183,7 +191,7 @@ __device__ void build_9x9_vanka(
     J[80] += j_t.d_H_b * dx_inv;
     r[8]  += j_t.res   * dx_inv;
 
-    FacetCalvingJacobian j_calve_t = get_facet_calving_jac({H_c,H_t,phi_c,phi_t,calving_rate,flotation_reg_calving},i,j,ny,nx);
+    FacetCalvingJacobian j_calve_t = get_facet_calving_jac({H_c,H_t,psi_c,psi_t,calving_rate},i,j,ny,nx);
     J[80] += j_calve_t.d_H_this * dx_inv;
     r[8] += j_calve_t.res * dx_inv;
 
@@ -193,7 +201,7 @@ __device__ void build_9x9_vanka(
     J[80] -= j_b.d_H_t * dx_inv;
     r[8]  -= j_b.res   * dx_inv;
 
-    FacetCalvingJacobian j_calve_b = get_facet_calving_jac({H_c,H_b,phi_c,phi_b,calving_rate,flotation_reg_calving},i+1,j,ny,nx);
+    FacetCalvingJacobian j_calve_b = get_facet_calving_jac({H_c,H_b,psi_c,psi_b,calving_rate},i+1,j,ny,nx);
     J[80] += j_calve_b.d_H_this * dx_inv;
     r[8] += j_calve_b.res * dx_inv;
     }
@@ -899,6 +907,7 @@ void vanka_smooth(
     const float* __restrict__ vd,
     const float* __restrict__ H,
     const float* __restrict__ phi,
+    const float* __restrict__ psi,
     const float* __restrict__ xi,
     const float* __restrict__ f_u,
     const float* __restrict__ f_v,
@@ -911,7 +920,7 @@ void vanka_smooth(
     const float* __restrict__ gamma,
     float n, float eps_reg, float H_reg, float sigmoid_c,
     float m, float u_reg, float water_drag, float p,
-    float calving_rate, float flotation_reg_calving,
+    float calving_rate,
     float dx, float dt,
     int ny, int nx, int stride, int halo,
     int newton_steps, float relaxation, float step_tolerance,
@@ -987,11 +996,11 @@ void vanka_smooth(
 	    build_9x9_vanka(J, r,
 		    u_l, u_r, v_t, v_b,
 		    ud_l, ud_r, vd_t, vd_b, H_c,
-		    u, v, ud, vd, H, eta_local, phi, xi,
+		    u, v, ud, vd, H, eta_local, phi, psi, xi,
                     bed, B, beta, gamma,
 		    n, eps_reg, H_reg, sigmoid_c,
                     m, u_reg, water_drag, p,
-		    calving_rate, flotation_reg_calving,
+		    calving_rate,
                     dx, dt, ny, nx, i, j, bi, bj);
             
 
@@ -1242,6 +1251,7 @@ void vanka_smooth_adjoint(
     const float* __restrict__ vd,
     const float* __restrict__ H,
     const float* __restrict__ phi,
+    const float* __restrict__ psi,
     const float* __restrict__ xi,
     const float* __restrict__ mask,
     const float* __restrict__ r_adj_u,
@@ -1255,7 +1265,7 @@ void vanka_smooth_adjoint(
     const float* __restrict__ gamma,
     float n, float eps_reg, float H_reg, float sigmoid_c,
     float m, float u_reg, float water_drag, float p,
-    float calving_rate, float flotation_reg_calving,
+    float calving_rate,
     float dx, float dt,
     int ny, int nx, int stride, int halo,
     float momentum_damping, float shear_damping, float mc_damping, bool ssa
@@ -1303,11 +1313,11 @@ void vanka_smooth_adjoint(
 	build_9x9_vanka(J, rhs,
 		u_l, u_r, v_t, v_b,
 		ud_l, ud_r, vd_t, vd_b, H_c,
-		u, v, ud, vd, H, eta_local, phi, xi,
+		u, v, ud, vd, H, eta_local, phi, psi, xi,
 		bed, B, beta, gamma,
 		n, eps_reg, H_reg, sigmoid_c,
 		m, u_reg, water_drag, p,
-		calving_rate, flotation_reg_calving,
+		calving_rate,
 		dx, dt, ny, nx, i, j, bi, bj);
 
 	// Additive diagonal shifts (pseudo-transient continuation), split by
@@ -1472,6 +1482,7 @@ void vanka_dump(
     const float* __restrict__ vd,
     const float* __restrict__ H,
     const float* __restrict__ phi,
+    const float* __restrict__ psi,
     const float* __restrict__ xi,
     const float* __restrict__ f_u,
     const float* __restrict__ f_v,
@@ -1484,7 +1495,7 @@ void vanka_dump(
     const float* __restrict__ gamma,
     float n, float eps_reg, float H_reg, float sigmoid_c,
     float m, float u_reg, float water_drag, float p,
-    float calving_rate, float flotation_reg_calving,
+    float calving_rate,
     float dx, float dt,
     int ny, int nx, int stride, int halo, bool ssa)
 {
@@ -1528,11 +1539,11 @@ void vanka_dump(
         build_9x9_vanka(J, r,
 	    u_l, u_r, v_t, v_b,
 	    ud_l, ud_r, vd_t, vd_b, H_c,
-	    u, v, ud, vd, H, eta_local, phi, xi,
+	    u, v, ud, vd, H, eta_local, phi, psi, xi,
 	    bed, B, beta, gamma,
 	    n, eps_reg, H_reg, sigmoid_c,
 	    m, u_reg, water_drag, p,
-	    calving_rate, flotation_reg_calving,
+	    calving_rate,
 	    dx, dt, ny, nx, i, j, bi, bj);
 	
 	r[0] -= get_vfacet(f_ud,i,j,ny,nx);

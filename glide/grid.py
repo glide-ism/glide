@@ -15,6 +15,7 @@ class State:
     H_prev: Field | None = None
     phi: Field | None = None
     xi: Field | None = None
+    psi: Field | None = None
     mask: Field | None = None
 
     def __repr__(self):
@@ -152,19 +153,19 @@ class Calving:
                         a facet when both cells are floating"})
         )
 
-    flotation_reg_calving: Constant = field(
+    q: Constant = field(
         default_factory=lambda: Constant(
-            value=cp.float32(0.1),
-            name='flotation_reg_calving',
-            units='m',
-            attrs={'long_name':("smoothing factor for pseudo-sigmoidal \
-                                  grounding flag used in calving. \
-                                  Larger values imply a smoother transition \
-                                  from grounded to floating physics")})
+            value=cp.float32(0.0),
+            name='q',
+            units='',
+            attrs={'long_name':("height-above-buoyancy calving margin: \
+                                  ice calves where H < (1 + q) H_f, i.e. \
+                                  where the calving flag psi vanishes. \
+                                  q = 0 calves exactly the floating ice.")})
         )
 
     def __repr__(self):
-        return f'{self.calving_rate}\n{self.flotation_reg_calving}'
+        return f'{self.calving_rate}\n{self.q}'
 
 @dataclass
 class Forcing:
@@ -336,17 +337,26 @@ class Grid:
             dx=self.dx,
             grid=self,
             name='phi',
-            units='m',
-            attrs={'long_name':'Potential head'})
+            units='',
+            attrs={'long_name':'Grounded flag: sigmoid(c z), blend weight in the driving stress'})
 
         xi = Field(
             data=cp.zeros((self.ny,self.nx),dtype=cp.float32),
             grid_entity=GridEntity.CELL,
             dx=self.dx,
             grid=self,
-            name='phi',
-            units='m',
-            attrs={'long_name':'Flotation fraction'})
+            name='xi',
+            units='',
+            attrs={'long_name':'Flotation fraction N / (rho_i g H), clipped to [0,1]'})
+
+        psi = Field(
+            data=cp.zeros((self.ny,self.nx),dtype=cp.float32),
+            grid_entity=GridEntity.CELL,
+            dx=self.dx,
+            grid=self,
+            name='psi',
+            units='',
+            attrs={'long_name':'Calving flag: sigmoid(c (z - q rho_i/rho_w H)), height-above-buoyancy criterion'})
 
 
         mask = Field(
@@ -359,7 +369,7 @@ class Grid:
             attrs={'long_name':'''Active set mask - if unity, thickness is 
                          set to thklim in Dirichlet BC fashion'''})
 
-        return State(u=u,v=v,ud=ud,vd=vd,H=H,H_prev=H_prev,phi=phi,xi=xi,mask=mask)
+        return State(u=u,v=v,ud=ud,vd=vd,H=H,H_prev=H_prev,phi=phi,xi=xi,psi=psi,mask=mask)
 
     def _allocate_adjoint_state(self):
         lambda_u = Field(
