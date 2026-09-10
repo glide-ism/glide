@@ -1,25 +1,9 @@
-template <int H, int W>
-__device__ void populate_grounded(
-    float (&grounded_local)[H][W],
-    int bi, int bj,
-    int i, int j,
-    const float* __restrict__ thk,
-    const float* __restrict__ bed,
-    float sigmoid_c,
-    int ny, int nx){
-
-    float H_c = get_cell(thk,i,j,ny,nx);
-    float bed_c = get_cell(bed,i,j,ny,nx);
-    grounded_local[bi][bj] = get_grounded(H_c,bed_c,sigmoid_c);
-}
-
 extern "C" __global__
 void compute_grounded(
     float* __restrict__ grounded,
     const float* __restrict__ H,
     const float* __restrict__ depth,
     float sigmoid_c,
-    float sigmoid_k,
     float relaxation_parameter,
     int ny, int nx,
     int stride, int halo
@@ -33,7 +17,7 @@ void compute_grounded(
     float H_c = get_cell(H,i,j,ny,nx);
     float depth_c = get_cell(depth,i,j,ny,nx);
     float grounded_old = grounded[i * nx + j];
-    grounded[i * nx + j] = (1.0f - relaxation_parameter) * get_grounded(H_c,depth_c,sigmoid_c, sigmoid_k) + relaxation_parameter * grounded_old;
+    grounded[i * nx + j] = (1.0f - relaxation_parameter) * get_grounded(H_c,depth_c,sigmoid_c) + relaxation_parameter * grounded_old;
 }
 
 extern "C" __global__
@@ -42,7 +26,6 @@ void compute_flotation_fraction(
     const float* __restrict__ H,
     const float* __restrict__ depth,
     float sigmoid_c,
-    float sigmoid_k,
     float relaxation_parameter,
     int ny, int nx,
     int stride, int halo
@@ -57,12 +40,7 @@ void compute_flotation_fraction(
     float depth_c = get_cell(depth,i,j,ny,nx);
     float xi_old = xi[i * nx + j];
 
-    // Floor H: the constraint machinery can leave H at tiny negative
-    // values in the ocean, and an unguarded ratio then produces xi far
-    // outside [0,1], detonating the drag coefficients. With the floor,
-    // H <= 0 with depth > 0 gives xi -> 0 (floating) and bare land
-    // (depth = 0) gives xi -> 1 (grounded; N ~ H*xi vanishes regardless).
-    float xi_new = 1.0f - fminf(1.0905f*depth_c/fmaxf(H_c,1e-3f),1.0f);
+    float xi_new = get_flotation_fraction(H_c, depth_c);
 
     xi[i * nx + j] = (1.0f - relaxation_parameter) * xi_new + relaxation_parameter * xi_old;
 }

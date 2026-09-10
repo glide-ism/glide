@@ -41,9 +41,8 @@ mg.state.H_prev.set(thk)
 ### Initialize geometry
 bed = gaussian_filter(dataset.bed.values,1)
 mg.geometry.bed.set(bed)
-mg.geometry.depth.set(np.maximum(-bed,0))
-mg.geometry.sigmoid_c.set(0.1)
-mg.geometry.sigmoid_k.set(3.0)
+mg.geometry.depth.set(-bed)
+mg.geometry.sigmoid_c.set(1.0)
 
 ### Initialize rheology
 B = cp.zeros((ny,nx), dtype=cp.float32)
@@ -61,7 +60,7 @@ beta.fill(2.5)
 
 mg.sliding.beta.set(beta)
 mg.sliding.m.set(1./3.)
-mg.sliding.water_drag.set(1e-3)
+mg.sliding.water_drag.set(1e-4)
 
 ### Initialize calving
 mg.calving.calving_rate.set(2000.0)
@@ -88,8 +87,8 @@ model.forward_solver.fas_options.set(
         relative_tolerance=1e-2, absolute_tolerance=10.0,
         report_norms=False)
 
-model.forward_solver.vanka_options.omega.set(cp.float32(0.25))
-model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.1))
+model.forward_solver.vanka_options.omega.set(cp.float32(0.5))
+model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.01))
 model.forward_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
 
 model.adjoint_solver.fas_options.set(
@@ -98,7 +97,7 @@ model.adjoint_solver.fas_options.set(
         relative_tolerance=1e-2, absolute_tolerance=1e-5, # Note that adjoint var
         report_norms=True)                               # adjoint var is small 
                                                           # in magnitude
-model.adjoint_solver.vanka_options.omega.set(cp.float32(0.25))
+model.adjoint_solver.vanka_options.omega.set(cp.float32(0.5))
 model.adjoint_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.01))
 model.adjoint_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
 

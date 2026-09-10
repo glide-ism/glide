@@ -52,21 +52,9 @@ class Geometry:
                                   Lower values imply a smoother transition \
                                   from grounded to floating physics")})
         )
-    sigmoid_k: Constant = field(
-        default_factory=lambda: Constant(
-            value=cp.float32(3.0),
-            name='sigmoid_k',
-            units='m^{-1}',
-            attrs={'long_name':("offset factor for sigmoidal \
-                                  grounding flag used in driving stress. \
-                                  larger values imply a more asymmetric \
-                                  transition from grounded to floating \
-                                  physics")})
-        )
-
 
     def __repr__(self):
-        return f'{self.bed.compact_string}\n{self.thklim}\n{self.flotation_reg_driving}'
+        return f'{self.bed.compact_string}\n{self.thklim}\n{self.sigmoid_c}'
 
 @dataclass
 class Rheology:
@@ -133,20 +121,24 @@ class Sliding:
             attrs={'long_name':'basal traction exerted by water'})
         )
 
-    flotation_reg_sliding: Constant = field(
+    p: Constant = field(
         default_factory=lambda: Constant(
-            value=cp.float32(0.1),
-            name='flotation_reg_sliding',
-            units='m',
-            attrs={'long_name':("smoothing factor for pseudo-sigmoidal \
-                                  grounding flag used in basal stress. \
-                                  Larger values imply a smoother transition \
-                                  from grounded to floating physics")})
+            value=cp.float32(1.0),
+            name='p',
+            units='',
+            attrs={'long_name':("effective pressure exponent: the basal \
+                                  traction coefficient is beta * xi^p, with \
+                                  xi = N / (rho_i g H) the flotation fraction \
+                                  (Leguy et al. 2014). p = 1 assumes full \
+                                  hydraulic connection to the ocean; p -> 0 \
+                                  confines the drag reduction to the \
+                                  grounding line and recovers a grounded flag \
+                                  (xi^0 is taken as 0 where xi = 0).")})
         )
 
 
     def __repr__(self):
-        return f'{self.beta.compact_string}\n{self.m}\n{self.u_reg}\n{self.water_drag}\n{self.flotation_reg_sliding}'
+        return f'{self.beta.compact_string}\n{self.m}\n{self.u_reg}\n{self.water_drag}\n{self.p}'
 
 @dataclass
 class Calving:

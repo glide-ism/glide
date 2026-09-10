@@ -130,7 +130,7 @@ class ForwardOperators:
                 rheology.n.value, rheology.eps_reg.value, rheology.H_reg.value,
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value, 
-                sliding.water_drag.value, sliding.flotation_reg_sliding.value,
+                sliding.water_drag.value, sliding.p.value,
                 calving_rate, calving.flotation_reg_calving.value,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo)) 
@@ -178,7 +178,7 @@ class ForwardOperators:
                 rheology.n.value, rheology.eps_reg.value, rheology.H_reg.value,
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value,
-                sliding.water_drag.value, sliding.flotation_reg_sliding.value,
+                sliding.water_drag.value, sliding.p.value,
                 calving_rate, calving.flotation_reg_calving.value,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo))
@@ -197,7 +197,6 @@ class ForwardOperators:
                    (grid.state.phi.data,
                     grid.state.H.data, grid.geometry.depth.data, 
                     grid.geometry.sigmoid_c.value,
-                    grid.geometry.sigmoid_k.value,
                     relaxation,
                     grid.ny, grid.nx, 
                     stride, halo))
@@ -211,7 +210,6 @@ class ForwardOperators:
                    (grid.state.xi.data,
                     grid.state.H.data, grid.geometry.depth.data, 
                     grid.geometry.sigmoid_c.value,
-                    grid.geometry.sigmoid_k.value,
                     relaxation,
                     grid.ny, grid.nx, 
                     stride, halo))
@@ -259,7 +257,7 @@ class ForwardOperators:
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value,
                 sliding.water_drag.value,
-                sliding.flotation_reg_sliding.value,
+                sliding.p.value,
                 calving_rate,
                 calving.flotation_reg_calving.value,
                 grid.dx, dt,
@@ -298,7 +296,7 @@ class ForwardOperators:
                 self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
                 grid.geometry.bed.data, grid.rheology.B.data, grid.sliding.beta.data, self.gamma,
                 grid.rheology.n.value, grid.rheology.eps_reg.value, grid.rheology.H_reg.value, grid.geometry.sigmoid_c.value,
-                grid.sliding.m.value, grid.sliding.u_reg.value, grid.sliding.water_drag.value, grid.sliding.flotation_reg_sliding.value,
+                grid.sliding.m.value, grid.sliding.u_reg.value, grid.sliding.water_drag.value, grid.sliding.p.value,
                 grid.calving.calving_rate.value, grid.calving.flotation_reg_calving.value,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
@@ -571,7 +569,7 @@ class AdjointOperators:
                 rheology.n.value, rheology.eps_reg.value, rheology.H_reg.value,
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value,
-                sliding.water_drag.value, sliding.flotation_reg_sliding.value,
+                sliding.water_drag.value, sliding.p.value,
                 calving_rate, calving.flotation_reg_calving.value,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo))
@@ -652,7 +650,7 @@ class AdjointOperators:
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value,
                 sliding.water_drag.value,
-                sliding.flotation_reg_sliding.value,
+                sliding.p.value,
                 calving_rate,
                 calving.flotation_reg_calving.value,
                 grid.dx, dt,
@@ -715,7 +713,7 @@ class AdjointOperators:
                 rheology.n.value, rheology.eps_reg.value, 
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value, 
-                sliding.water_drag.value, sliding.flotation_reg_sliding.value,
+                sliding.water_drag.value, sliding.p.value,
                 calving.calving_rate.value, calving.flotation_reg_calving.value,
                 grid.dx, cp.float32(0.0),
                 grid.ny, grid.nx, stride, halo)) 
@@ -746,7 +744,7 @@ class AdjointOperators:
                 rheology.n.value, rheology.eps_reg.value, 
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value, 
-                sliding.water_drag.value, sliding.flotation_reg_sliding.value,
+                sliding.water_drag.value, sliding.p.value,
                 calving.calving_rate.value, calving.flotation_reg_calving.value,
                 grid.dx, cp.float32(0.0),
                 grid.ny, grid.nx, stride, halo)) 

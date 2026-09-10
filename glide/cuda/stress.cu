@@ -431,7 +431,7 @@ struct TauBxStencil {
     float m;
     float u_reg;
     float water_drag;
-    float flotation_reg_sliding;
+    float p;
 };
 
 struct TauBxStencilDual {
@@ -443,11 +443,11 @@ struct TauBxStencilDual {
     float m;
     float u_reg;
     float water_drag;
-    float flotation_reg_sliding;
+    float p;
 
     __device__ __forceinline__
     TauBxStencil get_primals() const {
-        return {u_c.v,u_l.v,u_r.v,v_tl.v,v_tr.v,v_bl.v,v_br.v,H_l.v,H_r.v,xi_l,xi_r,beta_l,beta_r,m,u_reg,water_drag,flotation_reg_sliding};
+        return {u_c.v,u_l.v,u_r.v,v_tl.v,v_tr.v,v_bl.v,v_br.v,H_l.v,H_r.v,xi_l,xi_r,beta_l,beta_r,m,u_reg,water_drag,p};
     }
 
     __device__ __forceinline__
@@ -484,8 +484,10 @@ TauBxJacobian get_tau_bx_jac(
 {
     TauBxJacobian jac = {0};
 
-    float xi_l = powf(s.xi_l,1.0f);
-    float xi_r = powf(s.xi_r,1.0f);
+    // xi^p with the p -> 0 limit taken as a grounded flag: powf(0,0) is 1,
+    // which would restore full drag on floating ice, so pin xi = 0 to 0.
+    float xi_l = (s.xi_l > 0.0f) ? powf(s.xi_l,s.p) : 0.0f;
+    float xi_r = (s.xi_r > 0.0f) ? powf(s.xi_r,s.p) : 0.0f;
 
     float beta_eff_l = s.beta_l * xi_l;
     float beta_eff_r = s.beta_r * xi_r;
@@ -529,7 +531,7 @@ struct TauByStencil {
     float m;
     float u_reg;
     float water_drag;
-    float flotation_reg_sliding;
+    float p;
 };
 
 struct TauByStencilDual {
@@ -541,11 +543,11 @@ struct TauByStencilDual {
     float m;
     float u_reg;
     float water_drag;
-    float flotation_reg_sliding;
+    float p;
 
     __device__ __forceinline__
     TauByStencil get_primals() const {
-        return {v_c.v, v_t.v, v_b.v ,u_tl.v,u_tr.v,u_bl.v,u_br.v,H_t.v,H_b.v,xi_t,xi_b,beta_t,beta_b,m,u_reg,water_drag,flotation_reg_sliding};
+        return {v_c.v, v_t.v, v_b.v ,u_tl.v,u_tr.v,u_bl.v,u_br.v,H_t.v,H_b.v,xi_t,xi_b,beta_t,beta_b,m,u_reg,water_drag,p};
     }
 
     __device__ __forceinline__
@@ -582,8 +584,10 @@ TauByJacobian get_tau_by_jac(
 {
     TauByJacobian jac = {0};
 
-    float xi_t = powf(s.xi_t,1.0f);
-    float xi_b = powf(s.xi_b,1.0f);
+    // xi^p with the p -> 0 limit taken as a grounded flag: powf(0,0) is 1,
+    // which would restore full drag on floating ice, so pin xi = 0 to 0.
+    float xi_t = (s.xi_t > 0.0f) ? powf(s.xi_t,s.p) : 0.0f;
+    float xi_b = (s.xi_b > 0.0f) ? powf(s.xi_b,s.p) : 0.0f;
 
     float beta_eff_t = s.beta_t * xi_t;
     float beta_eff_b = s.beta_b * xi_b;
@@ -675,16 +679,14 @@ TauDxJacobian get_tau_dx_jac(
     }
 
     float H_avg = 0.5f*(s.H_l + s.H_r);
-    //float grounded_l = sigmoid(0.917f*s.H_l + s.bed_l,s.sigmoid_c);
-    //float grounded_r = sigmoid(0.917f*s.H_r + s.bed_r,s.sigmoid_c);
-    float grounded_l = s.phi_l;//sigmoid(s.phi_l,s.sigmoid_c);
-    float grounded_r = s.phi_r;//sigmoid(s.phi_r,s.sigmoid_c);
+    float grounded_l = s.phi_l;
+    float grounded_r = s.phi_r;
 
-    float base_l = grounded_l * s.bed_l - (1.0f - grounded_l)*0.917f*s.H_l;
-    float base_r = grounded_r * s.bed_r - (1.0f - grounded_r)*0.917f*s.H_r;
+    float base_l = grounded_l * s.bed_l - (1.0f - grounded_l)*RHO_I_OVER_RHO_W*s.H_l;
+    float base_r = grounded_r * s.bed_r - (1.0f - grounded_r)*RHO_I_OVER_RHO_W*s.H_r;
 
-    float dbase_dH_l = -(1.0f - grounded_l)*0.917f;
-    float dbase_dH_r = -(1.0f - grounded_r)*0.917f;
+    float dbase_dH_l = -(1.0f - grounded_l)*RHO_I_OVER_RHO_W;
+    float dbase_dH_r = -(1.0f - grounded_r)*RHO_I_OVER_RHO_W;
 
     float S_l = base_l + s.H_l;
     float S_r = base_r + s.H_r;
@@ -758,16 +760,14 @@ TauDyJacobian get_tau_dy_jac(
     }
 
     float H_avg = 0.5f*(s.H_t + s.H_b);
-    //float grounded_t = sigmoid(0.917f*s.H_t + s.bed_t,s.sigmoid_c);
-    //float grounded_b = sigmoid(0.917f*s.H_b + s.bed_b,s.sigmoid_c);
-    float grounded_t = s.phi_t;//sigmoid(s.phi_t,s.sigmoid_c);
-    float grounded_b = s.phi_b;//sigmoid(s.phi_b,s.sigmoid_c);
+    float grounded_t = s.phi_t;
+    float grounded_b = s.phi_b;
 
-    float base_t = grounded_t * s.bed_t - (1.0f - grounded_t)*0.917f*s.H_t;
-    float base_b = grounded_b * s.bed_b - (1.0f - grounded_b)*0.917f*s.H_b;
+    float base_t = grounded_t * s.bed_t - (1.0f - grounded_t)*RHO_I_OVER_RHO_W*s.H_t;
+    float base_b = grounded_b * s.bed_b - (1.0f - grounded_b)*RHO_I_OVER_RHO_W*s.H_b;
 
-    float dbase_dH_t = -(1.0f - grounded_t)*0.917f;
-    float dbase_dH_b = -(1.0f - grounded_b)*0.917f;
+    float dbase_dH_t = -(1.0f - grounded_t)*RHO_I_OVER_RHO_W;
+    float dbase_dH_b = -(1.0f - grounded_b)*RHO_I_OVER_RHO_W;
 
     float S_t = base_t + s.H_t;
     float S_b = base_b + s.H_b;

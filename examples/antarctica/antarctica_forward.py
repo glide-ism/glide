@@ -33,11 +33,10 @@ mg.state.H_prev.set(thk)
 
 ### Initialize geometry
 bed = dataset.bed
-depth = np.maximum(-dataset.bed,0.0)
+depth = -dataset.bed
 mg.geometry.bed.set(bed)
 mg.geometry.depth.set(depth)
-mg.geometry.sigmoid_c.set(0.1)
-mg.geometry.sigmoid_k.set(3.0)
+mg.geometry.sigmoid_c.set(1.0)
 
 ### Initialize rheology
 # Compute B (rate factor - we measure driving stress in units of head, 
@@ -52,8 +51,8 @@ mg.rheology.H_reg.set(25.0)
 n_glen = 3.0
 
 ### Initialize sliding
-BETA_PATH = None
-#BETA_PATH = "./inverse/level_0/beta_opt.nc"
+#BETA_PATH = None
+BETA_PATH = "./inverse/level_0/beta_opt.nc"
 if BETA_PATH:
     import xarray as xr
     beta = cp.array(xr.load_dataarray(BETA_PATH))
@@ -92,7 +91,7 @@ model.forward_solver.fas_options.set(
         relative_tolerance=1e-3, absolute_tolerance=10.0,
         report_norms=True)
 
-model.forward_solver.vanka_options.omega.set(cp.float32(0.25))
+model.forward_solver.vanka_options.omega.set(cp.float32(0.5))
 model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.01))
 model.forward_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
 

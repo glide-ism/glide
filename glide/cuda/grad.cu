@@ -18,8 +18,8 @@ void compute_gradient_beta(
     const float* __restrict__ B,
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
-    float n, float eps_reg, float flotation_reg_driving,
-    float m, float u_reg, float water_drag, float flotation_reg_sliding,
+    float n, float eps_reg, float sigmoid_c,
+    float m, float u_reg, float water_drag, float p,
     float calving_rate, float flotation_reg_calving,
     float dx, float dt,
     int ny, int nx, int stride, int halo)
@@ -63,7 +63,7 @@ void compute_gradient_beta(
 	    float xi_c  = get_cell(xi,i,j,ny,nx);
 	    float beta_l = get_cell(beta,i,j-1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauBxJacobian j_tau_bx = get_tau_bx_jac({ub_l,ub_ll,ub_r,vb_tl,vb_tr,vb_bl,vb_br,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
+	    TauBxJacobian j_tau_bx = get_tau_bx_jac({ub_l,ub_ll,ub_r,vb_tl,vb_tr,vb_bl,vb_br,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,p});
 
 	    // Dirichlet rows are identity rows with no beta dependence:
 	    // project out their multipliers (constraint convention, common.cu)
@@ -91,7 +91,7 @@ void compute_gradient_beta(
 	    float beta_t = get_cell(beta,i-1,j,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
 
-	    TauByJacobian j_tau_by = get_tau_by_jac({vb_t,vb_tt,vb_b,ub_tl,ub_tr,ub_bl,ub_br,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,flotation_reg_sliding});
+	    TauByJacobian j_tau_by = get_tau_by_jac({vb_t,vb_tt,vb_b,ub_tl,ub_tr,ub_bl,ub_br,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,p});
 
 	    float row_free = (i > 0 && i < ny);
 	    float lam_eff = row_free * (get_hfacet(lambda_v,i,j,ny,nx) - get_hfacet(lambda_vd,i,j,ny,nx));
@@ -118,8 +118,8 @@ void compute_gradient_bed(
     const float* __restrict__ B,
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
-    float n, float eps_reg, float flotation_reg_driving,
-    float m, float u_reg, float water_drag, float flotation_reg_sliding,     
+    float n, float eps_reg, float sigmoid_c,
+    float m, float u_reg, float water_drag, float p,     
     float calving_rate, float flotation_reg_calving,
     float dx, float dt,
     int ny, int nx, int stride, int halo)
@@ -155,7 +155,7 @@ void compute_gradient_bed(
 	    float bed_c  = get_cell(bed,i,j,ny,nx);
 	    float phi_l  = get_cell(phi,i,j-1,ny,nx);
 	    float phi_c  = get_cell(phi,i,j,ny,nx);
-	    TauDxJacobian j_tau_dx = get_tau_dx_jac({H_l,H_c,bed_l,bed_c,phi_l,phi_c,flotation_reg_driving},dx_inv,i,j,ny,nx);
+	    TauDxJacobian j_tau_dx = get_tau_dx_jac({H_l,H_c,bed_l,bed_c,phi_l,phi_c,sigmoid_c},dx_inv,i,j,ny,nx);
 
             // Dirichlet rows have no bed dependence (constraint convention)
             float lambda_u_l    = (j > 0 && j < nx) ? get_vfacet(lambda_u,i,j,ny,nx) : 0.0f;
@@ -174,7 +174,7 @@ void compute_gradient_bed(
 	    float phi_t  = get_cell(phi,i-1,j,ny,nx);
 	    float phi_c  = get_cell(phi,i,j,ny,nx);
 
-	    TauDyJacobian j_tau_dy = get_tau_dy_jac({H_t,H_c,bed_t,bed_c,phi_t,phi_c,flotation_reg_driving},dx_inv,i,j,ny,nx);
+	    TauDyJacobian j_tau_dy = get_tau_dy_jac({H_t,H_c,bed_t,bed_c,phi_t,phi_c,sigmoid_c},dx_inv,i,j,ny,nx);
             
 	    float lambda_v_t    = (i > 0 && i < ny) ? get_hfacet(lambda_v,i,j,ny,nx) : 0.0f;
 

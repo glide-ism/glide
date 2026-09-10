@@ -76,7 +76,7 @@ __device__ __forceinline__ DualFloat __powf(DualFloat u, float p) {
 
 __device__ __forceinline__ float sigmoid(const float z, const float c) {
    float scaled_z = fminf(fmaxf(c*z,-20.0f),20.0f);
-   return 1.0f/(1.0f + __expf(-scaled_z));
+   return 1.0f/(1.0f + expf(-scaled_z));
 }
 
 // Derivative of sigmoid w.r.t. z: d(sigmoid)/dz = c * sigmoid * (1 - sigmoid)
@@ -86,23 +86,43 @@ __device__ __forceinline__ float sigmoid_deriv(const float z, const float c) {
 }
 
 
-//__device__ __forceinline__ float get_grounded(const float H, const float bed, const float sigmoid_c) 
-//{
-//   float z = bed + 0.917f*H;
-//   return sigmoid(z, sigmoid_c);
-//}
+/*==================================================
+  ============ Flotation (single source) ===========
+  ==================================================*/
+// Ice/water density ratio. Every grounded/floating quantity in the model
+// derives from the flotation excess below, so this is the only place the
+// ratio is typed.
+#define RHO_I_OVER_RHO_W 0.917f
 
-//__device__ __forceinline__ float get_grounded(const float H, const float bed, const float sigmoid_c) 
-//{
-//   float depth = fmaxf(-bed,0.0f);
-//   float z = 0.917f*H - depth;
-//   return fmaxf( fminf(1.0f + sigmoid_c*z,0.99f),0.01f);
-//}
+// Thickness floor for ratios in H: the constraint machinery can leave H at
+// tiny negative values in the ocean.
+#define FLOTATION_H_MIN 1e-3f
 
-__device__ __forceinline__ float get_grounded(const float H, const float depth, const float sigmoid_c, const float sigmoid_k) 
+// Flotation excess z = rho_i/rho_w * H - depth, in metres of water column.
+// depth is the signed head deficit (water level minus bed): positive under
+// water, negative on dry land. z > 0 grounded, z < 0 floating, z = 0 at
+// flotation; the effective pressure is N = rho_w g z.
+__device__ __forceinline__ float flotation_excess(const float H, const float depth)
 {
-   float z = 0.917f*H - depth + sigmoid_k/sigmoid_c;
-   return sigmoid(z,sigmoid_c);
+   return RHO_I_OVER_RHO_W*H - depth;
+}
+
+// Grounded flag phi = sigmoid(c z): the swish-form blend weight for the
+// driving stress. Unbiased: phi = 1/2 exactly at flotation.
+__device__ __forceinline__ float get_grounded(const float H, const float depth, const float sigmoid_c)
+{
+   return sigmoid(flotation_excess(H, depth), sigmoid_c);
+}
+
+// Flotation fraction xi = N / (rho_i g H) = z / (rho_i/rho_w H), clipped to
+// [0,1]. Used as beta * xi^p in the sliding law. The floored H is used in z
+// as well, so a bed at the water line with vanishing thickness reads as
+// grounded (xi = 1) rather than as an H/H_MIN fraction.
+__device__ __forceinline__ float get_flotation_fraction(const float H, const float depth)
+{
+   float Hf = fmaxf(H, FLOTATION_H_MIN);
+   float z  = flotation_excess(Hf, depth);
+   return fminf(fmaxf(z / (RHO_I_OVER_RHO_W*Hf), 0.0f), 1.0f);
 }
 
 __device__ __forceinline__ float get_vfacet(const float* __restrict__ u, int i, int j, int ny, int nx) {

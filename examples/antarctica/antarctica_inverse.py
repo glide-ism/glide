@@ -41,9 +41,8 @@ mg.state.H_prev.set(thk)
 ### Initialize geometry
 bed = gaussian_filter(dataset.bed.values,1)
 mg.geometry.bed.set(bed)
-mg.geometry.depth.set(np.maximum(-bed,0.0))
+mg.geometry.depth.set(-bed)
 mg.geometry.sigmoid_c.set(0.1)
-mg.geometry.sigmoid_k.set(3.0)
 
 ### Initialize rheology
 B = cp.zeros((ny,nx), dtype=cp.float32)
@@ -92,8 +91,8 @@ model.forward_solver.fas_options.set(
         relative_tolerance=1e-2, absolute_tolerance=10.0,
         report_norms=True)
 
-model.forward_solver.vanka_options.omega.set(cp.float32(0.25))
-model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.1))
+model.forward_solver.vanka_options.omega.set(cp.float32(0.5))
+model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.01))
 model.forward_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
 
 model.adjoint_solver.fas_options.set(
@@ -102,7 +101,7 @@ model.adjoint_solver.fas_options.set(
         relative_tolerance=1e-2, absolute_tolerance=1e-5, # Note that adjoint var
         report_norms=True)                               # adjoint var is small 
                                                           # in magnitude
-model.adjoint_solver.vanka_options.omega.set(cp.float32(0.25))
+model.adjoint_solver.vanka_options.omega.set(cp.float32(0.5))
 model.adjoint_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.01))
 model.adjoint_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
 

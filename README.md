@@ -163,7 +163,7 @@ where:
 - SMB: surface mass balance
 
 The grounded-to-floating transition is handled with a smoothed (sigmoid)
-flotation criterion (`geometry.sigmoid_c`, `geometry.sigmoid_k`), and a
+flotation criterion (`geometry.sigmoid_c`), and a
 non-conservative calving flux is applied between adjacent floating cells
 (`calving.calving_rate`).
 

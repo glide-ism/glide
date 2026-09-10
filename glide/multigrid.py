@@ -98,7 +98,6 @@ class Multigrid:
         self.restrict_cell(fine_grid.geometry.depth.data,coarse_grid.geometry.depth.data)
         coarse_grid.geometry.thklim.set(fine_grid.geometry.thklim.value)
         coarse_grid.geometry.sigmoid_c.set(fine_grid.geometry.sigmoid_c.value)
-        coarse_grid.geometry.sigmoid_k.set(fine_grid.geometry.sigmoid_k.value)
 
     def restrict_rheology(self,fine_grid,coarse_grid):
         self.restrict_cell(fine_grid.rheology.B.data,coarse_grid.rheology.B.data)
@@ -111,7 +110,7 @@ class Multigrid:
         coarse_grid.sliding.m.set(fine_grid.sliding.m.value)
         coarse_grid.sliding.u_reg.set(fine_grid.sliding.u_reg.value)
         coarse_grid.sliding.water_drag.set(fine_grid.sliding.water_drag.value)
-        coarse_grid.sliding.flotation_reg_sliding.set(fine_grid.sliding.flotation_reg_sliding.value)
+        coarse_grid.sliding.p.set(fine_grid.sliding.p.value)
 
     def restrict_calving(self,fine_grid,coarse_grid):
         coarse_grid.calving.calving_rate.set(fine_grid.calving.calving_rate.value)
@@ -428,13 +427,6 @@ class MGGeometryManager:
             name="sigmoid_c",
         )
         
-        self.sigmoid_k = HierarchyFieldManager(
-            mg.levels,
-            getter=lambda g: g.geometry.sigmoid_k,
-            restrict=lambda f,c: c.set(f.value),
-            name="sigmoid_k",
-        )
-
         self.thklim = HierarchyFieldManager(
             mg.levels,
             getter=lambda g: g.geometry.thklim,
@@ -508,11 +500,11 @@ class MGSlidingManager:
             name="water_drag",
         )
         
-        self.flotation_reg_sliding = HierarchyFieldManager(
+        self.p = HierarchyFieldManager(
             mg.levels,
-            getter=lambda g: g.sliding.flotation_reg_sliding,
+            getter=lambda g: g.sliding.p,
             restrict=lambda f,c: c.set(f.value),
-            name="flotation_reg_sliding",
+            name="p",
         )
 
     def __repr__(self):

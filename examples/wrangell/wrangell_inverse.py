@@ -72,8 +72,10 @@ mg.state.H_prev.set(0.1)
 
 ### Initialize geometry
 mg.geometry.bed.set(gridded_data.elevation)
+# depth is the signed head deficit (water level minus bed); sea level here,
+# so the terrestrial domain is far above flotation everywhere.
+mg.geometry.depth.set(-gridded_data.elevation)
 mg.geometry.sigmoid_c.set(1.0)
-mg.geometry.sigmoid_k.set(5.0)
 
 ### Initialize rheology
 # Compute B (rate factor - we measure driving stress in units of head, so the rho g factor gets subsumed into definitions of beta and B!)
