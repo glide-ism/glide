@@ -33,6 +33,7 @@ mg.state.H_prev.set(thk)
 
 ### Initialize geometry
 bed = gaussian_filter(dataset.bed.values,1)
+mg.geometry.thklim.set(1.0)
 mg.geometry.bed.set(bed)
 mg.geometry.depth.set(-bed)
 mg.geometry.sigmoid_c.set(1.0)
@@ -56,7 +57,7 @@ else:
     beta = cp.zeros((ny,nx), dtype=cp.float32)
     beta.fill(2.5)
 
-beta[beta>50] = 50
+beta[beta>20] = 20
 
 mg.sliding.beta.set(beta)
 mg.sliding.m.set(1./3)
@@ -80,7 +81,7 @@ model.forward_solver.fas_options.set(
         relative_tolerance=1e-2, absolute_tolerance=10.0,
         report_norms=True)
 
-model.forward_solver.vanka_options.omega.set(cp.float32(0.25))
+model.forward_solver.vanka_options.omega.set(cp.float32(0.5))
 model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.01))
 model.forward_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
 
@@ -137,7 +138,8 @@ vti_writer = VTIWriter('forward/vti/', base='greenland', dx=mg[0].dx,
                         'U_s':[u_s, v_s],
                         'U_b':[u_b, v_b],
                         'mask':mg[0].state.mask,
-                        'xi':mg[0].state.xi}
+                        'xi':mg[0].state.xi,
+                        'phi':mg[0].state.phi}
         )
 vti_writer.initialize(mg[0])
 
@@ -158,7 +160,7 @@ zarr_writer.initialize(mg[0],overwrite=True)
 # Run simulation
 t = cp.float32(0.0)
 t_end = cp.float32(1000.0)
-dt = cp.float32(20.0)
+dt = cp.float32(10.0)
 
 while t < t_end:
     print(f"Solving forward problem at t={t} with dt={dt:.2f}")

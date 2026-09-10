@@ -52,7 +52,7 @@ dx = x[1]-x[0]
 # ny and nx must both divide by 2^(n_levels - 1) cleanly!
 model = IceDynamics(n_levels=5,ny=ny,nx=nx,dx=dx,
         x0=x[0],y0=y[0],
-        crs=crs,stress_scheme='ssa')
+        crs=crs,stress_scheme='molho')
 mg = model.mg
 
 ### Initialize state
@@ -61,6 +61,7 @@ mg.state.H_prev.set(thk)
 
 ### Initialize geometry
 mg.geometry.bed.set(bed)
+mg.geometry.depth.set(-bed)
 
 ### Initialize rheology
 # Compute B (rate factor - we measure driving stress in units of head, so the rho g factor gets subsumed into definitions of beta and B!)
