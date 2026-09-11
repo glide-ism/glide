@@ -308,7 +308,7 @@ class ForwardOperators:
         r = cp.zeros((self.grid.ny*self.grid.nx,9),dtype=cp.float32)
         kernel(grid_size, block_size,
                (J,r,
-                grid.state.u.data, grid.state.v.data, grid.state.ud.data, grid.state.vd.data, grid.state.H.data, grid.state.phi.data, grid.state.xi.data,
+                grid.state.u.data, grid.state.v.data, grid.state.ud.data, grid.state.vd.data, grid.state.H.data, grid.state.phi.data, grid.state.psi.data, grid.state.xi.data,
                 self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
                 grid.geometry.bed.data, grid.rheology.B.data, grid.sliding.beta.data, self.gamma,
                 grid.rheology.n.value, grid.rheology.eps_reg.value, grid.rheology.H_reg.value, grid.geometry.sigmoid_c.value,
