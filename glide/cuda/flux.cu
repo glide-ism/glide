@@ -147,66 +147,69 @@ DualFloat get_vertical_flux_dual(
   ==========  CALVING ==========================
   =============================================*/
 
-// Non-conservative calving sink through a facet: ice leaves the cell at
-// speed calving_rate wherever both cells are below the height-above-
-// buoyancy threshold carried by the calving flag psi (see common.cu).
-struct FacetCalvingStencil {
-    float H_this, H_other;
-    float psi_this, psi_other;
+// Non-conservative calving sink on a cell: ice is removed at the rate
+// H / timescale wherever the cell is below the height-above-buoyancy
+// threshold carried by the calving flag psi (see common.cu). The kernel
+// scalar calving_rate is the inverse timescale (a^-1); freeze_calving
+// passes 0. Under implicit Euler a flagged cell decays by the factor
+// 1 / (1 + dt * calving_rate) per step; the active set (H >= thklim)
+// takes over once the decayed thickness falls below thklim, which is what
+// lets a cell empty completely.
+struct CellCalvingStencil {
+    float H;
+    float psi;
     float calving_rate;
 };
 
-struct FacetCalvingStencilDual {
-    DualFloat H_this, H_other;
-    float psi_this, psi_other;
+struct CellCalvingStencilDual {
+    DualFloat H;
+    float psi;
     float calving_rate;
 
     __device__ __forceinline__
-    FacetCalvingStencil get_primals() const {
-        return {H_this.v,H_other.v,psi_this,psi_other,calving_rate};
+    CellCalvingStencil get_primals() const {
+        return {H.v,psi,calving_rate};
     }
 
     __device__ __forceinline__
-    FacetCalvingStencil get_diffs() const {
-        return {H_this.d,H_other.d,0.0f,0.0f,0.0f};
+    CellCalvingStencil get_diffs() const {
+        return {H.d,0.0f,0.0f};
     }
 };
 
-struct FacetCalvingJacobian {
+struct CellCalvingJacobian {
     float res;
-    float d_H_this;
+    float d_H;
 
     __device__ __forceinline__
-    float apply_jvp(const FacetCalvingStencil& dot) const {
-        return d_H_this * dot.H_this;
+    float apply_jvp(const CellCalvingStencil& dot) const {
+        return d_H * dot.H;
     }
 
 };
 
 __device__
-FacetCalvingJacobian get_facet_calving_jac(
-    FacetCalvingStencil s,
-    int i, int j,  // Defined on facets
+CellCalvingJacobian get_cell_calving_jac(
+    CellCalvingStencil s,
+    int i, int j,
     int ny, int nx
     ) {
 
-    FacetCalvingJacobian jac = {0};
+    CellCalvingJacobian jac = {0};
 
-    float chi_this  = 1.0f - s.psi_this;
-    float chi_other = 1.0f - s.psi_other;
-    float coeff = chi_this*chi_other;
-    jac.res = coeff * s.calving_rate * s.H_this;
-    jac.d_H_this = coeff * s.calving_rate;
-    
+    float coeff = (1.0f - s.psi) * s.calving_rate;
+    jac.res = coeff * s.H;
+    jac.d_H = coeff;
+
     return jac;
 }
 
 __device__ __forceinline__
-DualFloat get_facet_calving_dual(
-    FacetCalvingStencilDual s,
+DualFloat get_cell_calving_dual(
+    CellCalvingStencilDual s,
     int i, int j,
     int ny, int nx) {
-    FacetCalvingJacobian jac = get_facet_calving_jac(s.get_primals(),i,j,ny,nx);
+    CellCalvingJacobian jac = get_cell_calving_jac(s.get_primals(),i,j,ny,nx);
     return {jac.res,jac.apply_jvp(s.get_diffs())};
 }
 

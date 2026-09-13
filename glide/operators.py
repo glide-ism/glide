@@ -3,6 +3,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+
+def calving_rate(calving, freeze=False):
+    """Kernel-side calving rate (a^-1): the inverse of calving.timescale.
+
+    Single conversion point between the user-facing decay timescale and
+    the multiplicative rate the kernels apply as (1 - psi) * rate * H.
+    freeze (coarse levels under freeze_coarse_calving) and an infinite
+    timescale both give 0.
+    """
+    if freeze:
+        return cp.float32(0.0)
+    tau = float(calving.timescale.value)
+    if not tau > 0.0:
+        raise ValueError(f"calving.timescale must be positive (inf disables calving), got {tau}")
+    return cp.float32(1.0/tau)   # 1/inf == 0: calving off
+
+
 class ForwardOperators:
     def __init__(self,grid,
             use_fast_math=True):
@@ -93,10 +110,7 @@ class ForwardOperators:
         calving = grid.calving
         forcing = grid.forcing
 
-        if freeze_calving:
-            calving_rate = cp.float32(0.0)
-        else:
-            calving_rate = calving.calving_rate.value
+        rate = calving_rate(calving, freeze_calving)
 
         if not freeze_phi:
             self.compute_phi()
@@ -132,7 +146,7 @@ class ForwardOperators:
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value, 
                 sliding.water_drag.value, sliding.p.value,
-                calving_rate,
+                rate,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo)) 
 
@@ -156,10 +170,7 @@ class ForwardOperators:
         calving = grid.calving
         forcing = grid.forcing
 
-        if freeze_calving:
-            calving_rate = cp.float32(0.0)
-        else:
-            calving_rate = calving.calving_rate.value
+        rate = calving_rate(calving, freeze_calving)
 
         if not freeze_phi:
             self.compute_phi()
@@ -181,7 +192,7 @@ class ForwardOperators:
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value,
                 sliding.water_drag.value, sliding.p.value,
-                calving_rate,
+                rate,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo))
 
@@ -225,7 +236,8 @@ class ForwardOperators:
                    (grid.state.psi.data,
                     grid.state.H.data, grid.geometry.depth.data,
                     grid.geometry.sigmoid_c.value,
-                    grid.calving.q.value,
+                    grid.calving.q.data,
+                    grid.calving.h0.data,
                     relaxation,
                     grid.ny, grid.nx,
                     stride, halo))
@@ -245,10 +257,7 @@ class ForwardOperators:
         calving = grid.calving
         forcing = grid.forcing
 
-        if freeze_calving:
-            calving_rate = cp.float32(0.0)
-        else:
-            calving_rate = calving.calving_rate.value
+        rate = calving_rate(calving, freeze_calving)
 
         if not freeze_phi:
             self.compute_phi(relaxation=self.vanka_config.relax_phi)
@@ -275,7 +284,7 @@ class ForwardOperators:
                 sliding.m.value, sliding.u_reg.value,
                 sliding.water_drag.value,
                 sliding.p.value,
-                calving_rate,
+                rate,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
                 cp.int32(self.vanka_config.newton_config.steps),
@@ -313,7 +322,7 @@ class ForwardOperators:
                 grid.geometry.bed.data, grid.rheology.B.data, grid.sliding.beta.data, self.gamma,
                 grid.rheology.n.value, grid.rheology.eps_reg.value, grid.rheology.H_reg.value, grid.geometry.sigmoid_c.value,
                 grid.sliding.m.value, grid.sliding.u_reg.value, grid.sliding.water_drag.value, grid.sliding.p.value,
-                grid.calving.calving_rate.value,
+                calving_rate(grid.calving),
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
                 bool(grid.ssa))
@@ -536,10 +545,7 @@ class AdjointOperators:
         sliding = grid.sliding
         calving = grid.calving
 
-        if freeze_calving:
-            calving_rate = cp.float32(0.0)
-        else:
-            calving_rate = calving.calving_rate.value
+        rate = calving_rate(calving, freeze_calving)
 
         # Row projection
         self.lam_free_u[:,:] = adjoint.lambda_u.data
@@ -586,7 +592,7 @@ class AdjointOperators:
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value,
                 sliding.water_drag.value, sliding.p.value,
-                calving_rate,
+                rate,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo))
 
@@ -644,10 +650,7 @@ class AdjointOperators:
         calving = grid.calving
         forcing = grid.forcing
 
-        if freeze_calving:
-            calving_rate = cp.float32(0.0)
-        else:
-            calving_rate = calving.calving_rate.value
+        rate = calving_rate(calving, freeze_calving)
 
         self.delta_lambda_u.fill(0.0)
         self.delta_lambda_v.fill(0.0)
@@ -667,7 +670,7 @@ class AdjointOperators:
                 sliding.m.value, sliding.u_reg.value,
                 sliding.water_drag.value,
                 sliding.p.value,
-                calving_rate,
+                rate,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
                 cp.float32(self.vanka_config.newton_config.momentum_damping),
@@ -729,7 +732,7 @@ class AdjointOperators:
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value, 
                 sliding.water_drag.value, sliding.p.value,
-                calving.calving_rate.value,
+                calving_rate(calving),
                 grid.dx, cp.float32(0.0),
                 grid.ny, grid.nx, stride, halo)) 
 
@@ -760,7 +763,7 @@ class AdjointOperators:
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value, 
                 sliding.water_drag.value, sliding.p.value,
-                calving.calving_rate.value,
+                calving_rate(calving),
                 grid.dx, cp.float32(0.0),
                 grid.ny, grid.nx, stride, halo)) 
 

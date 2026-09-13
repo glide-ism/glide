@@ -143,29 +143,32 @@ class Sliding:
 
 @dataclass
 class Calving:
-    calving_rate: Constant = field(
+    timescale: Constant = field(
         default_factory = lambda: Constant(
-            value=cp.float32(0.0),
-            name='calving_rate',
-            units='m a^{-1}',
-            attrs={'long_name':"The speed at which ice \
-                        nonconservatively fluxes through \
-                        a facet when both cells are floating"})
+            value=cp.float32(cp.inf),
+            name='timescale',
+            units='a',
+            attrs={'long_name':("decay timescale of the calving sink: a cell \
+                        below the height-above-buoyancy threshold (calving \
+                        flag psi = 0) loses ice at the rate H / timescale, \
+                        i.e. by a factor 1 / (1 + dt / timescale) per \
+                        implicit step, until the active set pins it at \
+                        thklim. inf disables calving.")})
         )
 
-    q: Constant = field(
-        default_factory=lambda: Constant(
-            value=cp.float32(0.0),
-            name='q',
-            units='',
-            attrs={'long_name':("height-above-buoyancy calving margin: \
-                                  ice calves where H < (1 + q) H_f, i.e. \
-                                  where the calving flag psi vanishes. \
-                                  q = 0 calves exactly the floating ice.")})
-        )
+    # Height-above-buoyancy calving criterion, hybrid threshold:
+    #   ice calves where H - H_f < q H + h0   (psi = 0 there),
+    # i.e. within a FRACTION q of its thickness plus an ABSOLUTE margin h0
+    # (m) of flotation. Both are cell fields (like sliding.beta) so they can
+    # vary along the coast, e.g. under an ocean thermal forcing
+    # q = q0 + alpha_q dTF, h0 = h00 + alpha_h dTF; a scalar .set() fills
+    # them uniformly. Restricted by averaging. q = h0 = 0 calves exactly the
+    # floating ice.
+    q: Field | None = None
+    h0: Field | None = None
 
     def __repr__(self):
-        return f'{self.calving_rate}\n{self.q}'
+        return f'{self.timescale}\n{self.q.compact_string}\n{self.h0.compact_string}'
 
 @dataclass
 class Forcing:
@@ -465,7 +468,27 @@ class Grid:
         return Sliding(beta=beta)
 
     def _allocate_calving(self):
-        return Calving()
+        q = Field(
+            data=cp.zeros((self.ny,self.nx),dtype=cp.float32),
+            grid_entity=GridEntity.CELL,
+            dx=self.dx,
+            grid=self,
+            name='q',
+            units='',
+            attrs={'long_name':("multiplicative height-above-buoyancy calving "
+                                "margin: ice calves where H - H_f < q H + h0 "
+                                "(calving flag psi = 0). q = h0 = 0 calves "
+                                "exactly the floating ice.")})
+        h0 = Field(
+            data=cp.zeros((self.ny,self.nx),dtype=cp.float32),
+            grid_entity=GridEntity.CELL,
+            dx=self.dx,
+            grid=self,
+            name='h0',
+            units='m',
+            attrs={'long_name':("additive height-above-buoyancy calving "
+                                "margin: ice calves where H - H_f < q H + h0")})
+        return Calving(q=q, h0=h0)
     
     def _allocate_forcing(self):
         smb = Field(

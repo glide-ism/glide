@@ -76,9 +76,6 @@ void compute_residual(
 	    
 	    float phi_l = get_cell(phi,i,j-1,ny,nx);
 	    
-	    float psi_l = get_cell(psi,i,j-1,ny,nx);
-	    FacetCalvingJacobian j_calve_l = get_facet_calving_jac({H_c,H_l,psi_c,psi_l,calving_rate},i,j,ny,nx);
-	    rH += j_calve_l.res*dx_inv;
 
 	    float H_r = get_cell(H,i,j+1,ny,nx);
 	    float u_r = get_vfacet(u,i,j+1,ny,nx);
@@ -87,9 +84,6 @@ void compute_residual(
 	    
 	    float phi_r = get_cell(phi,i,j+1,ny,nx);
 	    
-	    float psi_r = get_cell(psi,i,j+1,ny,nx);
-	    FacetCalvingJacobian j_calve_r = get_facet_calving_jac({H_c,H_r,psi_c,psi_r,calving_rate},i,j+1,ny,nx);
-	    rH += j_calve_r.res*dx_inv;
 
 	    float H_t = get_cell(H,i-1,j,ny,nx);
 	    float v_t = get_hfacet(v,i,j,ny,nx);
@@ -98,9 +92,6 @@ void compute_residual(
 
 	    float phi_t = get_cell(phi,i-1,j,ny,nx);
 
-	    float psi_t = get_cell(psi,i-1,j,ny,nx);
-	    FacetCalvingJacobian j_calve_t = get_facet_calving_jac({H_c,H_t,psi_c,psi_t,calving_rate},i,j,ny,nx);
-	    rH += j_calve_t.res*dx_inv;
 
 
 	    float H_b = get_cell(H,i+1,j,ny,nx);
@@ -112,9 +103,8 @@ void compute_residual(
 	    float phi_b = get_cell(phi,i+1,j,ny,nx);
 
 
-	    float psi_b = get_cell(psi,i+1,j,ny,nx);
-	    FacetCalvingJacobian j_calve_b = get_facet_calving_jac({H_c,H_b,psi_c,psi_b,calving_rate},i+1,j,ny,nx);
-	    rH += j_calve_b.res*dx_inv;
+	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,psi_c,calving_rate},i,j,ny,nx);
+	    rH += j_calve.res;
 
 	    float masked = use_mask ? get_cell(mask,i,j,ny,nx) : 0.0f;
 	    float thklim = get_cell(gamma,i,j,ny,nx);
@@ -627,9 +617,6 @@ void compute_jvp(
 
 	    float phi_l = get_cell(phi,i,j-1,ny,nx);
 
-	    float psi_l = get_cell(psi,i,j-1,ny,nx);
-	    DualFloat q_calve_l = get_facet_calving_dual({H_c,H_l,psi_c,psi_l,calving_rate},i,j,ny,nx);
-	    d_rH += q_calve_l.d*dx_inv;
 
 	    DualFloat H_r = get_cell(H,d_H,i,j+1,ny,nx);
 	    DualFloat u_r = get_vfacet(u,d_u,i,j+1,ny,nx);
@@ -638,9 +625,6 @@ void compute_jvp(
 
 	    float phi_r = get_cell(phi,i,j+1,ny,nx);
 
-	    float psi_r = get_cell(psi,i,j+1,ny,nx);
-	    DualFloat q_calve_r = get_facet_calving_dual({H_c,H_r,psi_c,psi_r,calving_rate},i,j+1,ny,nx);
-	    d_rH += q_calve_r.d*dx_inv;
 
 	    DualFloat H_t = get_cell(H,d_H,i-1,j,ny,nx);
 	    DualFloat v_t = get_hfacet(v,d_v,i,j,ny,nx);
@@ -649,9 +633,6 @@ void compute_jvp(
 
 	    float phi_t = get_cell(phi,i-1,j,ny,nx);
 
-	    float psi_t = get_cell(psi,i-1,j,ny,nx);
-	    DualFloat q_calve_t = get_facet_calving_dual({H_c,H_t,psi_c,psi_t,calving_rate},i,j,ny,nx);
-	    d_rH += q_calve_t.d*dx_inv;
 
 	    DualFloat H_b = get_cell(H,d_H,i+1,j,ny,nx);
 	    DualFloat v_b = get_hfacet(v,d_v,i+1,j,ny,nx);
@@ -660,9 +641,8 @@ void compute_jvp(
 
 	    float phi_b = get_cell(phi,i+1,j,ny,nx);
 
-	    float psi_b = get_cell(psi,i+1,j,ny,nx);
-	    DualFloat q_calve_b = get_facet_calving_dual({H_c,H_b,psi_c,psi_b,calving_rate},i+1,j,ny,nx);
-	    d_rH += q_calve_b.d*dx_inv;
+	    DualFloat q_calve = get_cell_calving_dual({H_c,psi_c,calving_rate},i,j,ny,nx);
+	    d_rH += q_calve.d;
 
 	    // Identity row on the active set, mirroring compute_residual
 	    float masked = use_mask ? get_cell(mask,i,j,ny,nx) : 0.0f;
@@ -1165,9 +1145,6 @@ void compute_vjp(
 
 	    float phi_l = get_cell(phi,i,j-1,ny,nx);
 
-	    float psi_l = get_cell(psi,i,j-1,ny,nx);
-	    FacetCalvingJacobian j_calve_l = get_facet_calving_jac({H_c,H_l,psi_c,psi_l,calving_rate},i,j,ny,nx);
-	    atomicAdd(&s_adj_H[bi][bj],   lambda_H_c*j_calve_l.d_H_this*dx_inv);
            
 	    float H_r = get_cell(H,i,j+1,ny,nx);
 	    float u_r = get_vfacet(u,i,j+1,ny,nx);
@@ -1178,9 +1155,6 @@ void compute_vjp(
 
 	    float phi_r = get_cell(phi,i,j+1,ny,nx);
 
-	    float psi_r = get_cell(psi,i,j+1,ny,nx);
-	    FacetCalvingJacobian j_calve_r = get_facet_calving_jac({H_c,H_r,psi_c,psi_r,calving_rate},i,j+1,ny,nx);
-	    atomicAdd(&s_adj_H[bi][bj], lambda_H_c*j_calve_r.d_H_this*dx_inv);
 
 	    float H_t = get_cell(H,i-1,j,ny,nx);
 	    float v_t = get_hfacet(v,i,j,ny,nx);
@@ -1191,9 +1165,6 @@ void compute_vjp(
 
 	    float phi_t = get_cell(phi,i-1,j,ny,nx);
 
-	    float psi_t = get_cell(psi,i-1,j,ny,nx);
-	    FacetCalvingJacobian j_calve_t = get_facet_calving_jac({H_c,H_t,psi_c,psi_t,calving_rate},i,j,ny,nx);
-	    atomicAdd(&s_adj_H[bi][bj], lambda_H_c*j_calve_t.d_H_this*dx_inv);
 
 
 	    float H_b = get_cell(H,i+1,j,ny,nx);
@@ -1205,9 +1176,8 @@ void compute_vjp(
 
 	    float phi_b = get_cell(phi,i+1,j,ny,nx);
 
-	    float psi_b = get_cell(psi,i+1,j,ny,nx);
-	    FacetCalvingJacobian j_calve_b = get_facet_calving_jac({H_c,H_b,psi_c,psi_b,calving_rate},i+1,j,ny,nx);
-	    atomicAdd(&s_adj_H[bi][bj], lambda_H_c*j_calve_b.d_H_this*dx_inv);
+	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,psi_c,calving_rate},i,j,ny,nx);
+	    atomicAdd(&s_adj_H[bi][bj], lambda_H_c*j_calve.d_H);
 
 	    //float masked = use_mask ? get_cell(mask,i,j,ny,nx) : 0.0f;
 	    //float lambda_H_c_ = get_cell(lambda_H,i,j,ny,nx);

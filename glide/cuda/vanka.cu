@@ -147,10 +147,6 @@ __device__ void build_9x9_vanka(
     float phi_t = get_cell(phi,i-1,j,ny,nx);
     float phi_b = get_cell(phi,i+1,j,ny,nx);
 
-    float psi_l = get_cell(psi,i,j-1,ny,nx);
-    float psi_r = get_cell(psi,i,j+1,ny,nx);
-    float psi_t = get_cell(psi,i-1,j,ny,nx);
-    float psi_b = get_cell(psi,i+1,j,ny,nx);
 
     float K_1 = 1.0f / (2.0f * n + 3.0f);
     float S_1 = (n + 2.0f) * (n + 2.0f) / (2.0f * n + 1.0f);
@@ -170,9 +166,6 @@ __device__ void build_9x9_vanka(
     r[8]  -= j_l.res   * dx_inv;
 
 
-    FacetCalvingJacobian j_calve_l = get_facet_calving_jac({H_c,H_l,psi_c,psi_l,calving_rate},i,j,ny,nx);
-    J[80] += j_calve_l.d_H_this * dx_inv;
-    r[8] += j_calve_l.res*dx_inv;
 
     float H_r = get_cell(H,i,j+1,ny,nx);
     HorizontalFluxJacobian j_r = get_horizontal_flux_jac({u_r, H_c, H_r}, i, j+1, ny, nx);
@@ -180,9 +173,6 @@ __device__ void build_9x9_vanka(
     J[80] += j_r.d_H_l * dx_inv;
     r[8]  += j_r.res   * dx_inv;
     
-    FacetCalvingJacobian j_calve_r = get_facet_calving_jac({H_c,H_r,psi_c,psi_r,calving_rate},i,j+1,ny,nx);
-    J[80] += j_calve_r.d_H_this * dx_inv;
-    r[8] += j_calve_r.res * dx_inv;
 
     // Y-Fluxes (Vertical in grid coordinates)
     float H_t = get_cell(H,i-1,j,ny,nx);
@@ -191,9 +181,6 @@ __device__ void build_9x9_vanka(
     J[80] += j_t.d_H_b * dx_inv;
     r[8]  += j_t.res   * dx_inv;
 
-    FacetCalvingJacobian j_calve_t = get_facet_calving_jac({H_c,H_t,psi_c,psi_t,calving_rate},i,j,ny,nx);
-    J[80] += j_calve_t.d_H_this * dx_inv;
-    r[8] += j_calve_t.res * dx_inv;
 
     float H_b = get_cell(H,i+1,j,ny,nx);
     VerticalFluxJacobian j_b = get_vertical_flux_jac({v_b, H_c, H_b}, i+1, j, ny, nx);
@@ -201,9 +188,10 @@ __device__ void build_9x9_vanka(
     J[80] -= j_b.d_H_t * dx_inv;
     r[8]  -= j_b.res   * dx_inv;
 
-    FacetCalvingJacobian j_calve_b = get_facet_calving_jac({H_c,H_b,psi_c,psi_b,calving_rate},i+1,j,ny,nx);
-    J[80] += j_calve_b.d_H_this * dx_inv;
-    r[8] += j_calve_b.res * dx_inv;
+    // Cell-centred calving sink (see flux.cu)
+    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,psi_c,calving_rate},i,j,ny,nx);
+    J[80] += j_calve.d_H;
+    r[8]  += j_calve.res;
     }
     
     {

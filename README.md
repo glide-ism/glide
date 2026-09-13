@@ -164,9 +164,13 @@ where:
 
 The grounded-to-floating transition is handled with a smoothed (sigmoid)
 flotation criterion (`geometry.sigmoid_c`), and a
-non-conservative calving flux is applied between adjacent cells that are both
-below a height-above-buoyancy threshold: ice calves where H < (1 + q) H_f
-(`calving.calving_rate`, `calving.q`; q = 0 calves exactly the floating ice).
+non-conservative calving sink removes ice from cells below a
+height-above-buoyancy threshold at the rate H / timescale: ice calves where
+H < (1 + q) H_f (`calving.timescale`, `calving.q`; q = 0 calves exactly the
+floating ice, an infinite timescale disables calving). A flagged cell decays
+by a factor 1 / (1 + dt / timescale) per implicit step until the active set
+pins it at `thklim`, so a timescale much shorter than the time step empties
+flagged cells within a step or two.
 
 > Note: driving stress is measured in units of head, so the `ρg` factor is folded
 > into the definitions of `beta` and `B` (see the example scripts).

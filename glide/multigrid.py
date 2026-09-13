@@ -114,8 +114,9 @@ class Multigrid:
         coarse_grid.sliding.p.set(fine_grid.sliding.p.value)
 
     def restrict_calving(self,fine_grid,coarse_grid):
-        coarse_grid.calving.calving_rate.set(fine_grid.calving.calving_rate.value)
-        coarse_grid.calving.q.set(fine_grid.calving.q.value)
+        coarse_grid.calving.timescale.set(fine_grid.calving.timescale.value)
+        self.restrict_cell(fine_grid.calving.q.data,coarse_grid.calving.q.data)
+        self.restrict_cell(fine_grid.calving.h0.data,coarse_grid.calving.h0.data)
     
     def restrict_forcing(self,fine_grid,coarse_grid):
         self.restrict_cell(fine_grid.forcing.smb.data,coarse_grid.forcing.smb.data)
@@ -520,18 +521,25 @@ class MGSlidingManager:
 class MGCalvingManager:
     def __init__(self, mg):
         self.mg = mg
-        self.calving_rate = HierarchyFieldManager(
+        self.timescale = HierarchyFieldManager(
             mg.levels,
-            getter=lambda g: g.calving.calving_rate,
+            getter=lambda g: g.calving.timescale,
             restrict=lambda f,c: c.set(f.value),
-            name="calving_rate",
+            name="timescale",
         )
         
         self.q = HierarchyFieldManager(
             mg.levels,
             getter=lambda g: g.calving.q,
-            restrict=lambda f,c: c.set(f.value),
+            restrict=lambda f,c: mg.restrict_cell(f.data,c.data,method='avg'),
             name="q",
+        )
+
+        self.h0 = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.calving.h0,
+            restrict=lambda f,c: mg.restrict_cell(f.data,c.data,method='avg'),
+            name="h0",
         )
 
     def __repr__(self):

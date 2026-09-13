@@ -48,8 +48,8 @@ mg.rheology.n.set(3.0)
 mg.rheology.H_reg.set(25.0)
 
 ### Initialize sliding
-BETA_PATH = None
-#BETA_PATH = "./inverse/level_0/beta_opt.nc"
+#BETA_PATH = None
+BETA_PATH = "./inverse/level_0/beta_opt.nc"
 if BETA_PATH:
     import xarray as xr
     beta = cp.array(xr.load_dataarray(BETA_PATH))
@@ -64,9 +64,10 @@ mg.sliding.m.set(1./3)
 mg.sliding.water_drag.set(1.0e-4)
 
 ### Initialize calving
-# Specifies calving velocity for a non-conservative
-# calving flux over facets between adjacent floating cells
-mg.calving.calving_rate.set(2000.0) 
+# Decay timescale (years) of the non-conservative calving sink on
+# cells below the height-above-buoyancy threshold; cp.inf disables it
+mg.calving.timescale.set(0.5)
+mg.calving.q.set(-0.5)
 
 ### Initialize forcing
 smb = dataset.smb.values
@@ -126,7 +127,7 @@ def update_basal_velocity():
     v_b.data[:,:] = mg[0].state.v.data - mg[0].state.vd.data
 
 def update_surface_elevation():
-    srf.data[:,:] = mg[0].state.H.data + mg[0].geometry.bed.data
+    srf.data[:,:] = cp.maximum(mg[0].state.H.data + mg[0].geometry.bed.data, (1 - 0.917)*mg[0].state.H.data)
 
 # Examples of different writing utilities - First writes to vti/pvd
 vti_writer = VTIWriter('forward/vti/', base='greenland', dx=mg[0].dx,

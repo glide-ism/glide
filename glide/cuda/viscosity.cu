@@ -51,7 +51,8 @@ void compute_calving_flag(
     const float* __restrict__ H,
     const float* __restrict__ depth,
     float sigmoid_c,
-    float q,
+    const float* __restrict__ q,
+    const float* __restrict__ h0,
     float relaxation_parameter,
     int ny, int nx,
     int stride, int halo
@@ -64,8 +65,10 @@ void compute_calving_flag(
 
     float H_c = get_cell(H,i,j,ny,nx);
     float depth_c = get_cell(depth,i,j,ny,nx);
+    float q_c = get_cell(q,i,j,ny,nx);
+    float h0_c = get_cell(h0,i,j,ny,nx);
     float psi_old = psi[i * nx + j];
-    psi[i * nx + j] = (1.0f - relaxation_parameter) * get_calving_flag(H_c,depth_c,sigmoid_c,q) + relaxation_parameter * psi_old;
+    psi[i * nx + j] = (1.0f - relaxation_parameter) * get_calving_flag(H_c,depth_c,sigmoid_c,q_c,h0_c) + relaxation_parameter * psi_old;
 }
 
 

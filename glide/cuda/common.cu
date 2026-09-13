@@ -125,13 +125,15 @@ __device__ __forceinline__ float get_flotation_fraction(const float H, const flo
    return fminf(fmaxf(z / (RHO_I_OVER_RHO_W*Hf), 0.0f), 1.0f);
 }
 
-// Calving flag psi = sigmoid(c (z - q rho_i/rho_w H)): the height-above-
-// buoyancy criterion. psi -> 0 where H < (1 + q) H_f, i.e. where the ice
-// is within a fraction q of its flotation thickness; the calving sink on a
-// facet is (1 - psi_this)(1 - psi_other). q = 0 makes psi identical to phi.
-__device__ __forceinline__ float get_calving_flag(const float H, const float depth, const float sigmoid_c, const float q)
+// Calving flag psi = sigmoid(c (z - rho_i/rho_w (q H + h0))): the hybrid
+// height-above-buoyancy criterion. With HAB = H - H_f = (rho_w/rho_i) z,
+// psi -> 0 where HAB < q H + h0, i.e. where the ice is within a fraction q
+// of its thickness plus an absolute margin h0 (m) of flotation; the calving
+// sink on a facet is (1 - psi_this)(1 - psi_other). q = h0 = 0 makes psi
+// identical to phi.
+__device__ __forceinline__ float get_calving_flag(const float H, const float depth, const float sigmoid_c, const float q, const float h0)
 {
-   return sigmoid(flotation_excess(H, depth) - q*RHO_I_OVER_RHO_W*H, sigmoid_c);
+   return sigmoid(flotation_excess(H, depth) - RHO_I_OVER_RHO_W*(q*H + h0), sigmoid_c);
 }
 
 __device__ __forceinline__ float get_vfacet(const float* __restrict__ u, int i, int j, int ny, int nx) {

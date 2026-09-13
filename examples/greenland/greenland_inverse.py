@@ -63,7 +63,7 @@ mg.sliding.m.set(1./3.)
 mg.sliding.water_drag.set(1e-4)
 
 ### Initialize calving
-mg.calving.calving_rate.set(2000.0)
+mg.calving.timescale.set(0.1)
 
 ### Initialize forcing
 smb = dataset.smb.values

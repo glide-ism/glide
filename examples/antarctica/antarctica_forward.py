@@ -68,9 +68,9 @@ mg.sliding.u_reg.set(1.0)
 mg.sliding.water_drag.set(1e-5)
 
 ### Initialize calving
-# Specifies calving velocity for a non-conservative
-# calving flux over facets between adjacent floating cells
-mg.calving.calving_rate.set(0.0) 
+# Decay timescale (years) of the non-conservative calving sink on
+# cells below the height-above-buoyancy threshold; cp.inf disables it
+mg.calving.timescale.set(cp.inf)
 
 ### Initialize forcing
 smb = dataset.smb.values
