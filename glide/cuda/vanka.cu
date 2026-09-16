@@ -121,6 +121,7 @@ __device__ void build_9x9_vanka(
     const float (&eta_local)[height][width], 
     const float* __restrict__ phi,
     const float* __restrict__ psi,
+    const float* __restrict__ dpsi_dH,
     const float* __restrict__ xi,
     const float* __restrict__ bed,
     const float* __restrict__ B,
@@ -188,8 +189,13 @@ __device__ void build_9x9_vanka(
     J[80] -= j_b.d_H_t * dx_inv;
     r[8]  -= j_b.res   * dx_inv;
 
-    // Cell-centred calving sink (see flux.cu)
-    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,psi_c,calving_rate},i,j,ny,nx);
+    // Cell-centred calving sink (see flux.cu). The PATCH uses the frozen-flag
+    // Jacobian (dpsi/dH = 0): the flag is a switch ~1/c wide in flotation
+    // excess, narrower than one thickness update at tongue fronts, so the
+    // exact slope makes the local Newton step anti-diffusive there and the
+    // sweep diverges (tested 2026-09-15). The residual/JVP/VJP operators and
+    // the bed gradient carry the exact term (state.dpsi_dH).
+    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,psi_c,calving_rate,0.0f},i,j,ny,nx);
     J[80] += j_calve.d_H;
     r[8]  += j_calve.res;
     }
@@ -896,6 +902,7 @@ void vanka_smooth(
     const float* __restrict__ H,
     const float* __restrict__ phi,
     const float* __restrict__ psi,
+    const float* __restrict__ dpsi_dH,
     const float* __restrict__ xi,
     const float* __restrict__ f_u,
     const float* __restrict__ f_v,
@@ -984,7 +991,7 @@ void vanka_smooth(
 	    build_9x9_vanka(J, r,
 		    u_l, u_r, v_t, v_b,
 		    ud_l, ud_r, vd_t, vd_b, H_c,
-		    u, v, ud, vd, H, eta_local, phi, psi, xi,
+		    u, v, ud, vd, H, eta_local, phi, psi, dpsi_dH, xi,
                     bed, B, beta, gamma,
 		    n, eps_reg, H_reg, sigmoid_c,
                     m, u_reg, water_drag, p,
@@ -1240,6 +1247,7 @@ void vanka_smooth_adjoint(
     const float* __restrict__ H,
     const float* __restrict__ phi,
     const float* __restrict__ psi,
+    const float* __restrict__ dpsi_dH,
     const float* __restrict__ xi,
     const float* __restrict__ mask,
     const float* __restrict__ r_adj_u,
@@ -1301,7 +1309,7 @@ void vanka_smooth_adjoint(
 	build_9x9_vanka(J, rhs,
 		u_l, u_r, v_t, v_b,
 		ud_l, ud_r, vd_t, vd_b, H_c,
-		u, v, ud, vd, H, eta_local, phi, psi, xi,
+		u, v, ud, vd, H, eta_local, phi, psi, dpsi_dH, xi,
 		bed, B, beta, gamma,
 		n, eps_reg, H_reg, sigmoid_c,
 		m, u_reg, water_drag, p,
@@ -1471,6 +1479,7 @@ void vanka_dump(
     const float* __restrict__ H,
     const float* __restrict__ phi,
     const float* __restrict__ psi,
+    const float* __restrict__ dpsi_dH,
     const float* __restrict__ xi,
     const float* __restrict__ f_u,
     const float* __restrict__ f_v,
@@ -1527,7 +1536,7 @@ void vanka_dump(
         build_9x9_vanka(J, r,
 	    u_l, u_r, v_t, v_b,
 	    ud_l, ud_r, vd_t, vd_b, H_c,
-	    u, v, ud, vd, H, eta_local, phi, psi, xi,
+	    u, v, ud, vd, H, eta_local, phi, psi, dpsi_dH, xi,
 	    bed, B, beta, gamma,
 	    n, eps_reg, H_reg, sigmoid_c,
 	    m, u_reg, water_drag, p,

@@ -16,6 +16,8 @@ class State:
     phi: Field | None = None
     xi: Field | None = None
     psi: Field | None = None
+    dpsi_dH: Field | None = None     # d psi / dH of the calving flag (transport Jacobian)
+    dpsi_dbed: Field | None = None   # d psi / d bed (bed gradient)
     mask: Field | None = None
 
     def __repr__(self):
@@ -166,9 +168,26 @@ class Calving:
     # floating ice.
     q: Field | None = None
     h0: Field | None = None
+    # Floating-ice (shelf) minimum thickness (m). The calving flag is the
+    # single monotone criterion psi = sigmoid(c r (H - H_calve)) with the
+    # critical thickness blended between the grounded law H_g = (depth/r +
+    # h0)/(1 - q) and the shelf law H_c by a linear ramp in the gap between
+    # ice base and bed (see common.cu calving_F): floating ice down to
+    # H_c - h0 calves iff the margin is positive, thinner floating ice
+    # calves below H_c, so tongues exist only under a negative margin.
+    # inf (the default) = the grounded law everywhere (floating ice always
+    # calves, the pre-2026-09-15 behaviour).
+    H_c: Constant = field(
+        default_factory=lambda: Constant(
+            value=cp.float32(cp.inf),
+            name='H_c',
+            units='m',
+            attrs={'long_name':("shelf minimum thickness of the gap-blended "
+                                "calving criterion (see common.cu calving_F)")})
+        )
 
     def __repr__(self):
-        return f'{self.timescale}\n{self.q.compact_string}\n{self.h0.compact_string}'
+        return f'{self.timescale}\n{self.q.compact_string}\n{self.h0.compact_string}\n{self.H_c}'
 
 @dataclass
 class Forcing:
@@ -372,7 +391,25 @@ class Grid:
             attrs={'long_name':'''Active set mask - if unity, thickness is 
                          set to thklim in Dirichlet BC fashion'''})
 
-        return State(u=u,v=v,ud=ud,vd=vd,H=H,H_prev=H_prev,phi=phi,xi=xi,psi=psi,mask=mask)
+        dpsi_dH = Field(
+            data=cp.zeros((self.ny,self.nx),dtype=cp.float32),
+            grid_entity=GridEntity.CELL,
+            dx=self.dx,
+            grid=self,
+            name='dpsi_dH',
+            units='m^{-1}',
+            attrs={'long_name':'d psi / dH of the calving flag (unrelaxed), for the calving sink Jacobian'})
+
+        dpsi_dbed = Field(
+            data=cp.zeros((self.ny,self.nx),dtype=cp.float32),
+            grid_entity=GridEntity.CELL,
+            dx=self.dx,
+            grid=self,
+            name='dpsi_dbed',
+            units='m^{-1}',
+            attrs={'long_name':'d psi / d bed of the calving flag, for the bed gradient'})
+
+        return State(u=u,v=v,ud=ud,vd=vd,H=H,H_prev=H_prev,phi=phi,xi=xi,psi=psi,dpsi_dH=dpsi_dH,dpsi_dbed=dpsi_dbed,mask=mask)
 
     def _allocate_adjoint_state(self):
         lambda_u = Field(

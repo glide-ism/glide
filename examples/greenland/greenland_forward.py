@@ -68,6 +68,7 @@ mg.sliding.water_drag.set(1.0e-4)
 # cells below the height-above-buoyancy threshold; cp.inf disables it
 mg.calving.timescale.set(0.5)
 mg.calving.q.set(-0.5)
+mg.calving.H_c.set(100.0)   # floating ice thinner than this calves
 
 ### Initialize forcing
 smb = dataset.smb.values

@@ -13,6 +13,7 @@ void compute_gradient_beta(
     const float* __restrict__ lambda_H,
     const float* __restrict__ phi,
     const float* __restrict__ psi,
+    const float* __restrict__ dpsi_dH,
     const float* __restrict__ xi,
     const float* __restrict__ mask,
     const float* __restrict__ bed,
@@ -108,12 +109,18 @@ void compute_gradient_bed(
     float* __restrict__ grad_bed,
     const float* __restrict__ u,
     const float* __restrict__ v,
+    const float* __restrict__ ud,
+    const float* __restrict__ vd,
     const float* __restrict__ H,
     const float* __restrict__ lambda_u,
     const float* __restrict__ lambda_v,
+    const float* __restrict__ lambda_ud,
+    const float* __restrict__ lambda_vd,
     const float* __restrict__ lambda_H,
     const float* __restrict__ phi,
     const float* __restrict__ psi,
+    const float* __restrict__ dpsi_dH,
+    const float* __restrict__ dpsi_dbed,
     const float* __restrict__ xi,
     const float* __restrict__ mask,
     const float* __restrict__ bed,
@@ -143,7 +150,17 @@ void compute_gradient_bed(
     
     float dx_inv = 1.0f / dx;
 
+    bool has_cell = i >= 0 && i < ny && j >= 0 && j < nx;
+
     if ( is_active ) {
+
+	if (has_cell){
+	    // Calving sink through the flag: R_H contains (1 - psi) rate H, so
+	    // dR_H/dbed = -rate H dpsi/dbed; active-set rows are identity rows
+	    // (constraint convention: project their multiplier out)
+	    float lamH = (1.0f - get_cell(mask,i,j,ny,nx)) * get_cell(lambda_H,i,j,ny,nx);
+	    atomicAdd(&grad_bed[i * nx + j], -lamH * calving_rate * get_cell(H,i,j,ny,nx) * get_cell(dpsi_dbed,i,j,ny,nx));
+	}
 
 	// Residual for the u-momentum equation on the left side of the cell
 	// the right side residual is handled by the next cell to the right!
@@ -166,6 +183,29 @@ void compute_gradient_bed(
 	    if (j>0     )  {atomicAdd(&grad_bed[i * nx + j - 1],-lambda_u_l * j_tau_dx.d_bed_l);}
 	    if (j<(nx-1))  {atomicAdd(&grad_bed[i * nx + j]    ,-lambda_u_l * j_tau_dx.d_bed_r);}
 	    }
+	    {
+	    // Basal drag through the flotation fraction xi(H, bed): the drag
+	    // enters R_u (+) and R_ud (-), weight by lambda_u - lambda_ud
+	    // (same structure as compute_gradient_beta)
+	    float ub_l  = get_vfacet(u,i,j,ny,nx)     - get_vfacet(ud,i,j,ny,nx);
+	    float ub_ll = get_vfacet(u,i,j-1,ny,nx)   - get_vfacet(ud,i,j-1,ny,nx);
+	    float ub_r  = get_vfacet(u,i,j+1,ny,nx)   - get_vfacet(ud,i,j+1,ny,nx);
+	    float vb_tl = get_hfacet(v,i,j-1,ny,nx)   - get_hfacet(vd,i,j-1,ny,nx);
+	    float vb_tr = get_hfacet(v,i,j,ny,nx)     - get_hfacet(vd,i,j,ny,nx);
+	    float vb_bl = get_hfacet(v,i+1,j-1,ny,nx) - get_hfacet(vd,i+1,j-1,ny,nx);
+	    float vb_br = get_hfacet(v,i+1,j,ny,nx)   - get_hfacet(vd,i+1,j,ny,nx);
+	    float H_l    = get_cell(H,i,j-1,ny,nx);
+	    float H_c    = get_cell(H,i,j,ny,nx);
+	    float xi_l   = get_cell(xi,i,j-1,ny,nx);
+	    float xi_c   = get_cell(xi,i,j,ny,nx);
+	    float beta_l = get_cell(beta,i,j-1,ny,nx);
+	    float beta_c = get_cell(beta,i,j,ny,nx);
+	    TauBxJacobian j_tau_bx = get_tau_bx_jac({ub_l,ub_ll,ub_r,vb_tl,vb_tr,vb_bl,vb_br,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,p});
+	    float row_free = (j > 0 && j < nx);
+	    float lam_eff = row_free * (get_vfacet(lambda_u,i,j,ny,nx) - get_vfacet(lambda_ud,i,j,ny,nx));
+	    if (j>0     )  {atomicAdd(&grad_bed[i * nx + j - 1],lam_eff * j_tau_bx.d_bed_l);}
+	    if (j<(nx-1))  {atomicAdd(&grad_bed[i * nx + j]    ,lam_eff * j_tau_bx.d_bed_r);}
+	    }
  	}
 
 	if (has_v){
@@ -184,7 +224,27 @@ void compute_gradient_bed(
 
 	    if (i>0     ) {atomicAdd(&grad_bed[(i-1) * nx + j],-lambda_v_t * j_tau_dy.d_bed_t);}
 	    if (i<(ny-1)) {atomicAdd(&grad_bed[i * nx + j]    ,-lambda_v_t * j_tau_dy.d_bed_b);}
-	    }	    
+	    }
+	    {
+	    float vb_t  = get_hfacet(v,i,j,ny,nx)     - get_hfacet(vd,i,j,ny,nx);
+	    float vb_tt = get_hfacet(v,i-1,j,ny,nx)   - get_hfacet(vd,i-1,j,ny,nx);
+	    float vb_b  = get_hfacet(v,i+1,j,ny,nx)   - get_hfacet(vd,i+1,j,ny,nx);
+	    float ub_tl = get_vfacet(u,i-1,j,ny,nx)   - get_vfacet(ud,i-1,j,ny,nx);
+	    float ub_tr = get_vfacet(u,i-1,j+1,ny,nx) - get_vfacet(ud,i-1,j+1,ny,nx);
+	    float ub_bl = get_vfacet(u,i,j,ny,nx)     - get_vfacet(ud,i,j,ny,nx);
+	    float ub_br = get_vfacet(u,i,j+1,ny,nx)   - get_vfacet(ud,i,j+1,ny,nx);
+	    float H_t    = get_cell(H,i-1,j,ny,nx);
+	    float H_c    = get_cell(H,i,j,ny,nx);
+	    float xi_t   = get_cell(xi,i-1,j,ny,nx);
+	    float xi_c   = get_cell(xi,i,j,ny,nx);
+	    float beta_t = get_cell(beta,i-1,j,ny,nx);
+	    float beta_c = get_cell(beta,i,j,ny,nx);
+	    TauByJacobian j_tau_by = get_tau_by_jac({vb_t,vb_tt,vb_b,ub_tl,ub_tr,ub_bl,ub_br,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,p});
+	    float row_free = (i > 0 && i < ny);
+	    float lam_eff = row_free * (get_hfacet(lambda_v,i,j,ny,nx) - get_hfacet(lambda_vd,i,j,ny,nx));
+	    if (i>0     ) {atomicAdd(&grad_bed[(i-1) * nx + j],lam_eff * j_tau_by.d_bed_t);}
+	    if (i<(ny-1)) {atomicAdd(&grad_bed[i * nx + j]    ,lam_eff * j_tau_by.d_bed_b);}
+	    }
 	}
     }
 }

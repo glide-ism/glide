@@ -159,21 +159,23 @@ struct CellCalvingStencil {
     float H;
     float psi;
     float calving_rate;
+    float dpsi_dH;      // d psi / dH of the flag (state.dpsi_dH, see common.cu)
 };
 
 struct CellCalvingStencilDual {
     DualFloat H;
     float psi;
     float calving_rate;
+    float dpsi_dH;
 
     __device__ __forceinline__
     CellCalvingStencil get_primals() const {
-        return {H.v,psi,calving_rate};
+        return {H.v,psi,calving_rate,dpsi_dH};
     }
 
     __device__ __forceinline__
     CellCalvingStencil get_diffs() const {
-        return {H.d,0.0f,0.0f};
+        return {H.d,0.0f,0.0f,0.0f};
     }
 };
 
@@ -199,7 +201,8 @@ CellCalvingJacobian get_cell_calving_jac(
 
     float coeff = (1.0f - s.psi) * s.calving_rate;
     jac.res = coeff * s.H;
-    jac.d_H = coeff;
+    // d/dH [(1 - psi(H)) rate H] = rate (1 - psi) - rate H dpsi/dH
+    jac.d_H = coeff - s.calving_rate * s.H * s.dpsi_dH;
 
     return jac;
 }

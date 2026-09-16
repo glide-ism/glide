@@ -48,18 +48,21 @@ void compute_flotation_fraction(
 extern "C" __global__
 void compute_calving_flag(
     float* __restrict__ psi,
+    float* __restrict__ dpsi_dH,
+    float* __restrict__ dpsi_dbed,
     const float* __restrict__ H,
     const float* __restrict__ depth,
     float sigmoid_c,
     const float* __restrict__ q,
     const float* __restrict__ h0,
+    float H_float_min,
     float relaxation_parameter,
     int ny, int nx,
     int stride, int halo
     )
 {
     int j = blockIdx.x * stride + (threadIdx.x - halo);
-    int i = blockIdx.y * stride + (threadIdx.y - halo);    
+    int i = blockIdx.y * stride + (threadIdx.y - halo);
 
     if (i < 0 || i >= ny || j<0 || j >= nx) return;
 
@@ -68,7 +71,11 @@ void compute_calving_flag(
     float q_c = get_cell(q,i,j,ny,nx);
     float h0_c = get_cell(h0,i,j,ny,nx);
     float psi_old = psi[i * nx + j];
-    psi[i * nx + j] = (1.0f - relaxation_parameter) * get_calving_flag(H_c,depth_c,sigmoid_c,q_c,h0_c) + relaxation_parameter * psi_old;
+    psi[i * nx + j] = (1.0f - relaxation_parameter) * get_calving_flag(H_c,depth_c,sigmoid_c,q_c,h0_c,H_float_min) + relaxation_parameter * psi_old;
+    float dH, db;
+    get_calving_flag_derivs(H_c,depth_c,sigmoid_c,q_c,h0_c,H_float_min,dH,db);
+    dpsi_dH[i * nx + j] = dH;
+    dpsi_dbed[i * nx + j] = db;
 }
 
 

@@ -91,6 +91,8 @@ class Multigrid:
         self.restrict_cell(fine_grid.state.H_prev.data,coarse_grid.state.H_prev.data)
         self.restrict_cell(fine_grid.state.phi.data,coarse_grid.state.phi.data)
         self.restrict_cell(fine_grid.state.psi.data,coarse_grid.state.psi.data)
+        self.restrict_cell(fine_grid.state.dpsi_dH.data,coarse_grid.state.dpsi_dH.data)
+        self.restrict_cell(fine_grid.state.dpsi_dbed.data,coarse_grid.state.dpsi_dbed.data)
         self.restrict_cell(fine_grid.state.xi.data,coarse_grid.state.xi.data)
         self.restrict_cell(fine_grid.state.mask.data,coarse_grid.state.mask.data,method='max')
 
@@ -117,6 +119,7 @@ class Multigrid:
         coarse_grid.calving.timescale.set(fine_grid.calving.timescale.value)
         self.restrict_cell(fine_grid.calving.q.data,coarse_grid.calving.q.data)
         self.restrict_cell(fine_grid.calving.h0.data,coarse_grid.calving.h0.data)
+        coarse_grid.calving.H_c.set(fine_grid.calving.H_c.value)
     
     def restrict_forcing(self,fine_grid,coarse_grid):
         self.restrict_cell(fine_grid.forcing.smb.data,coarse_grid.forcing.smb.data)
@@ -347,6 +350,18 @@ class MGStateManager:
             restrict=lambda f,c: mg.restrict_cell(f.data,c.data,method='avg'),
             name="phi",
         )
+        self.dpsi_dH = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.state.dpsi_dH,
+            restrict=lambda f,c: mg.restrict_cell(f.data,c.data,method='avg'),
+            name="dpsi_dH",
+        )
+        self.dpsi_dbed = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.state.dpsi_dbed,
+            restrict=lambda f,c: mg.restrict_cell(f.data,c.data,method='avg'),
+            name="dpsi_dbed",
+        )
         self.psi = HierarchyFieldManager(
             mg.levels,
             getter=lambda g: g.state.psi,
@@ -542,6 +557,13 @@ class MGCalvingManager:
             name="h0",
         )
 
+        self.H_c = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.calving.H_c,
+            restrict=lambda f,c: c.set(f.value),
+            name="H_c",
+        )
+
     def __repr__(self):
         return f'Top-level ({self.mg.n_levels} levels): \n'+self.mg.levels[0].calving.__repr__()
 
@@ -582,7 +604,7 @@ class FASCDSolver:
 
         start_level_ = self.multigrid.levels[start_level]
         start_level_.forward_operators.set_rhs(dt)
-        
+
         ru_init,rv_init,rud_init,rvd_init,rH_init = start_level_.forward_operators.compute_residual(dt,return_norms=True)
         initial_residual_norm = cp.sqrt(ru_init**2 + rv_init**2 + rud_init**2 + rvd_init**2 + rH_init**2)
         relative_residual_norm = cp.float32(1.0)
@@ -1154,6 +1176,8 @@ class FASAdjointSolver:
         mg.restrict_cell(level.grid.state.H_prev.data,next_level.grid.state.H_prev.data)
         mg.restrict_cell(level.grid.state.phi.data,next_level.grid.state.phi.data)
         mg.restrict_cell(level.grid.state.psi.data,next_level.grid.state.psi.data)
+        mg.restrict_cell(level.grid.state.dpsi_dH.data,next_level.grid.state.dpsi_dH.data)
+        mg.restrict_cell(level.grid.state.dpsi_dbed.data,next_level.grid.state.dpsi_dbed.data)
         mg.restrict_cell(level.grid.state.xi.data,next_level.grid.state.xi.data)
         mg.restrict_cell(level.grid.state.mask.data,next_level.grid.state.mask.data,method='max')
 

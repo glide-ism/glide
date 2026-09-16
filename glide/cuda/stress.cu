@@ -461,8 +461,9 @@ struct TauBxJacobian {
     float res;
     float d_u_c, d_u_l, d_u_r;
     float d_v_tl,d_v_tr,d_v_bl,d_v_br;
-    float d_H_l, d_H_r;
+    float d_H_l, d_H_r;          // through the flotation fraction xi(H, bed)
     float d_beta_l, d_beta_r;
+    float d_bed_l, d_bed_r;      // through xi only (parameter gradient)
 
     __device__ __forceinline__
     float apply_jvp(const TauBxStencil& dot) const {
@@ -513,6 +514,22 @@ TauBxJacobian get_tau_bx_jac(
     jac.d_v_br = -0.5f * beta_eff_r * unorm_sq_deriv_r * s.u_c * s.v_br;
     jac.d_beta_l = -0.5f * xi_l * unorm_sq_pow_l * s.u_c;
     jac.d_beta_r = -0.5f * xi_r * unorm_sq_pow_r * s.u_c;
+
+    // Effective pressure: on grounded marine ice xi = 1 - depth/(r H) with
+    // depth = -bed, so d xi/dH = (1 - xi)/H and d xi/d bed = 1/(r H); both
+    // vanish where xi is clipped (0 or 1). Chain through xi^p.
+    float Hl = fmaxf(s.H_l, FLOTATION_H_MIN);
+    float Hr = fmaxf(s.H_r, FLOTATION_H_MIN);
+    float dxip_l = (s.xi_l > 0.0f && s.xi_l < 1.0f) ? s.p * powf(s.xi_l, s.p - 1.0f) : 0.0f;
+    float dxip_r = (s.xi_r > 0.0f && s.xi_r < 1.0f) ? s.p * powf(s.xi_r, s.p - 1.0f) : 0.0f;
+    float dbeff_dH_l   = s.beta_l * dxip_l * (1.0f - s.xi_l) / Hl;
+    float dbeff_dH_r   = s.beta_r * dxip_r * (1.0f - s.xi_r) / Hr;
+    float dbeff_dbed_l = s.beta_l * dxip_l / (RHO_I_OVER_RHO_W * Hl);
+    float dbeff_dbed_r = s.beta_r * dxip_r / (RHO_I_OVER_RHO_W * Hr);
+    jac.d_H_l   = -0.5f * dbeff_dH_l   * unorm_sq_pow_l * s.u_c;
+    jac.d_H_r   = -0.5f * dbeff_dH_r   * unorm_sq_pow_r * s.u_c;
+    jac.d_bed_l = -0.5f * dbeff_dbed_l * unorm_sq_pow_l * s.u_c;
+    jac.d_bed_r = -0.5f * dbeff_dbed_r * unorm_sq_pow_r * s.u_c;
     return jac;
 }
 
@@ -561,8 +578,9 @@ struct TauByJacobian {
     float res;
     float d_v_c, d_v_t, d_v_b;
     float d_u_tl,d_u_tr,d_u_bl,d_u_br;
-    float d_H_t, d_H_b;
+    float d_H_t, d_H_b;          // through the flotation fraction xi(H, bed)
     float d_beta_t, d_beta_b;
+    float d_bed_t, d_bed_b;      // through xi only (parameter gradient)
 
     __device__ __forceinline__
     float apply_jvp(const TauByStencil& dot) const {
@@ -613,6 +631,20 @@ TauByJacobian get_tau_by_jac(
     jac.d_u_br = -0.5f * beta_eff_b * unorm_sq_deriv_b * s.v_c * s.u_br;
     jac.d_beta_t = -0.5f * xi_t * unorm_sq_pow_t * s.v_c;
     jac.d_beta_b = -0.5f * xi_b * unorm_sq_pow_b * s.v_c;
+
+    // Effective pressure terms, see get_tau_bx_jac.
+    float Ht = fmaxf(s.H_t, FLOTATION_H_MIN);
+    float Hb = fmaxf(s.H_b, FLOTATION_H_MIN);
+    float dxip_t = (s.xi_t > 0.0f && s.xi_t < 1.0f) ? s.p * powf(s.xi_t, s.p - 1.0f) : 0.0f;
+    float dxip_b = (s.xi_b > 0.0f && s.xi_b < 1.0f) ? s.p * powf(s.xi_b, s.p - 1.0f) : 0.0f;
+    float dbeff_dH_t   = s.beta_t * dxip_t * (1.0f - s.xi_t) / Ht;
+    float dbeff_dH_b   = s.beta_b * dxip_b * (1.0f - s.xi_b) / Hb;
+    float dbeff_dbed_t = s.beta_t * dxip_t / (RHO_I_OVER_RHO_W * Ht);
+    float dbeff_dbed_b = s.beta_b * dxip_b / (RHO_I_OVER_RHO_W * Hb);
+    jac.d_H_t   = -0.5f * dbeff_dH_t   * unorm_sq_pow_t * s.v_c;
+    jac.d_H_b   = -0.5f * dbeff_dH_b   * unorm_sq_pow_b * s.v_c;
+    jac.d_bed_t = -0.5f * dbeff_dbed_t * unorm_sq_pow_t * s.v_c;
+    jac.d_bed_b = -0.5f * dbeff_dbed_b * unorm_sq_pow_b * s.v_c;
     return jac;
 }
 

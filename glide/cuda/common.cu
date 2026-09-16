@@ -125,15 +125,65 @@ __device__ __forceinline__ float get_flotation_fraction(const float H, const flo
    return fminf(fmaxf(z / (RHO_I_OVER_RHO_W*Hf), 0.0f), 1.0f);
 }
 
-// Calving flag psi = sigmoid(c (z - rho_i/rho_w (q H + h0))): the hybrid
-// height-above-buoyancy criterion. With HAB = H - H_f = (rho_w/rho_i) z,
-// psi -> 0 where HAB < q H + h0, i.e. where the ice is within a fraction q
-// of its thickness plus an absolute margin h0 (m) of flotation; the calving
-// sink on a facet is (1 - psi_this)(1 - psi_other). q = h0 = 0 makes psi
-// identical to phi.
-__device__ __forceinline__ float get_calving_flag(const float H, const float depth, const float sigmoid_c, const float q, const float h0)
+// Calving flag: a single MONOTONE criterion psi = sigmoid(c r (H - H_calve))
+// with the critical thickness blended between the grounded (height-above-
+// buoyancy) and shelf (minimum thickness) laws by the gap between ice base
+// and bed:
+//
+//   H_g     = (depth / r + h0) / (1 - q)          grounded: HAB < q H + h0
+//   H_s     = min(H_c, H_g)                        shelf: H < H_c, capped by
+//                                                  the grounded threshold so
+//                                                  H_c acts only on tongues in
+//                                                  water deeper than H_c / r
+//   gap     = max(depth - r H, 0)                  ice base above the bed
+//   G       = r |H_g - H_s|
+//   w       = max(1 - gap / G, 0)                  w(0) = 1, w -> 0 detached
+//   H_calve = H_s + w (H_g - H_s)
+//
+// The linear ramp with scale G is the least-grounded-like blend for which
+// F = H - H_calve is non-decreasing in H (dH_calve/dH <= 1): thinning never
+// reduces calving, which is what lets the implicit solve converge (a phi-
+// blended pair of criteria protects a tongue root as it thins and stalls).
+// Regimes for H_g > H_s: grounded ice F = H - H_g; floating ice down to
+// H_c - h0 has F = -h0 (the margin's sign decides, no H dependence); thinner
+// floating ice F = H - H_c. So a positive margin removes floating ice, a
+// negative one lets a tongue exist above H_c. H_c = inf: F = H - H_g.
+// Without the cap, a shallow margin whose flotation thickness is below H_c
+// would lose any ice that goes afloat at once ("floating ice thinner than
+// H_c calves" is not a shelf criterion in water shallower than H_c / r),
+// and the grounded ice behind it thins and ungrounds in a retreat cascade —
+// most of the model's sensitivity to H_c came from there (2026-09-17).
+// With the cap the grounded law governs shallow margins and H_c only sets
+// the minimum thickness of tongues in deep water. The sink on a cell is
+// (1 - psi) H / tau.
+__device__ __forceinline__ float calving_F(const float H, const float depth, const float q, const float h0, const float H_c)
 {
-   return sigmoid(flotation_excess(H, depth) - RHO_I_OVER_RHO_W*(q*H + h0), sigmoid_c);
+   float Hg = (depth / RHO_I_OVER_RHO_W + h0) / (1.0f - q);
+   float Hs = fminf(H_c, Hg);
+   float gap = fmaxf(depth - RHO_I_OVER_RHO_W * H, 0.0f);
+   float G = fmaxf(RHO_I_OVER_RHO_W * (Hg - Hs), 1e-3f);
+   float w = fmaxf(1.0f - gap / G, 0.0f);      // H_c = inf: Hs = Hg, G -> 0, H_calve = Hg
+   float Hcalve = Hs + w * (Hg - Hs);
+   return H - Hcalve;
+}
+
+__device__ __forceinline__ float get_calving_flag(const float H, const float depth, const float sigmoid_c, const float q, const float h0, const float H_c)
+{
+   return sigmoid(RHO_I_OVER_RHO_W * calving_F(H, depth, q, h0, H_c), sigmoid_c);
+}
+
+// d psi / dH and d psi / d bed (depth = -bed), by central differences of
+// the piecewise-linear F, for the calving sink's Jacobian.
+__device__ __forceinline__ void get_calving_flag_derivs(const float H, const float depth, const float sigmoid_c, const float q, const float h0, const float H_c, float& dpsi_dH, float& dpsi_dbed)
+{
+   const float d = 0.25f;
+   float F = calving_F(H, depth, q, h0, H_c);
+   float psi = sigmoid(RHO_I_OVER_RHO_W * F, sigmoid_c);
+   float dpsi_dF = sigmoid_c * RHO_I_OVER_RHO_W * psi * (1.0f - psi);
+   float dF_dH = (calving_F(H + d, depth, q, h0, H_c) - calving_F(H - d, depth, q, h0, H_c)) / (2.0f * d);
+   float dF_ddepth = (calving_F(H, depth + d, q, h0, H_c) - calving_F(H, depth - d, q, h0, H_c)) / (2.0f * d);
+   dpsi_dH = dpsi_dF * dF_dH;
+   dpsi_dbed = -dpsi_dF * dF_ddepth;
 }
 
 __device__ __forceinline__ float get_vfacet(const float* __restrict__ u, int i, int j, int ny, int nx) {

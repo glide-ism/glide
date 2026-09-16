@@ -16,6 +16,7 @@ void compute_residual(
     const float* __restrict__ H,
     const float* __restrict__ phi,
     const float* __restrict__ psi,
+    const float* __restrict__ dpsi_dH,
     const float* __restrict__ xi,
     const float* __restrict__ mask,
     const float* __restrict__ f_u,
@@ -103,7 +104,7 @@ void compute_residual(
 	    float phi_b = get_cell(phi,i+1,j,ny,nx);
 
 
-	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,psi_c,calving_rate},i,j,ny,nx);
+	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,psi_c,calving_rate,get_cell(dpsi_dH,i,j,ny,nx)},i,j,ny,nx);
 	    rH += j_calve.res;
 
 	    float masked = use_mask ? get_cell(mask,i,j,ny,nx) : 0.0f;
@@ -558,6 +559,7 @@ void compute_jvp(
     const float* __restrict__ d_H,
     const float* __restrict__ phi,
     const float* __restrict__ psi,
+    const float* __restrict__ dpsi_dH,
     const float* __restrict__ xi,
     const float* __restrict__ mask,
     const float* __restrict__ f_u,
@@ -641,7 +643,7 @@ void compute_jvp(
 
 	    float phi_b = get_cell(phi,i+1,j,ny,nx);
 
-	    DualFloat q_calve = get_cell_calving_dual({H_c,psi_c,calving_rate},i,j,ny,nx);
+	    DualFloat q_calve = get_cell_calving_dual({H_c,psi_c,calving_rate,get_cell(dpsi_dH,i,j,ny,nx)},i,j,ny,nx);
 	    d_rH += q_calve.d;
 
 	    // Identity row on the active set, mirroring compute_residual
@@ -1054,6 +1056,7 @@ void compute_vjp(
     const float* __restrict__ lambda_H,
     const float* __restrict__ phi,
     const float* __restrict__ psi,
+    const float* __restrict__ dpsi_dH,
     const float* __restrict__ xi,
     const float* __restrict__ mask,
     const float* __restrict__ f_u,
@@ -1176,7 +1179,7 @@ void compute_vjp(
 
 	    float phi_b = get_cell(phi,i+1,j,ny,nx);
 
-	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,psi_c,calving_rate},i,j,ny,nx);
+	    CellCalvingJacobian j_calve = get_cell_calving_jac({H_c,psi_c,calving_rate,get_cell(dpsi_dH,i,j,ny,nx)},i,j,ny,nx);
 	    atomicAdd(&s_adj_H[bi][bj], lambda_H_c*j_calve.d_H);
 
 	    //float masked = use_mask ? get_cell(mask,i,j,ny,nx) : 0.0f;
