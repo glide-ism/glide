@@ -427,6 +427,7 @@ struct TauBxStencil {
     float v_tl, v_tr, v_bl, v_br;
     float H_l, H_r;
     float xi_l, xi_r;
+    float dxi_l, dxi_r;        // d xi / dH, a FIELD (restricted on coarse levels), not (1 - xi)/H
     float beta_l, beta_r;
     float m;
     float u_reg;
@@ -439,6 +440,7 @@ struct TauBxStencilDual {
     DualFloat v_tl, v_tr, v_bl, v_br;
     DualFloat H_l, H_r;
     float xi_l, xi_r;
+    float dxi_l, dxi_r;        // d xi / dH, a FIELD (restricted on coarse levels), not (1 - xi)/H
     float beta_l, beta_r;
     float m;
     float u_reg;
@@ -447,12 +449,12 @@ struct TauBxStencilDual {
 
     __device__ __forceinline__
     TauBxStencil get_primals() const {
-        return {u_c.v,u_l.v,u_r.v,v_tl.v,v_tr.v,v_bl.v,v_br.v,H_l.v,H_r.v,xi_l,xi_r,beta_l,beta_r,m,u_reg,water_drag,p};
+        return {u_c.v,u_l.v,u_r.v,v_tl.v,v_tr.v,v_bl.v,v_br.v,H_l.v,H_r.v,xi_l,xi_r,dxi_l,dxi_r,beta_l,beta_r,m,u_reg,water_drag,p};
     }
 
     __device__ __forceinline__
     TauBxStencil get_diffs() const {
-        return {u_c.d,u_l.d,u_r.d,v_tl.d,v_tr.d,v_bl.d,v_br.d,H_l.d,H_r.d,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+        return {u_c.d,u_l.d,u_r.d,v_tl.d,v_tr.d,v_bl.d,v_br.d,H_l.d,H_r.d,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
     }
 
 };
@@ -522,8 +524,11 @@ TauBxJacobian get_tau_bx_jac(
     float Hr = fmaxf(s.H_r, FLOTATION_H_MIN);
     float dxip_l = (s.xi_l > 0.0f && s.xi_l < 1.0f) ? s.p * powf(s.xi_l, s.p - 1.0f) : 0.0f;
     float dxip_r = (s.xi_r > 0.0f && s.xi_r < 1.0f) ? s.p * powf(s.xi_r, s.p - 1.0f) : 0.0f;
-    float dbeff_dH_l   = s.beta_l * dxip_l * (1.0f - s.xi_l) / Hl;
-    float dbeff_dH_r   = s.beta_r * dxip_r * (1.0f - s.xi_r) / Hr;
+    // d xi/dH comes from the dxi_dH field (= (1 - xi)/H where the cell computed
+    // its own xi; the restricted average on coarse adjoint levels, where that
+    // formula is invalid for a cell mixing floating and grounded children)
+    float dbeff_dH_l   = s.beta_l * dxip_l * s.dxi_l;
+    float dbeff_dH_r   = s.beta_r * dxip_r * s.dxi_r;
     float dbeff_dbed_l = s.beta_l * dxip_l / (RHO_I_OVER_RHO_W * Hl);
     float dbeff_dbed_r = s.beta_r * dxip_r / (RHO_I_OVER_RHO_W * Hr);
     jac.d_H_l   = -0.5f * dbeff_dH_l   * unorm_sq_pow_l * s.u_c;
@@ -544,6 +549,7 @@ struct TauByStencil {
     float u_tl, u_tr, u_bl, u_br;
     float H_t, H_b;
     float xi_t, xi_b;
+    float dxi_t, dxi_b;        // d xi / dH, a FIELD (restricted on coarse levels), not (1 - xi)/H
     float beta_t, beta_b;
     float m;
     float u_reg;
@@ -556,6 +562,7 @@ struct TauByStencilDual {
     DualFloat u_tl, u_tr, u_bl, u_br;
     DualFloat H_t, H_b;
     float xi_t, xi_b;
+    float dxi_t, dxi_b;        // d xi / dH, a FIELD (restricted on coarse levels), not (1 - xi)/H
     float beta_t, beta_b;
     float m;
     float u_reg;
@@ -564,12 +571,12 @@ struct TauByStencilDual {
 
     __device__ __forceinline__
     TauByStencil get_primals() const {
-        return {v_c.v, v_t.v, v_b.v ,u_tl.v,u_tr.v,u_bl.v,u_br.v,H_t.v,H_b.v,xi_t,xi_b,beta_t,beta_b,m,u_reg,water_drag,p};
+        return {v_c.v, v_t.v, v_b.v ,u_tl.v,u_tr.v,u_bl.v,u_br.v,H_t.v,H_b.v,xi_t,xi_b,dxi_t,dxi_b,beta_t,beta_b,m,u_reg,water_drag,p};
     }
 
     __device__ __forceinline__
     TauByStencil get_diffs() const {
-        return {v_c.d, v_t.d, v_b.d, u_tl.d,u_tr.d,u_bl.d,u_br.d,H_t.d,H_t.d,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+        return {v_c.d, v_t.d, v_b.d, u_tl.d,u_tr.d,u_bl.d,u_br.d,H_t.d,H_b.d,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
     }
 
 };
@@ -637,8 +644,8 @@ TauByJacobian get_tau_by_jac(
     float Hb = fmaxf(s.H_b, FLOTATION_H_MIN);
     float dxip_t = (s.xi_t > 0.0f && s.xi_t < 1.0f) ? s.p * powf(s.xi_t, s.p - 1.0f) : 0.0f;
     float dxip_b = (s.xi_b > 0.0f && s.xi_b < 1.0f) ? s.p * powf(s.xi_b, s.p - 1.0f) : 0.0f;
-    float dbeff_dH_t   = s.beta_t * dxip_t * (1.0f - s.xi_t) / Ht;
-    float dbeff_dH_b   = s.beta_b * dxip_b * (1.0f - s.xi_b) / Hb;
+    float dbeff_dH_t   = s.beta_t * dxip_t * s.dxi_t;
+    float dbeff_dH_b   = s.beta_b * dxip_b * s.dxi_b;
     float dbeff_dbed_t = s.beta_t * dxip_t / (RHO_I_OVER_RHO_W * Ht);
     float dbeff_dbed_b = s.beta_b * dxip_b / (RHO_I_OVER_RHO_W * Hb);
     jac.d_H_t   = -0.5f * dbeff_dH_t   * unorm_sq_pow_t * s.v_c;

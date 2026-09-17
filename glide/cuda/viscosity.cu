@@ -23,6 +23,7 @@ void compute_grounded(
 extern "C" __global__
 void compute_flotation_fraction(
     float* __restrict__ xi,
+    float* __restrict__ dxi_dH,
     const float* __restrict__ H,
     const float* __restrict__ depth,
     float sigmoid_c,
@@ -43,6 +44,16 @@ void compute_flotation_fraction(
     float xi_new = get_flotation_fraction(H_c, depth_c);
 
     xi[i * nx + j] = (1.0f - relaxation_parameter) * xi_new + relaxation_parameter * xi_old;
+
+    // d xi / dH of the UNRELAXED fraction: xi = 1 - depth/(r H) on grounded
+    // marine ice gives (1 - xi)/H; zero where xi is clipped (0 or 1). Stored
+    // as a field because the formula holds for a uniformly grounded cell
+    // only: a coarse cell averaging floating and grounded children has a
+    // fractional xi near 0 for which (1 - xi)/H ~ 1/H is both wrong and
+    // maximal, and with a large beta that makes the coarse adjoint smoother
+    // unstable. The multigrid restricts this field alongside xi instead.
+    dxi_dH[i * nx + j] = (xi_new > 0.0f && xi_new < 1.0f)
+        ? (1.0f - xi_new) / fmaxf(H_c, FLOTATION_H_MIN) : 0.0f;
 }
 
 extern "C" __global__

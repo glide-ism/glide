@@ -36,6 +36,7 @@ class GlideStep(torch.autograd.Function):
         dpsi_torch = torch.tensor(model.mg[level].state.dpsi_dH.data)
         dpsib_torch = torch.tensor(model.mg[level].state.dpsi_dbed.data)
         xi_torch = torch.tensor(model.mg[level].state.xi.data)
+        dxi_torch = torch.tensor(model.mg[level].state.dxi_dH.data)
 
         if ctx.ssa:
             # SSA mode: ud/vd are identically zero - return fresh zero
@@ -43,11 +44,11 @@ class GlideStep(torch.autograd.Function):
             # copy or checkpoint the all-zero model state
             ud_torch = torch.zeros_like(u_torch)
             vd_torch = torch.zeros_like(v_torch)
-            ctx.save_for_backward(u_torch,v_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch)
+            ctx.save_for_backward(u_torch,v_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch,dxi_torch)
         else:
             ud_torch = torch.tensor(model.mg[level].state.ud.data)
             vd_torch = torch.tensor(model.mg[level].state.vd.data)
-            ctx.save_for_backward(u_torch,v_torch,ud_torch,vd_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch)
+            ctx.save_for_backward(u_torch,v_torch,ud_torch,vd_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch,dxi_torch)
         ctx.mark_non_differentiable(mask_torch)
 
         return u_torch, v_torch, ud_torch, vd_torch, H_torch, mask_torch
@@ -60,9 +61,9 @@ class GlideStep(torch.autograd.Function):
         level = ctx.level
 
         if ctx.ssa:
-            u_torch,v_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch = ctx.saved_tensors
+            u_torch,v_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch,dxi_torch = ctx.saved_tensors
         else:
-            u_torch,v_torch,ud_torch,vd_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch = ctx.saved_tensors
+            u_torch,v_torch,ud_torch,vd_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch,dxi_torch = ctx.saved_tensors
 
         model.mg.calving.q.set(cp.asarray(q_torch.data),start_level=level)
         model.mg.calving.h0.set(cp.asarray(h0_torch.data),start_level=level)
@@ -83,6 +84,7 @@ class GlideStep(torch.autograd.Function):
         model.mg.state.dpsi_dH.set(cp.asarray(dpsi_torch.data),start_level=level)
         model.mg.state.dpsi_dbed.set(cp.asarray(dpsib_torch.data),start_level=level)
         model.mg.state.xi.set(cp.asarray(xi_torch.data),start_level=level)
+        model.mg.state.dxi_dH.set(cp.asarray(dxi_torch.data),start_level=level)
         model.mg.state.mask.set(cp.asarray(mask_torch.data),start_level=level)
 
         # autograd passes None for outputs the objective never touched;

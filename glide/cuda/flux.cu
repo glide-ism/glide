@@ -202,7 +202,7 @@ CellCalvingJacobian get_cell_calving_jac(
     float coeff = (1.0f - s.psi) * s.calving_rate;
     jac.res = coeff * s.H;
     // d/dH [(1 - psi(H)) rate H] = rate (1 - psi) - rate H dpsi/dH
-    jac.d_H = coeff - s.calving_rate * s.H * s.dpsi_dH;
+    jac.d_H = coeff;// - s.calving_rate * s.H * s.dpsi_dH;
 
     return jac;
 }

@@ -18,6 +18,7 @@ void compute_residual(
     const float* __restrict__ psi,
     const float* __restrict__ dpsi_dH,
     const float* __restrict__ xi,
+    const float* __restrict__ dxi_dH,
     const float* __restrict__ mask,
     const float* __restrict__ f_u,
     const float* __restrict__ f_v,
@@ -294,10 +295,12 @@ void compute_residual(
 	    float phi_c = get_cell(phi,i,j,ny,nx);
 	    float psi_c = get_cell(psi,i,j,ny,nx);
 	    float xi_l = get_cell(xi,i,j-1,ny,nx);
+	    float dxi_l = get_cell(dxi_dH,i,j-1,ny,nx);
 	    float xi_c = get_cell(xi,i,j,ny,nx);
+	    float dxi_c = get_cell(dxi_dH,i,j,ny,nx);
 	    float beta_l = get_cell(beta,i,j-1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauBxJacobian tau_bx = get_tau_bx_jac({ub_l,ub_ll,ub_r,vb_tl,vb_tr,vb_bl,vb_br,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,p});
+	    TauBxJacobian tau_bx = get_tau_bx_jac({ub_l,ub_ll,ub_r,vb_tl,vb_tr,vb_bl,vb_br,H_l,H_c,xi_l,xi_c,dxi_l,dxi_c,beta_l,beta_c,m,u_reg,water_drag,p});
 	    ru_l += tau_bx.res;
             rud_l -= tau_bx.res;
 	    }
@@ -500,11 +503,13 @@ void compute_residual(
 	    float phi_c = get_cell(phi,i,j,ny,nx);
 	    float psi_c = get_cell(psi,i,j,ny,nx);
 	    float xi_t = get_cell(xi,i-1,j,ny,nx);
+	    float dxi_t = get_cell(dxi_dH,i-1,j,ny,nx);
 	    float xi_c = get_cell(xi,i,j,ny,nx);
+	    float dxi_c = get_cell(dxi_dH,i,j,ny,nx);
 	    float beta_t = get_cell(beta,i-1,j,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
 
-	    TauByJacobian tau_by = get_tau_by_jac({vb_t,vb_tt,vb_b,ub_tl,ub_tr,ub_bl,ub_br,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,p});
+	    TauByJacobian tau_by = get_tau_by_jac({vb_t,vb_tt,vb_b,ub_tl,ub_tr,ub_bl,ub_br,H_t,H_c,xi_t,xi_c,dxi_t,dxi_c,beta_t,beta_c,m,u_reg,water_drag,p});
 	    rv_t += tau_by.res;
             rvd_t -= tau_by.res;
 	    }
@@ -561,6 +566,7 @@ void compute_jvp(
     const float* __restrict__ psi,
     const float* __restrict__ dpsi_dH,
     const float* __restrict__ xi,
+    const float* __restrict__ dxi_dH,
     const float* __restrict__ mask,
     const float* __restrict__ f_u,
     const float* __restrict__ f_v,
@@ -810,10 +816,12 @@ void compute_jvp(
 	    float phi_c  = get_cell(phi,i,j,ny,nx);
 	    float psi_c = get_cell(psi,i,j,ny,nx);
 	    float xi_l  = get_cell(xi,i,j-1,ny,nx);
+	    float dxi_l  = get_cell(dxi_dH,i,j-1,ny,nx);
 	    float xi_c  = get_cell(xi,i,j,ny,nx);
+	    float dxi_c  = get_cell(dxi_dH,i,j,ny,nx);
 	    float beta_l = get_cell(beta,i,j-1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    DualFloat tau_bx = get_tau_bx_dual({ub_l,ub_ll,ub_r,vb_tl,vb_tr,vb_bl,vb_br,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,p});
+	    DualFloat tau_bx = get_tau_bx_dual({ub_l,ub_ll,ub_r,vb_tl,vb_tr,vb_bl,vb_br,H_l,H_c,xi_l,xi_c,dxi_l,dxi_c,beta_l,beta_c,m,u_reg,water_drag,p});
 	    d_ru_l += tau_bx.d;
 	    d_rud_l -= tau_bx.d;
 	    }
@@ -996,11 +1004,13 @@ void compute_jvp(
 	    float phi_c      = get_cell(phi,i,j,ny,nx);
 	    float psi_c = get_cell(psi,i,j,ny,nx);
 	    float xi_t      = get_cell(xi,i-1,j,ny,nx);
+	    float dxi_t      = get_cell(dxi_dH,i-1,j,ny,nx);
 	    float xi_c      = get_cell(xi,i,j,ny,nx);
+	    float dxi_c      = get_cell(dxi_dH,i,j,ny,nx);
 	    float beta_t     = get_cell(beta,i-1,j,ny,nx);
 	    float beta_c     = get_cell(beta,i,j,ny,nx);
 
-	    DualFloat tau_by = get_tau_by_dual({vb_t,vb_tt,vb_b,ub_tl,ub_tr,ub_bl,ub_br,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,p});
+	    DualFloat tau_by = get_tau_by_dual({vb_t,vb_tt,vb_b,ub_tl,ub_tr,ub_bl,ub_br,H_t,H_c,xi_t,xi_c,dxi_t,dxi_c,beta_t,beta_c,m,u_reg,water_drag,p});
 	    d_rv_t += tau_by.d;
 	    d_rvd_t -= tau_by.d;
 	    }
@@ -1058,6 +1068,7 @@ void compute_vjp(
     const float* __restrict__ psi,
     const float* __restrict__ dpsi_dH,
     const float* __restrict__ xi,
+    const float* __restrict__ dxi_dH,
     const float* __restrict__ mask,
     const float* __restrict__ f_u,
     const float* __restrict__ f_v,
@@ -1459,10 +1470,12 @@ void compute_vjp(
 	    float H_l    = get_cell(H,i,j-1,ny,nx);
 	    float H_c    = get_cell(H,i,j,ny,nx);
 	    float xi_l  = get_cell(xi,i,j-1,ny,nx);
+	    float dxi_l  = get_cell(dxi_dH,i,j-1,ny,nx);
 	    float xi_c  = get_cell(xi,i,j,ny,nx);
+	    float dxi_c  = get_cell(dxi_dH,i,j,ny,nx);
 	    float beta_l = get_cell(beta,i,j-1,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
-	    TauBxJacobian j_tau_bx = get_tau_bx_jac({ub_l,ub_ll,ub_r,vb_tl,vb_tr,vb_bl,vb_br,H_l,H_c,xi_l,xi_c,beta_l,beta_c,m,u_reg,water_drag,p});
+	    TauBxJacobian j_tau_bx = get_tau_bx_jac({ub_l,ub_ll,ub_r,vb_tl,vb_tr,vb_bl,vb_br,H_l,H_c,xi_l,xi_c,dxi_l,dxi_c,beta_l,beta_c,m,u_reg,water_drag,p});
 
 
 	    float lambda_u_l = get_vfacet(lambda_u,i,j,ny,nx);
@@ -1772,11 +1785,13 @@ void compute_vjp(
 	    float H_t    = get_cell(H,i-1,j,ny,nx);
 	    float H_c    = get_cell(H,i,j,ny,nx);
 	    float xi_t  = get_cell(xi,i-1,j,ny,nx);
+	    float dxi_t  = get_cell(dxi_dH,i-1,j,ny,nx);
 	    float xi_c  = get_cell(xi,i,j,ny,nx);
+	    float dxi_c  = get_cell(dxi_dH,i,j,ny,nx);
 	    float beta_t = get_cell(beta,i-1,j,ny,nx);
 	    float beta_c = get_cell(beta,i,j,ny,nx);
 
-	    TauByJacobian j_tau_by = get_tau_by_jac({vb_t,vb_tt,vb_b,ub_tl,ub_tr,ub_bl,ub_br,H_t,H_c,xi_t,xi_c,beta_t,beta_c,m,u_reg,water_drag,p});
+	    TauByJacobian j_tau_by = get_tau_by_jac({vb_t,vb_tt,vb_b,ub_tl,ub_tr,ub_bl,ub_br,H_t,H_c,xi_t,xi_c,dxi_t,dxi_c,beta_t,beta_c,m,u_reg,water_drag,p});
 
 	    float lambda_v_t = get_hfacet(lambda_v,i,j,ny,nx);
 	    float lambda_vd_t = get_hfacet(lambda_vd,i,j,ny,nx);

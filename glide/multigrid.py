@@ -94,6 +94,7 @@ class Multigrid:
         self.restrict_cell(fine_grid.state.dpsi_dH.data,coarse_grid.state.dpsi_dH.data)
         self.restrict_cell(fine_grid.state.dpsi_dbed.data,coarse_grid.state.dpsi_dbed.data)
         self.restrict_cell(fine_grid.state.xi.data,coarse_grid.state.xi.data)
+        self.restrict_cell(fine_grid.state.dxi_dH.data,coarse_grid.state.dxi_dH.data)
         self.restrict_cell(fine_grid.state.mask.data,coarse_grid.state.mask.data,method='max')
 
     def restrict_geometry(self,fine_grid,coarse_grid):
@@ -373,6 +374,12 @@ class MGStateManager:
             getter=lambda g: g.state.xi,
             restrict=lambda f,c: mg.restrict_cell(f.data,c.data,method='avg'),
             name="xi",
+        )
+        self.dxi_dH = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.state.dxi_dH,
+            restrict=lambda f,c: mg.restrict_cell(f.data,c.data,method='avg'),
+            name="dxi_dH",
         )
 
         self.mask = HierarchyFieldManager(
@@ -1179,6 +1186,11 @@ class FASAdjointSolver:
         mg.restrict_cell(level.grid.state.dpsi_dH.data,next_level.grid.state.dpsi_dH.data)
         mg.restrict_cell(level.grid.state.dpsi_dbed.data,next_level.grid.state.dpsi_dbed.data)
         mg.restrict_cell(level.grid.state.xi.data,next_level.grid.state.xi.data)
+        # d xi/dH is RESTRICTED with xi, not recomputed from the averaged xi:
+        # (1 - xi)/H holds for a uniformly grounded cell only, and on a coarse
+        # cell mixing floating and grounded children (xi ~ 0) it is ~1/H, which
+        # with a large beta made this level's smoother unstable (2026-09-17)
+        mg.restrict_cell(level.grid.state.dxi_dH.data,next_level.grid.state.dxi_dH.data)
         mg.restrict_cell(level.grid.state.mask.data,next_level.grid.state.mask.data,method='max')
 
         # Restrict adjoint solution to child

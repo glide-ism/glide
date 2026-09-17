@@ -15,6 +15,7 @@ class State:
     H_prev: Field | None = None
     phi: Field | None = None
     xi: Field | None = None
+    dxi_dH: Field | None = None      # d xi / dH (drag Jacobian); restricted, not recomputed, on coarse adjoint levels
     psi: Field | None = None
     dpsi_dH: Field | None = None     # d psi / dH of the calving flag (transport Jacobian)
     dpsi_dbed: Field | None = None   # d psi / d bed (bed gradient)
@@ -409,7 +410,17 @@ class Grid:
             units='m^{-1}',
             attrs={'long_name':'d psi / d bed of the calving flag, for the bed gradient'})
 
-        return State(u=u,v=v,ud=ud,vd=vd,H=H,H_prev=H_prev,phi=phi,xi=xi,psi=psi,dpsi_dH=dpsi_dH,dpsi_dbed=dpsi_dbed,mask=mask)
+        dxi_dH = Field(
+            data=cp.zeros((self.ny,self.nx),dtype=cp.float32),
+            grid_entity=GridEntity.CELL,
+            dx=self.dx,
+            grid=self,
+            name='dxi_dH',
+            units='m^{-1}',
+            attrs={'long_name':'d xi / dH of the flotation fraction, (1 - xi)/H where 0 < xi < 1; '
+                               'RESTRICTED (not recomputed) on coarse adjoint levels, for the drag Jacobian'})
+
+        return State(u=u,v=v,ud=ud,vd=vd,H=H,H_prev=H_prev,phi=phi,xi=xi,dxi_dH=dxi_dH,psi=psi,dpsi_dH=dpsi_dH,dpsi_dbed=dpsi_dbed,mask=mask)
 
     def _allocate_adjoint_state(self):
         lambda_u = Field(
