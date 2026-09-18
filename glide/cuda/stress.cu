@@ -531,10 +531,10 @@ TauBxJacobian get_tau_bx_jac(
     float dbeff_dH_r   = s.beta_r * dxip_r * s.dxi_r;
     float dbeff_dbed_l = s.beta_l * dxip_l / (RHO_I_OVER_RHO_W * Hl);
     float dbeff_dbed_r = s.beta_r * dxip_r / (RHO_I_OVER_RHO_W * Hr);
-    jac.d_H_l   = -0.5f * dbeff_dH_l   * unorm_sq_pow_l * s.u_c;
-    jac.d_H_r   = -0.5f * dbeff_dH_r   * unorm_sq_pow_r * s.u_c;
-    jac.d_bed_l = -0.5f * dbeff_dbed_l * unorm_sq_pow_l * s.u_c;
-    jac.d_bed_r = -0.5f * dbeff_dbed_r * unorm_sq_pow_r * s.u_c;
+    //jac.d_H_l   = -0.5f * dbeff_dH_l   * unorm_sq_pow_l * s.u_c;
+    //jac.d_H_r   = -0.5f * dbeff_dH_r   * unorm_sq_pow_r * s.u_c;
+    //jac.d_bed_l = -0.5f * dbeff_dbed_l * unorm_sq_pow_l * s.u_c;
+    //jac.d_bed_r = -0.5f * dbeff_dbed_r * unorm_sq_pow_r * s.u_c;
     return jac;
 }
 
@@ -648,10 +648,10 @@ TauByJacobian get_tau_by_jac(
     float dbeff_dH_b   = s.beta_b * dxip_b * s.dxi_b;
     float dbeff_dbed_t = s.beta_t * dxip_t / (RHO_I_OVER_RHO_W * Ht);
     float dbeff_dbed_b = s.beta_b * dxip_b / (RHO_I_OVER_RHO_W * Hb);
-    jac.d_H_t   = -0.5f * dbeff_dH_t   * unorm_sq_pow_t * s.v_c;
-    jac.d_H_b   = -0.5f * dbeff_dH_b   * unorm_sq_pow_b * s.v_c;
-    jac.d_bed_t = -0.5f * dbeff_dbed_t * unorm_sq_pow_t * s.v_c;
-    jac.d_bed_b = -0.5f * dbeff_dbed_b * unorm_sq_pow_b * s.v_c;
+    //jac.d_H_t   = -0.5f * dbeff_dH_t   * unorm_sq_pow_t * s.v_c;
+    //jac.d_H_b   = -0.5f * dbeff_dH_b   * unorm_sq_pow_b * s.v_c;
+    //jac.d_bed_t = -0.5f * dbeff_dbed_t * unorm_sq_pow_t * s.v_c;
+    //jac.d_bed_b = -0.5f * dbeff_dbed_b * unorm_sq_pow_b * s.v_c;
     return jac;
 }
 
