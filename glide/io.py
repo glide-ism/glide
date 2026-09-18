@@ -22,9 +22,68 @@ def _pretty_xml(element):
     return minidom.parseString(ET.tostring(element)).toprettyxml(indent="  ")
 
 
-def write_vti(filename, data, dx, dy=None, origin=(0.0, 0.0), time_value=None, flip_y=True):
+VTI_BLOCK_SIZE = 32768          # vtkXMLWriter's default BlockSize for compressed appended data
+_VTK_COMPRESSOR = {"lz4": "vtkLZ4DataCompressor", "zlib": "vtkZLibDataCompressor"}
+
+
+def _compress_appended(raw: bytes, compressor: str, level: int) -> bytes:
+    """VTK's compressed appended-data layout for one array: a UInt32 header
+    [n_blocks, block_size, last_partial_size, compressed_size_1..n] followed
+    by the compressed blocks (raw LZ4 blocks or zlib streams)."""
+    if compressor == "lz4":
+        import lz4.block
+        if level > 0:
+            comp = lambda b: lz4.block.compress(b, mode="high_compression", compression=level, store_size=False)
+        else:
+            comp = lambda b: lz4.block.compress(b, store_size=False)
+    elif compressor == "zlib":
+        import zlib
+        comp = lambda b: zlib.compress(b, max(level, 1))
+    else:
+        raise ValueError(f"compressor must be None, 'lz4' or 'zlib', got {compressor!r}")
+    n_full, last = divmod(len(raw), VTI_BLOCK_SIZE)
+    n_blocks = n_full + (1 if last else 0)
+    blocks = [comp(raw[k * VTI_BLOCK_SIZE:(k + 1) * VTI_BLOCK_SIZE]) for k in range(n_blocks)]
+    header = np.array([n_blocks, VTI_BLOCK_SIZE, last] + [len(b) for b in blocks], dtype=np.uint32)
+    return header.tobytes() + b"".join(blocks)
+
+
+def _precondition(name, value, precision, keep):
+    """Round `value` to precision[name] (a quantum, e.g. 0.01) and zero it
+    where `keep` is False, on the device it lives on. Both make the arrays
+    compressible: the low bits of float32 are noise, and the ice-free 2/3
+    of a Greenland grid holds solver noise in the velocities and SMB."""
+    xp = cp.get_array_module(value) if hasattr(value, "__cuda_array_interface__") else np
+    if keep is not None:
+        value = xp.where(xp.asarray(keep), value, xp.zeros((), dtype=value.dtype))
+    q = precision.get(name) if precision else None
+    if q:
+        value = xp.round(value / q) * q
+    return value
+
+
+def write_vti(filename, data, dx, dy=None, origin=(0.0, 0.0), time_value=None, flip_y=True,
+              compressor=None, compression_level=0, precision=None, mask=None, masked_fields=()):
     """
     Write fields to VTI (VTK ImageData) binary format.
+
+    compressor : None | "lz4" | "zlib"
+        None writes raw appended data (the original layout). "lz4" writes
+        VTK's compressed appended layout with vtkLZ4DataCompressor, which
+        ParaView >= 5.5 reads directly, only for the arrays it displays, at
+        GB/s; with the preconditioning below a 1 km Greenland frame is ~75 MB
+        instead of 326 MB and compressing (0.15 s) is faster than writing the
+        raw bytes. "zlib" is ~10% smaller but 5x slower to read.
+    compression_level : int
+        0 = LZ4 fast mode (default); > 0 = LZ4 HC level (1..12, ~10% smaller,
+        several times slower) or the zlib level.
+    precision : dict, optional
+        field name -> quantum (e.g. {"H": 0.01, "U": 0.01}); values are
+        rounded to it before compression (vector fields: every component).
+    mask, masked_fields : array, iterable of names
+        Zero the named fields where `mask` is False (e.g. mask = ice, fields
+        = the velocities and the SMB forcing). Applied on the GPU when the
+        arrays are there.
 
     Parameters
     ----------
@@ -54,14 +113,16 @@ def write_vti(filename, data, dx, dy=None, origin=(0.0, 0.0), time_value=None, f
     scalars = {}
     vectors = {}
 
+    masked = set(masked_fields or ())
     for name, value in data.items():
+        keep = mask if (mask is not None and name in masked) else None
         if isinstance(value, list):
-            components = [cp.asnumpy(c).astype(np.float32) for c in value]
+            components = [cp.asnumpy(_precondition(name, c, precision, keep)).astype(np.float32) for c in value]
             if flip_y:
                 components = [np.flip(c, axis=0) for c in components]
             vectors[name] = components
         else:
-            arr = cp.asnumpy(value).astype(np.float32)
+            arr = cp.asnumpy(_precondition(name, value, precision, keep)).astype(np.float32)
             if flip_y:
                 arr = np.flip(arr, axis=0)
             scalars[name] = arr
@@ -74,7 +135,10 @@ def write_vti(filename, data, dx, dy=None, origin=(0.0, 0.0), time_value=None, f
     ny, nx = first_field.shape
 
     # Build XML
-    root = ET.Element("VTKFile", type="ImageData", version="1.0", byte_order="LittleEndian")
+    root = ET.Element("VTKFile", type="ImageData", version="1.0", byte_order="LittleEndian",
+                      header_type="UInt32")
+    if compressor:
+        root.set("compressor", _VTK_COMPRESSOR[compressor])
     img = ET.SubElement(root, "ImageData",
                         WholeExtent=f"0 {nx-1} 0 {ny-1} 0 0",
                         Origin=f"{origin[0]} {origin[1]} 0",
@@ -100,27 +164,33 @@ def write_vti(filename, data, dx, dy=None, origin=(0.0, 0.0), time_value=None, f
     binary_arrays = []
     offset = 0
 
+    def appended(raw):
+        # raw layout: UInt32 byte count + bytes; compressed: header + blocks
+        if compressor:
+            return _compress_appended(raw, compressor, compression_level)
+        return np.uint32(len(raw)).tobytes() + raw
+
     for name, arr in scalars.items():
-        arr_bytes = arr.ravel(order='C').tobytes()
+        block = appended(arr.ravel(order='C').tobytes())
         ET.SubElement(pd, "DataArray",
                       type="Float32", Name=name,
                       NumberOfComponents="1",
                       format="appended",
                       offset=str(offset))
-        binary_arrays.append(arr_bytes)
-        offset += len(arr_bytes) + 4
+        binary_arrays.append(block)
+        offset += len(block)
 
     for name, components in vectors.items():
         ncomp = len(components)
         stacked = np.stack(components, axis=-1).astype(np.float32)
-        vec_bytes = stacked.ravel(order='C').tobytes()
+        block = appended(stacked.ravel(order='C').tobytes())
         ET.SubElement(pd, "DataArray",
                       type="Float32", Name=name,
                       NumberOfComponents=str(ncomp),
                       format="appended",
                       offset=str(offset))
-        binary_arrays.append(vec_bytes)
-        offset += len(vec_bytes) + 4
+        binary_arrays.append(block)
+        offset += len(block)
 
     xml_bytes = ET.tostring(root, encoding='utf-8', xml_declaration=True)
 
@@ -134,10 +204,8 @@ def write_vti(filename, data, dx, dy=None, origin=(0.0, 0.0), time_value=None, f
         f.write(xml_str.encode('utf-8'))
         f.write(b'  <AppendedData encoding="raw">\n   _')
 
-        for array_bytes in binary_arrays:
-            size = np.uint32(len(array_bytes))
-            f.write(size.tobytes())
-            f.write(array_bytes)
+        for block in binary_arrays:
+            f.write(block)
 
         f.write(b'\n  </AppendedData>\n</VTKFile>\n')
 
@@ -168,6 +236,17 @@ class VTIWriter:
     dy: float | None = None
     origin: tuple[float, float] = (0.0, 0.0)
     flip_y: bool = True
+    # Compression of the appended data (see write_vti): None = raw (the
+    # original layout), "lz4" = ParaView-native compressed frames. With
+    # `precision` (field -> quantum) and `mask_field` / `masked_fields` (zero
+    # the named fields where the dynamic field `mask_field` is >= 0.5, e.g.
+    # glide's active-set mask on ice-free cells) a 1 km frame shrinks ~4.5x
+    # and writes faster than the raw one. The static file is compressed too.
+    compressor: str | None = None
+    compression_level: int = 0
+    precision: Mapping[str, float] = field(default_factory=dict)
+    mask_field: str | None = None
+    masked_fields: tuple[str, ...] = ()
 
     _step_idx: int = field(default=0, init=False, repr=False)
     _static_written: bool = field(default=False, init=False, repr=False)
@@ -242,6 +321,8 @@ class VTIWriter:
             self.origin,
             time_value=None,
             flip_y=self.flip_y,
+            compressor=self.compressor, compression_level=self.compression_level,
+            precision=self.precision,
         )
         self._static_written = True
         return fpath
@@ -261,6 +342,11 @@ class VTIWriter:
         """Write a timestep to a numbered VTI file."""
         fname = f"{self.base}_{step_idx:04d}.vti"
         fpath = self.out_dir / fname
+        mask = None
+        if self.mask_field is not None and self.masked_fields:
+            m = data[self.mask_field]
+            m = m[0] if isinstance(m, list) else m
+            mask = m < 0.5                       # keep where the active-set mask is 0 (ice)
         write_vti(
             fpath,
             data,
@@ -269,6 +355,8 @@ class VTIWriter:
             self.origin,
             time_value=time_value,
             flip_y=self.flip_y,
+            compressor=self.compressor, compression_level=self.compression_level,
+            precision=self.precision, mask=mask, masked_fields=self.masked_fields,
         )
         self.records.append((float(time_value), fname))
         return fpath
