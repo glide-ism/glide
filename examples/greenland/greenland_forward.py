@@ -33,7 +33,7 @@ mg.state.H_prev.set(thk)
 
 ### Initialize geometry
 bed = gaussian_filter(dataset.bed.values,1)
-mg.geometry.thklim.set(1.0)
+mg.geometry.thklim.set(0.1)
 mg.geometry.bed.set(bed)
 mg.geometry.depth.set(-bed)
 mg.geometry.sigmoid_c.set(1.0)
@@ -66,25 +66,25 @@ mg.sliding.water_drag.set(1.0e-4)
 ### Initialize calving
 # Decay timescale (years) of the non-conservative calving sink on
 # cells below the height-above-buoyancy threshold; cp.inf disables it
-mg.calving.timescale.set(0.5)
-mg.calving.q.set(-0.5)
+mg.calving.timescale.set(cp.inf)
+mg.calving.h0.set(10.0)
 mg.calving.H_c.set(100.0)   # floating ice thinner than this calves
 
 ### Initialize forcing
 smb = dataset.smb.values
-smb -= 1.0
-#smb[:] = 0.0
+#smb -= 1.0
+smb[:] = 0.0
 mg.forcing.smb.set(smb)
 
 ### Set multigrid solver parameters ###
 model.forward_solver.fas_options.set(
         coarsest_steps=200, pre_steps=10, 
         post_steps=150, finest_steps=0,
-        relative_tolerance=1e-2, absolute_tolerance=10.0,
+        relative_tolerance=1e-3, absolute_tolerance=1.0,
         report_norms=True)
 
 model.forward_solver.vanka_options.omega.set(cp.float32(0.5))
-model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.01))
+model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(1.0))
 model.forward_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
 
 # Derived surface velocity fields: with the MOLHO ansatz the surface
@@ -162,11 +162,12 @@ zarr_writer.initialize(mg[0],overwrite=True)
 # Run simulation
 t = cp.float32(0.0)
 t_end = cp.float32(1000.0)
-dt = cp.float32(10.0)
+dt = cp.float32(20.0)
 
 while t < t_end:
     print(f"Solving forward problem at t={t} with dt={dt:.2f}")
     model.forward(t,dt)
+    print(model.mg[0].state.H.data.mean())
     t += dt
 
     # Write
