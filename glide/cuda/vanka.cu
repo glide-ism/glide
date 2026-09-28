@@ -539,7 +539,7 @@ __device__ void build_9x9_vanka(
 
     r[0] += sigmad_xz_l.res;
     J[0] += sigmad_xz_l.d_u_c;
-    J[0] += get_sigma_vert_dvisc(ud_l,eta_l,eta_c,H_l,H_c,B_l,B_c,c_1,S_1,n,H_reg);
+    J[0] += get_sigma_vert_dvisc(ud_l,get_vfacet(ud,i,j,ny,nx),eta_l,eta_c,H_l,H_c,B_l,B_c,c_1,S_1,n,H_reg);
     J[8] += sigmad_xz_l.d_H_r;
     }
 
@@ -556,7 +556,7 @@ __device__ void build_9x9_vanka(
 
     r[1] += sigmad_xz_r.res;
     J[10] += sigmad_xz_r.d_u_c;
-    J[10] += get_sigma_vert_dvisc(ud_r,eta_c,eta_r,H_c,H_r,B_c,B_r,c_1,S_1,n,H_reg);
+    J[10] += get_sigma_vert_dvisc(ud_r,get_vfacet(ud,i,j+1,ny,nx),eta_c,eta_r,H_c,H_r,B_c,B_r,c_1,S_1,n,H_reg);
     J[17] += sigmad_xz_r.d_H_l;
     }
 
@@ -573,7 +573,7 @@ __device__ void build_9x9_vanka(
 
     r[2] += sigmad_yz_t.res;
     J[20] += sigmad_yz_t.d_v_c;
-    J[20] += get_sigma_vert_dvisc(vd_t,eta_t,eta_c,H_t,H_c,B_t,B_c,c_1,S_1,n,H_reg);
+    J[20] += get_sigma_vert_dvisc(vd_t,get_hfacet(vd,i,j,ny,nx),eta_t,eta_c,H_t,H_c,B_t,B_c,c_1,S_1,n,H_reg);
     J[26] += sigmad_yz_t.d_H_b;
     }
 
@@ -590,7 +590,7 @@ __device__ void build_9x9_vanka(
 
     r[3] += sigmad_yz_b.res;
     J[30] += sigmad_yz_b.d_v_c;
-    J[30] += get_sigma_vert_dvisc(vd_b,eta_c,eta_b,H_c,H_b,B_c,B_b,c_1,S_1,n,H_reg);
+    J[30] += get_sigma_vert_dvisc(vd_b,get_hfacet(vd,i+1,j,ny,nx),eta_c,eta_b,H_c,H_b,B_c,B_b,c_1,S_1,n,H_reg);
     J[35] += sigmad_yz_b.d_H_t;
     }
 #endif
