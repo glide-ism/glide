@@ -607,6 +607,7 @@ class FASCDSolver:
         self._trace_cycle = 0
         self._trace_mask = None
         self._dumped = []
+        self._in_cold_start = False
         # Experiment hooks (not config): correction_hook(l, level) is called on
         # the prolongated coarse correction (level.scratch.z_*) before it is
         # applied; h_prolongation is the prolongation of its H component.
@@ -664,6 +665,30 @@ class FASCDSolver:
         self.dt = dt
 
         start_level_ = self.multigrid.levels[start_level]
+        cold_dt = self._fas_config.cold_start_dt
+        if (cold_dt and float(dt) > float(cold_dt) and not self._in_cold_start
+                and not bool(cp.any(start_level_.state.u.data)) and not bool(cp.any(start_level_.state.v.data))):
+            keep = {n: getattr(start_level_.state, n).data.copy()
+                    for n in ('H', 'H_prev', 'mask', 'phi', 'psi', 'xi', 'dxi_dH')
+                    if getattr(start_level_.state, n, None) is not None}
+            # the real step keeps the COLD residual as the reference of its
+            # relative tolerance (the warm start's is larger, which would
+            # loosen the absolute accuracy of the step)
+            start_level_.forward_operators.set_rhs(dt)
+            r_cold = start_level_.forward_operators.compute_residual(dt, return_norms=True)
+            r0_reference = cp.sqrt(sum(x ** 2 for x in r_cold))
+            if self._fas_config.report_norms:
+                print(f"  cold start: initializing the velocities with a dt = {float(cold_dt):g} solve")
+            self._in_cold_start = True
+            try:
+                self.solve(cp.float32(cold_dt), start_level=start_level, report_norms=report_norms)
+            finally:
+                self._in_cold_start = False
+            for n, a in keep.items():
+                getattr(start_level_.state, n).data[:] = a
+            self.dt = dt
+        else:
+            r0_reference = None
         dump_dir = self._fas_config.dump_dir
         if dump_dir and self._fas_config.dump_max > 0:
             from .dump import snapshot
@@ -674,6 +699,8 @@ class FASCDSolver:
 
         ru_init,rv_init,rud_init,rvd_init,rH_init = start_level_.forward_operators.compute_residual(dt,return_norms=True)
         initial_residual_norm = cp.sqrt(ru_init**2 + rv_init**2 + rud_init**2 + rvd_init**2 + rH_init**2)
+        if r0_reference is not None:
+            initial_residual_norm = cp.minimum(initial_residual_norm, r0_reference)
         relative_residual_norm = cp.float32(1.0)
 
         if self._fas_config.report_norms:
@@ -982,6 +1009,14 @@ class FASCDConfig:
     # (after writing its dump), so the run stops instead of stepping on
     # from a NaN state.
     raise_on_nonfinite: bool = True
+    # Cold start: a solve that starts from zero velocities with dt larger
+    # than cold_start_dt first solves the same state at dt = cold_start_dt,
+    # keeps those velocities and restores the thickness state, then takes the
+    # real step. At large dt the thickness row of each Vanka patch is weak
+    # (1 / dt), and from u = 0 a few patches on steep ice beside calving cells
+    # took Newton steps of 1e4-1e6 in the first sweep (the first step of 1 km
+    # Greenland runs at dt 25). None = off.
+    cold_start_dt: float | None = None
     backtrack_scales: tuple = (1.0, 0.5, 0.25, 0.0)
     coarsest_steps: int = 200
     pre_steps: int = 10
@@ -1021,6 +1056,7 @@ class FASCDOptions:
             'backtrack',
             'backtrack_scales',
             'raise_on_nonfinite',
+            'cold_start_dt',
             'coarsest_steps',
             'pre_steps',
             'post_steps',
@@ -1040,6 +1076,11 @@ class FASCDOptions:
             getter=lambda: self._config.backtrack,
             setter=lambda v: setattr(self._config, "backtrack", v),
             name="backtrack",
+        )
+        self.cold_start_dt = LocalOption(
+            getter=lambda: self._config.cold_start_dt,
+            setter=lambda v: setattr(self._config, "cold_start_dt", v),
+            name="cold_start_dt",
         )
         self.raise_on_nonfinite = LocalOption(
             getter=lambda: self._config.raise_on_nonfinite,
