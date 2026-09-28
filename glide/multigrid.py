@@ -606,7 +606,7 @@ class FASCDSolver:
         self._trace_solve = 0
         self._trace_cycle = 0
         self._trace_mask = None
-        self._n_dumped = 0
+        self._dumped = []
         # Experiment hooks (not config): correction_hook(l, level) is called on
         # the prolongated coarse correction (level.scratch.z_*) before it is
         # applied; h_prolongation is the prolongation of its H component.
@@ -665,7 +665,7 @@ class FASCDSolver:
 
         start_level_ = self.multigrid.levels[start_level]
         dump_dir = self._fas_config.dump_dir
-        if dump_dir and self._n_dumped < self._fas_config.dump_max:
+        if dump_dir and self._fas_config.dump_max > 0:
             from .dump import snapshot
             snap = snapshot(start_level_)
         else:
@@ -701,9 +701,13 @@ class FASCDSolver:
             from .dump import save_solve_state
             Path(dump_dir).mkdir(parents=True, exist_ok=True)
             path = Path(dump_dir) / f'solve_{self._trace_solve:04d}.npz'
+            while len(self._dumped) >= self._fas_config.dump_max:
+                old = self._dumped.pop(0)
+                if old.exists():
+                    old.unlink()
             save_solve_state(path, start_level_, snap, dt, self, start_level,
                              info=dict(self.last_solve, solve=self._trace_solve))
-            self._n_dumped += 1
+            self._dumped.append(path)
             print(f'  dumped unconverged solve {self._trace_solve} to {path}')
 
     def _solve_loop(self, dt, start_level, start_level_, initial_residual_norm,
@@ -946,8 +950,9 @@ class FASCDConfig:
     trace_file: str | None = None
     trace_every: int = 25
     # Save-and-replay (glide/dump.py): directory receiving the starting state
-    # of every solve that ends unconverged or non-finite, at most dump_max
-    # files per solver; None = off.
+    # of every solve that ends unconverged or non-finite; the most recent
+    # dump_max files are kept (older ones deleted, so the failure that ends
+    # a run is always on disk); None = off.
     dump_dir: str | None = None
     dump_max: int = 5
     # Backtracking coarse correction: accept a V-cycle only if it lowers the
