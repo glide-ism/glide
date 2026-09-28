@@ -872,12 +872,17 @@ class FASCDSolver:
             mg.prolongate_hfacet(next_level.scratch.z_vd,level.scratch.z_vd,method='bilinear')
         mg.prolongate_cell(next_level.scratch.z_H,level.scratch.z_H,method=self.h_prolongation)
         if self._corr_scale != 1.0:
-            # backtracking (FASCDConfig.backtrack): applied at every level
-            for z in (level.scratch.z_u, level.scratch.z_v, level.scratch.z_H):
-                z *= self._corr_scale
+            # backtracking (FASCDConfig.backtrack): applied at every level. A
+            # zero scale must discard the correction even when a coarse level
+            # went non-finite (0 * NaN = NaN), so it is assigned, not scaled
+            zs = [level.scratch.z_u, level.scratch.z_v, level.scratch.z_H]
             if not ssa:
-                level.scratch.z_ud *= self._corr_scale
-                level.scratch.z_vd *= self._corr_scale
+                zs += [level.scratch.z_ud, level.scratch.z_vd]
+            for z in zs:
+                if self._corr_scale == 0.0:
+                    z.fill(0.0)
+                else:
+                    z *= self._corr_scale
         if self.correction_hook is not None:
             self.correction_hook(l, level)
 
