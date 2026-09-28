@@ -749,6 +749,10 @@ class FASCDSolver:
                       f"|r_vd| = {float(rvd):.2e}, "
                       f"|r_H| = {float(rH):.2e}")
             iteration += 1
+            if not bool(cp.isfinite(absolute_residual_norm)):
+                # further V-cycles cannot recover a non-finite state
+                print(f"  non-finite residual after V-cycle {iteration - 1}: stopping the solve")
+                break
         return relative_residual_norm, absolute_residual_norm, iteration
 
         
