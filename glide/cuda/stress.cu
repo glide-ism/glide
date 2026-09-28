@@ -201,7 +201,7 @@ DualFloat get_sigma_yz_dual(
 // E2 is recovered from eta = B/2 * E2^((1-n)/(2n)).
 __device__ __forceinline__
 float get_sigma_vert_dvisc(
-    float u_c, float u_c0,
+    float u_c,
     float eta_1, float eta_2,
     float H_1, float H_2,
     float B_1, float B_2,
@@ -218,19 +218,6 @@ float get_sigma_vert_dvisc(
 
     float e2_1 = __powf(2.0f * eta_1 / B_1, pw);
     float e2_2 = __powf(2.0f * eta_2 / B_2, pw);
-    // eta (hence E2) is frozen at the state the sweep started from, while the
-    // patch Newton moves u_c away from its sweep-start value u_c0. Update E2
-    // with this facet's own change (its term in the shear invariant is
-    // K_2 u^2 / (2 den)), floored at that term itself, which any consistent
-    // state satisfies. Exact at u_c = u_c0. Without it, from a cold start
-    // (E2 ~ eps_reg) the correction grew like u_c^2 / eps_reg, flipped the
-    // sign of the ud / vd diagonals within a few patch iterations and sent
-    // the patch to 1e7+ (the first dt-25 step of 1 km Greenland runs); with
-    // it the correction stays within (1 - 1/n) of the frozen diagonal.
-    float dshear_1 = 0.5f * K_2 * (u_c * u_c - u_c0 * u_c0) / den_1;
-    float dshear_2 = 0.5f * K_2 * (u_c * u_c - u_c0 * u_c0) / den_2;
-    e2_1 = fmaxf(e2_1 + dshear_1, 0.5f * K_2 * u_c * u_c / den_1);
-    e2_2 = fmaxf(e2_2 + dshear_2, 0.5f * K_2 * u_c * u_c / den_2);
 
     return factr * glen_exp * K_2 * u_c * u_c *
            (eta_1 * H_1 / (den_1 * den_1 * e2_1) +
