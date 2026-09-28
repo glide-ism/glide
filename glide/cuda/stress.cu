@@ -665,6 +665,35 @@ DualFloat get_tau_by_dual(TauByStencilDual s) {
   ==================== Driving Stress =====================
   =========================================================*/
 
+// Rock cannot push ice (2026-09-26). Where one cell's BASE stands above the
+// other cell's SURFACE the two columns do not face each other: the step is a
+// fjord wall or a terrace, and the rock between the lower surface and the
+// upper base touches no ice, so its reaction cannot act on the lower column.
+// H_avg (S_r - S_l) applied that relief to the whole facet (Umiammakku,
+// 1 km: 385 m x 528 m / 1 km = 203 against a trunk's 40; the wall facet ran
+// at 36 km/yr at A 5e-17 and the dt = 25 spin-up stalled at |r_H| ~ 25).
+// The part of a base that stands above the other surface, e = base - S_other,
+// is therefore removed from that cell's surface before the step is formed,
+//     S_eff = S - clip(e),
+// so that only the ice standing ON a terrace drives the facet
+// (res -> H_avg H_upper / dx for a wall). clip is ONE-SIDED and C1:
+// exactly 0 for e <= 0, e^2 / (2 d) up to e = d, e - d / 2 beyond, with
+// d = TAU_D_CLIP_SCALE (m). Overlapping columns, floating ice and calving
+// fronts (bases <= 0 <= surfaces) are therefore untouched to the last bit;
+// a two-sided smoothing (softmin) is NOT admissible here, its tail of a few
+// metres is as large as the freeboard of thin floating ice and multiplied
+// the front stress of every apron cell. Independent of the active set.
+#define TAU_D_CLIP_SCALE 20.0f
+
+// clip(e) and its derivative
+__device__ __forceinline__ float tau_d_clip(const float e, const float d, float& de)
+{
+    if (e <= 0.0f) { de = 0.0f; return 0.0f; }
+    if (e <  d)    { de = e / d; return 0.5f * e * e / d; }
+    de = 1.0f;
+    return e - 0.5f * d;
+}
+
 struct TauDxStencil {
     float H_l, H_r;
     float bed_l, bed_r;
@@ -730,12 +759,28 @@ TauDxJacobian get_tau_dx_jac(
     float S_l = base_l + s.H_l;
     float S_r = base_r + s.H_r;
 
-    jac.res = H_avg * (S_r - S_l) * dx_inv;
+    // the part of each base above the other cell's surface does not count
+    // (see the header of this section); c = d clip / d e
+    float c_l, c_r;
+    float Se_l = S_l - tau_d_clip(base_l - S_r, TAU_D_CLIP_SCALE, c_l);
+    float Se_r = S_r - tau_d_clip(base_r - S_l, TAU_D_CLIP_SCALE, c_r);
+    float dS = Se_r - Se_l;
 
-    jac.d_H_l = 0.5f*(S_r - S_l)*dx_inv - H_avg*(1.0f + dbase_dH_l)*dx_inv;
-    jac.d_H_r = 0.5f*(S_r - S_l)*dx_inv + H_avg*(1.0f + dbase_dH_r)*dx_inv;
-    jac.d_bed_l = -H_avg*grounded_l*dx_inv;
-    jac.d_bed_r =  H_avg*grounded_r*dx_inv;
+    float dSer_dH_l   =  c_r * (1.0f + dbase_dH_l);
+    float dSer_dH_r   =  1.0f + (1.0f - c_r) * dbase_dH_r;
+    float dSer_dbed_l =  c_r * grounded_l;
+    float dSer_dbed_r =  (1.0f - c_r) * grounded_r;
+    float dSel_dH_l   =  1.0f + (1.0f - c_l) * dbase_dH_l;
+    float dSel_dH_r   =  c_l * (1.0f + dbase_dH_r);
+    float dSel_dbed_l =  (1.0f - c_l) * grounded_l;
+    float dSel_dbed_r =  c_l * grounded_r;
+
+    jac.res = H_avg * dS * dx_inv;
+
+    jac.d_H_l = 0.5f*dS*dx_inv + H_avg*(dSer_dH_l - dSel_dH_l)*dx_inv;
+    jac.d_H_r = 0.5f*dS*dx_inv + H_avg*(dSer_dH_r - dSel_dH_r)*dx_inv;
+    jac.d_bed_l = H_avg*(dSer_dbed_l - dSel_dbed_l)*dx_inv;
+    jac.d_bed_r = H_avg*(dSer_dbed_r - dSel_dbed_r)*dx_inv;
     return jac;
 }
 
@@ -811,12 +856,28 @@ TauDyJacobian get_tau_dy_jac(
     float S_t = base_t + s.H_t;
     float S_b = base_b + s.H_b;
 
-    jac.res = H_avg * (S_t - S_b) * dx_inv;
+    // the part of each base above the other cell's surface does not count
+    // (see get_tau_dx_jac)
+    float c_t, c_b;
+    float Se_t = S_t - tau_d_clip(base_t - S_b, TAU_D_CLIP_SCALE, c_t);
+    float Se_b = S_b - tau_d_clip(base_b - S_t, TAU_D_CLIP_SCALE, c_b);
+    float dS = Se_t - Se_b;
 
-    jac.d_H_t = 0.5f*(S_t - S_b)*dx_inv + H_avg*(1.0f + dbase_dH_t)*dx_inv;
-    jac.d_H_b = 0.5f*(S_t - S_b)*dx_inv - H_avg*(1.0f + dbase_dH_b)*dx_inv;
-    jac.d_bed_t =  H_avg*grounded_t*dx_inv;
-    jac.d_bed_b = -H_avg*grounded_b*dx_inv;
+    float dSet_dH_t   =  1.0f + (1.0f - c_t) * dbase_dH_t;
+    float dSet_dH_b   =  c_t * (1.0f + dbase_dH_b);
+    float dSet_dbed_t =  (1.0f - c_t) * grounded_t;
+    float dSet_dbed_b =  c_t * grounded_b;
+    float dSeb_dH_t   =  c_b * (1.0f + dbase_dH_t);
+    float dSeb_dH_b   =  1.0f + (1.0f - c_b) * dbase_dH_b;
+    float dSeb_dbed_t =  c_b * grounded_t;
+    float dSeb_dbed_b =  (1.0f - c_b) * grounded_b;
+
+    jac.res = H_avg * dS * dx_inv;
+
+    jac.d_H_t = 0.5f*dS*dx_inv + H_avg*(dSet_dH_t - dSeb_dH_t)*dx_inv;
+    jac.d_H_b = 0.5f*dS*dx_inv + H_avg*(dSet_dH_b - dSeb_dH_b)*dx_inv;
+    jac.d_bed_t = H_avg*(dSet_dbed_t - dSeb_dbed_t)*dx_inv;
+    jac.d_bed_b = H_avg*(dSet_dbed_b - dSeb_dbed_b)*dx_inv;
     return jac;
 
 }

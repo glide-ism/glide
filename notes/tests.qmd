@@ -1,0 +1,242 @@
+---
+title: "Verification Tests for the Enthalpy Solver"
+date: 2026-05-01
+categories: [glaciology, numerical methods, verification]
+description: "Analytical and semi-analytical reference solutions used to verify the conservative enthalpy solver. Covers cold-column diffusion, advection-diffusion column, polythermal Stefan, horizontal advection, and conservation tests."
+---
+
+This note documents the verification tests in `tests/`. Each test reduces a piece of the conservative enthalpy equation to a controlled setting where an analytical (or semi-analytical) reference solution exists, and compares the solver output against it.
+
+The tests fall into four categories:
+
+| Category | Test file | What it verifies |
+|----------|-----------|-------------------|
+| Pure diffusion | `test_enthalpy_cold_column.py` | Vertical diffusion + Neumann bed BC |
+| Advection–diffusion | `test_enthalpy_advection.py` | Sigma advection + diffusion column |
+| Polythermal | `test_enthalpy_stefan.py` | Cold/temperate transition, drainage, latent heat |
+| Horizontal advection | `test_enthalpy_horiz_advection.py` | Conservative LF flux, y-symmetry, telescoping |
+| Conservation | `test_conservative_balance.py` | $H_{prev}$ snapshot consistency |
+
+## 1. Cold Column: Pure Vertical Diffusion
+
+**File:** `tests/test_enthalpy_cold_column.py`
+
+### Setup
+
+A flat ice slab of uniform thickness $H$ with no horizontal flow ($u = v = 0$, $\omega = 0$). The base receives a fixed geothermal heat flux $Q_{\text{geo}}$ (Neumann BC), the surface is held at temperature $T_s$ (Dirichlet BC). Strain heating and drainage are off. Parameters are chosen so that the entire column stays cold ($T < T_{\text{pmp}}$ everywhere), keeping the diffusivity $K = K_{\text{cold}}$ constant.
+
+### Analytical Solution
+
+With no advection, no sources, and constant diffusivity, the steady-state enthalpy equation reduces to:
+
+$$
+\frac{d}{dz}\!\left(K_{\text{cold}} \frac{dE}{dz}\right) = 0.
+$$
+
+Integrating once gives $K_{\text{cold}}\, dE/dz = -Q_{\text{geo}}$ (sign from the bed BC, which prescribes the heat flux *into* the ice). Integrating again and applying the surface Dirichlet condition $E(z = h_s) = E_s$:
+
+$$
+E(z) = E_s + \frac{Q_{\text{geo}}}{K_{\text{cold}}}(h_s - z).
+$$
+
+In sigma coordinates $\sigma = (z - b)/H$ with $\sigma = 0$ at the bed and $\sigma = 1$ at the surface:
+
+$$
+\boxed{
+E(\sigma) = E_s + \frac{Q_{\text{geo}}\, H}{k_i}\, c_i\,(1 - \sigma)
+}
+$$
+
+where the factor $c_i$ converts from temperature to enthalpy units. Equivalently in temperature:
+
+$$
+T(\sigma) = T_s + \frac{Q_{\text{geo}}\, H}{k_i}\,(1 - \sigma).
+$$
+
+The temperature increases linearly from the surface down to the bed, with slope $-Q_{\text{geo}}\, H / k_i$ per unit $\sigma$.
+
+### What the Test Verifies
+
+1.  **Steady-state diffusion accuracy.** Run the column smoother forward in time until convergence and compare the final $E(\sigma)$ against the linear analytical profile. Tolerance: relative error < 5×10⁻³ in enthalpy.
+
+2.  **Residual convergence.** A second test (`test_cold_column_residual_convergence`) confirms that the residual $\|R\|_\infty$ decreases by at least 100× over 50 smoothing sweeps from a uniform initial condition. This validates the column smoother as a convergent iterative solver.
+
+## 2. Advection–Diffusion Column: Exponential Profile
+
+**File:** `tests/test_enthalpy_advection.py`
+
+### Setup
+
+Same flat-slab geometry as the cold column test, but with a prescribed downward sigma-velocity $\dot{\sigma} < 0$ (constant in $\sigma$ and time). This adds a vertical advection term to the steady-state equation. The base is kept cold, so the diffusivity is again uniform.
+
+### Analytical Solution
+
+The steady-state advection–diffusion equation in sigma coordinates is:
+
+$$
+\rho_i\, \omega \,\frac{dE}{d\sigma} = \frac{K_{\text{cold}}}{H^2}\, \frac{d^2 E}{d\sigma^2}
+$$
+
+where $\omega = H\dot{\sigma}$ is constant. Defining the Peclet number
+
+$$
+Pe = \frac{\rho_i\, \omega\, H^2}{K_{\text{cold}}}
+$$
+
+(negative for downward $\omega$), the ODE becomes $Pe\, dE/d\sigma = d^2 E / d\sigma^2$. This is a second-order linear ODE with characteristic roots $\{0, Pe\}$, giving the general solution:
+
+$$
+E(\sigma) = A + B\, e^{Pe\, \sigma}.
+$$
+
+Applying the surface Dirichlet $E(1) = E_s$ and the basal Neumann $-(K_{\text{cold}}/H)\,(dE/d\sigma)|_{\sigma=0} = Q_{\text{geo}}$:
+
+$$
+B \cdot Pe = -\frac{H\, Q_{\text{geo}}}{K_{\text{cold}}}, \qquad
+A = E_s - B\, e^{Pe}.
+$$
+
+So:
+
+$$
+\boxed{
+E(\sigma) = E_s - \frac{H\,Q_{\text{geo}}}{K_{\text{cold}}\, Pe}\,\bigl(e^{Pe\,\sigma} - e^{Pe}\bigr)
+}
+$$
+
+For $Pe = -5$ (downward advection), the profile is exponential: warm at the bed, cooling rapidly with depth into the column due to the downward transport of cold surface ice.
+
+### What the Test Verifies
+
+The model is run with the prescribed constant $\omega$ to steady state, and the converged column profile is compared against the analytical exponential. Tolerance: relative enthalpy error < 2%, max temperature error consistent with the discretization order.
+
+### Skipped: Robin / Error-Function Profile
+
+A second test (`test_robin_advection_diffusion`) is documented but skipped. It prescribes $\dot{\sigma}(\sigma) = -(SMB/H)\sigma$, which has the analytical solution
+
+$$
+E(\sigma) = E_s + \frac{H\, Q_{\text{geo}}}{K_{\text{cold}}} \sqrt{\frac{\pi}{2\, Pe_R}}\,\bigl[\mathrm{erf}(\sqrt{Pe_R/2}) - \mathrm{erf}(\sigma\sqrt{Pe_R/2})\bigr]
+$$
+
+with $Pe_R = \rho_i\, SMB\, H / K_{\text{cold}}$. The test is skipped because the prescribed $\omega$ has $d\omega/d\sigma \neq 0$, which is inconsistent with the conservative continuity equation under constant $H$ — the conservative form correctly captures this inconsistency via the $E\,d\omega/d\sigma$ term, so the comparison is not meaningful without an evolving-$H$ benchmark.
+
+## 3. Polythermal Stefan Column
+
+**File:** `tests/test_enthalpy_stefan.py`
+
+### Setup
+
+A flat slab with a *high* geothermal heat flux $Q_{\text{geo}} = 0.5\;\text{W/m}^2$ that drives the basal temperature past the pressure melting point. This produces a two-zone polythermal column: a cold conductive zone above a temperate zone where excess enthalpy is stored as water content. The diffusivity drops sharply at the cold–temperate transition surface (CTS):
+
+$$
+K(E) = \begin{cases} K_{\text{cold}} = k_i / c_i & E < E_{\text{pmp}} \\ K_{\text{temp}} = \epsilon\, K_{\text{cold}} & E \geq E_{\text{pmp}} \end{cases}
+$$
+
+with $\epsilon = 0.1$ (Aschwanden et al. 2012). Strain heating and drainage are disabled; only conduction operates.
+
+### Semi-Analytical Reference
+
+In each zone, the steady-state diffusion equation has a linear $E(\sigma)$ profile with slope determined by $Q_{\text{geo}}$ and the local diffusivity:
+
+-   **Cold zone** ($\sigma > \sigma^*$): slope $= -Q_{\text{geo}}\, H / K_{\text{cold}}$
+-   **Temperate zone** ($\sigma < \sigma^*$): slope $= -Q_{\text{geo}}\, H / K_{\text{temp}}$ (steeper by factor $1/\epsilon = 10$)
+
+The location $\sigma^*$ of the CTS is determined by requiring continuity of $E$ at the interface: the cold-zone profile starting from $E_s$ at the surface must reach $E_{\text{pmp}}(\sigma^*)$ at the CTS:
+
+$$
+E_s + \frac{Q_{\text{geo}}\, H}{k_i}(1 - \sigma^*)\, c_i = E_{\text{pmp}}(\sigma^*).
+$$
+
+Equivalently, in temperature:
+
+$$
+\frac{Q_{\text{geo}}\, H}{k_i}(1 - \sigma^*) = T_{\text{pmp}}(\sigma^*) - T_s.
+$$
+
+This is solved numerically (Brent's method on the residual). Below the CTS, the enthalpy continues increasing past $E_{\text{pmp}}$ — the excess corresponds to water content via $\varpi = (E - E_{\text{pmp}})/L_{\text{heat}}$:
+
+$$
+E(\sigma) = E_{\text{pmp}}(\sigma^*) + \frac{Q_{\text{geo}}\, H}{K_{\text{temp}}}(\sigma^* - \sigma) \quad \text{for } \sigma \leq \sigma^*.
+$$
+
+### What the Test Verifies
+
+The full test suite contains three checks:
+
+1.  **Geothermal flux is preserved at temperate base** (`test_temperate_bed_still_applies_geothermal_flux`). With $E$ uniform and above $E_{\text{pmp}}$ everywhere, the only nonzero residual at the bed should equal the Neumann flux contribution $-Q_{\text{geo}}/(\Delta\sigma_{\text{half}}\, E_{\text{SCALE}})$. This validates that the bed BC is applied even when the basal ice is temperate.
+
+2.  **No hard clamping at $E_{\text{pmp}}$** (`test_temperate_bed_is_not_clamped_to_pmp`). After smoothing from a temperate state with continued heating, the basal $E$ must remain *above* $E_{\text{pmp}}$. This confirms that the solver tracks latent heat (water content) rather than truncating at the melting point.
+
+3.  **Steady-state polythermal profile** (`test_steady_state_polythermal_profile`). Run with adaptive $\Delta t$ to convergence and compare against the semi-analytical two-zone profile and basal water content. Tolerances: temperature error < 0.1 K, enthalpy relative error < 2%, basal water content relative error < 2%.
+
+## 4. Horizontal Advection
+
+**File:** `tests/test_enthalpy_horiz_advection.py`
+
+These tests target the horizontal flux divergence $\rho_i\, \nabla_h \cdot (H\mathbf{u}E)$, which is the conservative-form contribution to the residual. With $\omega$ disabled and no sources, the equation reduces to:
+
+$$
+\frac{\partial(HE)}{\partial t} + \nabla_h \cdot (H\mathbf{u}E) = 0.
+$$
+
+### 4.1 Stability under Divergent Velocity
+
+For uniform $E = E_0$ and a spatially varying velocity $u(x) = \alpha\, x$, the conservative divergence is:
+
+$$
+\nabla_h \cdot (H\mathbf{u}E_0) = E_0\, \nabla_h \cdot (H\mathbf{u}) = E_0\, H\, \alpha \neq 0.
+$$
+
+This is **physically correct**: it captures the fact that the control volume changes size when the flow diverges, so the enthalpy per unit area in the column must adjust even if specific enthalpy is uniform. The test verifies that the solver remains bounded (does not blow up) under this condition — a basic stability check.
+
+### 4.2 y-Symmetry Preservation
+
+Initialize a 1D step profile $E(x) = E_{\text{cold}}$ for $x < x_{\text{step}}$, $E_{\text{warm}}$ otherwise, with uniform rightward velocity $u > 0$ and $v = 0$. The setup is invariant in $y$, so all rows must remain identical at all times. After three time steps, the test asserts that the maximum spread across rows of any column is < 1 J/kg.
+
+This is sensitive to any directional bias in the discretization: if the y-flux convention or the column-smoother sweep order treats rows asymmetrically, the test fails.
+
+### 4.3 Energy Conservation (Telescoping)
+
+For uniform $H$, uniform $u$, no sources, and a smooth sinusoidal $E(x)$, the conservative form $\partial_t(HE) + \partial_x(HuE) = 0$ guarantees that internal fluxes telescope: the flux leaving cell $i$ at face $i + 1/2$ equals the flux entering cell $i+1$ at the same face. Summed over interior cells, only boundary fluxes contribute to the change in total energy.
+
+The test measures $\sum_{\text{interior}} H_{i,j}\, E_{i,j,k}$ before and after one time step (excluding the first/last two rows and columns to avoid boundary effects, and the surface Dirichlet layer). Tolerance: relative change < 1% (the residual comes from boundary effects and the LF dissipation, not from the divergence operator itself, which conserves to machine precision).
+
+## 5. Pre-Momentum Snapshot Consistency
+
+**File:** `tests/test_conservative_balance.py`
+
+A short consistency check confirming that the enthalpy solver uses the *pre-momentum* thickness $H^{n-1}$ in the time term, not the post-momentum thickness.
+
+### Setup
+
+A flat slab where the momentum step has thinned the ice from $H_{\text{old}} = 1000\;\text{m}$ to $H_{\text{new}} = 999\;\text{m}$ over one time step (corresponding to SMB $= -1\;\text{m/yr}$). Uniform temperature, no advection, no sources.
+
+### What the Test Verifies
+
+The conservative time term is
+
+$$
+R^{\text{time}} = \frac{\rho_i}{\Delta t}(H^n E^n - H^{n-1} E^{n-1}_k).
+$$
+
+If $E$ is uniform and at steady state, this should be exactly zero when $H^{n-1}$ matches the pre-momentum thickness $H_{\text{old}}$. The test runs the residual computation twice — once with $H_{\text{prev}} = H_{\text{old}}$ (correct) and once with $H_{\text{prev}} = H_{\text{new}}$ (incorrect). It asserts that the correct-$H_{\text{prev}}$ residual is significantly smaller than the incorrect one, validating that the `pre_momentum()` snapshot is essential for conservation.
+
+This guards against an easy-to-miss bug: if the snapshot is taken *after* the momentum step instead of before, the time-term cancellation is broken and total energy drifts at every step.
+
+## Running the Tests
+
+The tests are standalone scripts (not pytest fixtures). Run individually:
+
+```bash
+python tests/test_enthalpy_cold_column.py
+python tests/test_enthalpy_advection.py
+python tests/test_enthalpy_stefan.py
+python tests/test_enthalpy_horiz_advection.py
+python tests/test_conservative_balance.py
+```
+
+Each prints diagnostic output (profiles, residuals, errors) and asserts pass/fail at the end. Together they cover the discrete pieces of the conservative enthalpy equation (time term, vertical diffusion, sigma advection, horizontal advection, drainage source) under conditions where the truth is known analytically or through tightly constrained reference solutions.
+
+## References
+
+-   Aschwanden, A., Bueler, E., Khroulev, C., and Blatter, H. (2012). An enthalpy formulation for glaciers and ice sheets. *Journal of Glaciology*, 58(209), 441–457. doi:10.3189/2012JoG11J088

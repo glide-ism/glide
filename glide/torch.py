@@ -24,6 +24,9 @@ class GlideStep(torch.autograd.Function):
         # step with the margins it was integrated with, not the run's last.
         q_torch = torch.tensor(model.mg[level].calving.q.data)
         h0_torch = torch.tensor(model.mg[level].calving.h0.data)
+        # Likewise the rate factor B, which a thermal model (ThermalModel)
+        # updates between steps: backward must see the B this step used.
+        B_torch = torch.tensor(model.mg[level].rheology.B.data)
 
         model.forward(t,dt,update_geometry=False)
 
@@ -44,11 +47,11 @@ class GlideStep(torch.autograd.Function):
             # copy or checkpoint the all-zero model state
             ud_torch = torch.zeros_like(u_torch)
             vd_torch = torch.zeros_like(v_torch)
-            ctx.save_for_backward(u_torch,v_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch,dxi_torch)
+            ctx.save_for_backward(u_torch,v_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch,dxi_torch,B_torch)
         else:
             ud_torch = torch.tensor(model.mg[level].state.ud.data)
             vd_torch = torch.tensor(model.mg[level].state.vd.data)
-            ctx.save_for_backward(u_torch,v_torch,ud_torch,vd_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch,dxi_torch)
+            ctx.save_for_backward(u_torch,v_torch,ud_torch,vd_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch,dxi_torch,B_torch)
         ctx.mark_non_differentiable(mask_torch)
 
         return u_torch, v_torch, ud_torch, vd_torch, H_torch, mask_torch
@@ -61,12 +64,13 @@ class GlideStep(torch.autograd.Function):
         level = ctx.level
 
         if ctx.ssa:
-            u_torch,v_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch,dxi_torch = ctx.saved_tensors
+            u_torch,v_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch,dxi_torch,B_torch = ctx.saved_tensors
         else:
-            u_torch,v_torch,ud_torch,vd_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch,dxi_torch = ctx.saved_tensors
+            u_torch,v_torch,ud_torch,vd_torch,H_torch,mask_torch,phi_torch,psi_torch,xi_torch,H_prev,bed,beta,smb,q_torch,h0_torch,dpsi_torch,dpsib_torch,dxi_torch,B_torch = ctx.saved_tensors
 
         model.mg.calving.q.set(cp.asarray(q_torch.data),start_level=level)
         model.mg.calving.h0.set(cp.asarray(h0_torch.data),start_level=level)
+        model.mg.rheology.B.set(cp.asarray(B_torch.data),start_level=level)
         model.mg.state.H_prev.set(cp.asarray(H_prev.data),start_level=level)
         model.mg.geometry.bed.set(cp.asarray(bed.data),start_level=level)
         model.mg.sliding.beta.set(cp.asarray(beta.data),start_level=level)

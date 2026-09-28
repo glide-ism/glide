@@ -55,7 +55,10 @@ def _precondition(name, value, precision, keep):
     of a Greenland grid holds solver noise in the velocities and SMB."""
     xp = cp.get_array_module(value) if hasattr(value, "__cuda_array_interface__") else np
     if keep is not None:
-        value = xp.where(xp.asarray(keep), value, xp.zeros((), dtype=value.dtype))
+        keep = xp.asarray(keep)
+        if value.ndim == 3 and keep.ndim == 2:
+            keep = keep[:, :, None]              # (ny, nx) mask on a (ny, nx, nz) field
+        value = xp.where(keep, value, xp.zeros((), dtype=value.dtype))
     q = precision.get(name) if precision else None
     if q:
         value = xp.round(value / q) * q
@@ -63,7 +66,7 @@ def _precondition(name, value, precision, keep):
 
 
 def write_vti(filename, data, dx, dy=None, origin=(0.0, 0.0), time_value=None, flip_y=True,
-              compressor=None, compression_level=0, precision=None, mask=None, masked_fields=()):
+              dz=None, compressor=None, compression_level=0, precision=None, mask=None, masked_fields=()):
     """
     Write fields to VTI (VTK ImageData) binary format.
 
@@ -91,14 +94,18 @@ def write_vti(filename, data, dx, dy=None, origin=(0.0, 0.0), time_value=None, f
         Output filename
     data : dict
         Dictionary mapping field names to data. Values can be:
-        - CuPy/NumPy array: scalar field
-        - List of arrays: vector field components
+        - CuPy/NumPy array: scalar field, 2D ``(ny, nx)`` or 3D ``(ny, nx, nz)``
+        - List of arrays: vector field components (2D only)
+        All fields of one call must have the same dimensionality; a 3D call
+        writes a full 3D ImageData (e.g. sigma levels as the z axis).
     dx : float
         Grid spacing in x
     dy : float, optional
         Grid spacing in y (defaults to dx)
+    dz : float, optional
+        Grid spacing in z; required for 3D output
     origin : tuple
-        Grid origin (x, y)
+        Grid origin (x, y) or (x, y, z)
     time_value : float, optional
         Time value for this snapshot
     flip_y : bool
@@ -132,7 +139,28 @@ def write_vti(filename, data, dx, dy=None, origin=(0.0, 0.0), time_value=None, f
         first_field = next(iter(scalars.values()))
     else:
         first_field = next(iter(vectors.values()))[0]
-    ny, nx = first_field.shape
+    if first_field.ndim == 2:
+        is_3d = False
+        ny, nx = first_field.shape
+        nz = 1
+    elif first_field.ndim == 3:
+        is_3d = True
+        ny, nx, nz = first_field.shape
+        if dz is None:
+            raise ValueError(f"dz must be provided for 3D output (field shape {first_field.shape})")
+        if vectors:
+            raise NotImplementedError("Vector fields are only supported in 2D mode.")
+    else:
+        raise ValueError(f"Field arrays must be 2D or 3D; got shape {first_field.shape}")
+    for name, arr in scalars.items():
+        if arr.ndim != first_field.ndim:
+            raise ValueError(f"Field '{name}' has shape {arr.shape}; expected "
+                             f"{'3D' if is_3d else '2D'} like the first field.")
+        if is_3d:
+            # VTK ImageData is x-fastest (z outermost): (ny, nx, nz) -> (nz, ny, nx)
+            scalars[name] = np.ascontiguousarray(arr.transpose(2, 0, 1))
+    origin3 = (float(origin[0]), float(origin[1]), float(origin[2]) if len(origin) > 2 else 0.0)
+    extent = f"0 {nx-1} 0 {ny-1} 0 {nz-1}"
 
     # Build XML
     root = ET.Element("VTKFile", type="ImageData", version="1.0", byte_order="LittleEndian",
@@ -140,10 +168,10 @@ def write_vti(filename, data, dx, dy=None, origin=(0.0, 0.0), time_value=None, f
     if compressor:
         root.set("compressor", _VTK_COMPRESSOR[compressor])
     img = ET.SubElement(root, "ImageData",
-                        WholeExtent=f"0 {nx-1} 0 {ny-1} 0 0",
-                        Origin=f"{origin[0]} {origin[1]} 0",
-                        Spacing=f"{dx} {dy} 1.0")
-    piece = ET.SubElement(img, "Piece", Extent=f"0 {nx-1} 0 {ny-1} 0 0")
+                        WholeExtent=extent,
+                        Origin=f"{origin3[0]} {origin3[1]} {origin3[2]}",
+                        Spacing=f"{dx} {dy} {dz if is_3d else 1.0}")
+    piece = ET.SubElement(img, "Piece", Extent=extent)
 
     if time_value is not None:
         fd = ET.SubElement(piece, "FieldData")
@@ -222,10 +250,14 @@ class VTIWriter:
     - call :meth:`initialize` once
     - call :meth:`append` for each dynamic snapshot
 
-    Field mappings may contain either scalar fields/constants or vectors. Vectors
-    are specified as lists/tuples of fields, e.g. ``{"U": [grid.state.u,
-    grid.state.v]}``. Vector components are collocated to cell centers via each
-    field's ``to_cell()`` method before writing.
+    Field mappings may contain scalar fields/constants, vectors, or callables.
+    Vectors are specified as lists/tuples of fields, e.g. ``{"U": [grid.state.u,
+    grid.state.v]}``; vector components are collocated to cell centers via each
+    field's ``to_cell()`` method before writing. Callables (e.g.
+    ``{"T": lambda: thermal.temperature}``) are evaluated at write time.
+
+    Fields of shape ``(ny, nx, nz)`` write 3D ImageData and need ``dz``; one
+    writer holds one dimensionality (use two writers for surface + volume).
     """
 
     out_dir: str | Path
@@ -234,8 +266,9 @@ class VTIWriter:
     base: str = "output"
     dx: float = 1.0
     dy: float | None = None
-    origin: tuple[float, float] = (0.0, 0.0)
+    origin: tuple = (0.0, 0.0)
     flip_y: bool = True
+    dz: float | None = None
     # Compression of the appended data (see write_vti): None = raw (the
     # original layout), "lz4" = ParaView-native compressed frames. With
     # `precision` (field -> quantum) and `mask_field` / `masked_fields` (zero
@@ -320,7 +353,7 @@ class VTIWriter:
             self.dy,
             self.origin,
             time_value=None,
-            flip_y=self.flip_y,
+            flip_y=self.flip_y, dz=self.dz,
             compressor=self.compressor, compression_level=self.compression_level,
             precision=self.precision,
         )
@@ -354,7 +387,7 @@ class VTIWriter:
             self.dy,
             self.origin,
             time_value=time_value,
-            flip_y=self.flip_y,
+            flip_y=self.flip_y, dz=self.dz,
             compressor=self.compressor, compression_level=self.compression_level,
             precision=self.precision, mask=mask, masked_fields=self.masked_fields,
         )
@@ -398,6 +431,10 @@ class VTIWriter:
         return self._coerce_scalar_value(value)
 
     def _coerce_scalar_value(self, value: Any) -> Any:
+        if callable(value) and not hasattr(value, "data"):
+            value = value()
+        if isinstance(value, (np.ndarray, cp.ndarray)):
+            return value                         # raw arrays (cupy's .data is a pointer)
         if hasattr(value, "to_cell"):
             return value.to_cell().data
         if hasattr(value, "data"):
@@ -405,6 +442,10 @@ class VTIWriter:
         return value
 
     def _coerce_vector_component(self, value: Any) -> Any:
+        if callable(value) and not hasattr(value, "data"):
+            value = value()
+        if isinstance(value, (np.ndarray, cp.ndarray)):
+            return value                         # raw arrays (cupy's .data is a pointer)
         if hasattr(value, "to_cell"):
             return value.to_cell().data
         if hasattr(value, "data"):

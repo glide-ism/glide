@@ -32,7 +32,7 @@ mg.state.H.set(thk)
 mg.state.H_prev.set(thk)
 
 ### Initialize geometry
-bed = gaussian_filter(dataset.bed.values,1)
+bed = dataset.bed.values#gaussian_filter(dataset.bed.values,1)
 mg.geometry.thklim.set(0.1)
 mg.geometry.bed.set(bed)
 mg.geometry.depth.set(-bed)
@@ -41,7 +41,7 @@ mg.geometry.sigmoid_c.set(1.0)
 ### Initialize rheology
 # Compute B (rate factor - we measure driving stress in units of head, so the rho g factor gets subsumed into definitions of beta and B!)
 B = cp.zeros((ny,nx), dtype=cp.float32)
-B.fill(1e-17 ** (-1.0 / 3.0) / (917 * 9.81)) 
+B.fill(1e-16 ** (-1.0 / 3.0) / (917 * 9.81)) 
 mg.rheology.B.set(B)
 mg.rheology.eps_reg.set(1e-6)
 mg.rheology.n.set(3.0)
@@ -66,21 +66,21 @@ mg.sliding.water_drag.set(1.0e-4)
 ### Initialize calving
 # Decay timescale (years) of the non-conservative calving sink on
 # cells below the height-above-buoyancy threshold; cp.inf disables it
-mg.calving.timescale.set(cp.inf)
+mg.calving.timescale.set(1.0)
 mg.calving.h0.set(10.0)
 mg.calving.H_c.set(100.0)   # floating ice thinner than this calves
 
 ### Initialize forcing
 smb = dataset.smb.values
 #smb -= 1.0
-smb[:] = 0.0
+#smb[:] = 0.0
 mg.forcing.smb.set(smb)
 
 ### Set multigrid solver parameters ###
 model.forward_solver.fas_options.set(
         coarsest_steps=200, pre_steps=10, 
         post_steps=150, finest_steps=0,
-        relative_tolerance=1e-3, absolute_tolerance=1.0,
+        relative_tolerance=1e-3, absolute_tolerance=10.0,
         report_norms=True)
 
 model.forward_solver.vanka_options.omega.set(cp.float32(0.5))
