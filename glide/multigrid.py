@@ -709,6 +709,11 @@ class FASCDSolver:
                              info=dict(self.last_solve, solve=self._trace_solve))
             self._dumped.append(path)
             print(f'  dumped unconverged solve {self._trace_solve} to {path}')
+        if not finite and self._fas_config.raise_on_nonfinite:
+            where = f' (starting state dumped to {path})' if snap is not None else ''
+            raise FloatingPointError(
+                f'forward solve {self._trace_solve} ended with a non-finite residual '
+                f'after {n_cycles} V-cycles, dt = {float(dt):g}{where}')
 
     def _solve_loop(self, dt, start_level, start_level_, initial_residual_norm,
                     relative_residual_norm, absolute_residual_norm):
@@ -968,6 +973,10 @@ class FASCDConfig:
     # thickness correction there can be O(1) wrong -- the cause of the
     # stalls / divergences that extra finest sweeps were absorbing.
     backtrack: bool = False
+    # Raise FloatingPointError when a solve ends with a non-finite residual
+    # (after writing its dump), so the run stops instead of stepping on
+    # from a NaN state.
+    raise_on_nonfinite: bool = True
     backtrack_scales: tuple = (1.0, 0.5, 0.25, 0.0)
     coarsest_steps: int = 200
     pre_steps: int = 10
@@ -1006,6 +1015,7 @@ class FASCDOptions:
             'dump_max',
             'backtrack',
             'backtrack_scales',
+            'raise_on_nonfinite',
             'coarsest_steps',
             'pre_steps',
             'post_steps',
@@ -1025,6 +1035,11 @@ class FASCDOptions:
             getter=lambda: self._config.backtrack,
             setter=lambda v: setattr(self._config, "backtrack", v),
             name="backtrack",
+        )
+        self.raise_on_nonfinite = LocalOption(
+            getter=lambda: self._config.raise_on_nonfinite,
+            setter=lambda v: setattr(self._config, "raise_on_nonfinite", v),
+            name="raise_on_nonfinite",
         )
         self.backtrack_scales = LocalOption(
             getter=lambda: self._config.backtrack_scales,
