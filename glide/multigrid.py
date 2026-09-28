@@ -1,4 +1,5 @@
 import cupy as cp
+import numpy as np
 from dataclasses import dataclass, fields, is_dataclass
 from pathlib import Path
 from .grid import Grid
@@ -602,6 +603,59 @@ class FASCDSolver:
 
         self.n_levels = len(self.levels)
         self.dt = None
+        self._trace_solve = 0
+        self._trace_cycle = 0
+        self._trace_mask = None
+        self._n_dumped = 0
+        # Experiment hooks (not config): correction_hook(l, level) is called on
+        # the prolongated coarse correction (level.scratch.z_*) before it is
+        # applied; h_prolongation is the prolongation of its H component.
+        self.correction_hook = None
+        self.h_prolongation = 'injection'
+        self._corr_scale = 1.0
+        self.last_solve = None
+
+    def trace(self, l, label):
+        """Append one diagnostic row to FASCDConfig.trace_file: the level-l
+        residual (the solver's norm, freeze_phi) split by cell class --
+        'calving' (active ice with psi < 0.5), 'front' (active cells within 2
+        cells of a calving cell), 'constrained' (active set, mask >= 0.5),
+        'interior' (the rest) -- as the H norm, the momentum norm (u, v, ud,
+        vd facets averaged onto cells), the cell count and the largest |r_H|
+        with its location; plus the number of active-set flips since the
+        previous row. Costs one residual evaluation per row; off by default."""
+        path = self._fas_config.trace_file
+        if not path:
+            return
+        from cupyx.scipy.ndimage import binary_dilation
+        grid = self.levels[l].grid
+        ops = grid.forward_operators
+        ops.compute_residual(self.dt, freeze_phi=True)
+        mask = grid.state.mask.data >= 0.5
+        calving = (~mask) & (grid.state.psi.data < 0.5)
+        front = binary_dilation(binary_dilation(calving)) & ~calving & ~mask
+        interior = ~(mask | calving | front)
+        rH = ops.r_H
+        mom = (0.5 * (cp.abs(ops.r_u[:, 1:]) + cp.abs(ops.r_u[:, :-1]))
+               + 0.5 * (cp.abs(ops.r_v[1:, :]) + cp.abs(ops.r_v[:-1, :])))
+        if not grid.ssa:
+            mom += (0.5 * (cp.abs(ops.r_ud[:, 1:]) + cp.abs(ops.r_ud[:, :-1]))
+                    + 0.5 * (cp.abs(ops.r_vd[1:, :]) + cp.abs(ops.r_vd[:-1, :])))
+        flips = -1 if self._trace_mask is None else int((mask != self._trace_mask).sum())
+        self._trace_mask = mask.copy()
+        k = int(cp.argmax(cp.abs(rH)))
+        i, j = divmod(k, grid.nx)
+        cells = [f'{self._trace_solve},{self._trace_cycle},{l},{label},{flips},{i},{j},{float(rH[i, j]):.4g}']
+        for m in (calving, front, mask, interior):
+            cells.append(f'{int(m.sum())},{float(cp.sqrt((rH[m] ** 2).sum())):.4g},'
+                         f'{float(cp.sqrt((mom[m] ** 2).sum())):.4g}')
+        new = not Path(path).exists()
+        with open(path, 'a') as f:
+            if new:
+                f.write('solve,cycle,level,point,mask_flips,imax,jmax,rH_max,'
+                        + ','.join(f'n_{c},rH_{c},rmom_{c}' for c in
+                                   ('calving', 'front', 'constrained', 'interior')) + '\n')
+            f.write(','.join(cells) + '\n')
 
     def solve(self,dt,start_level=0,report_norms=True):
         # Coerce once: kernels take a 4-byte float, and cupy packs a python
@@ -610,6 +664,12 @@ class FASCDSolver:
         self.dt = dt
 
         start_level_ = self.multigrid.levels[start_level]
+        dump_dir = self._fas_config.dump_dir
+        if dump_dir and self._n_dumped < self._fas_config.dump_max:
+            from .dump import snapshot
+            snap = snapshot(start_level_)
+        else:
+            snap = None
         start_level_.forward_operators.set_rhs(dt)
 
         ru_init,rv_init,rud_init,rvd_init,rH_init = start_level_.forward_operators.compute_residual(dt,return_norms=True)
@@ -626,11 +686,54 @@ class FASCDSolver:
 
         absolute_residual_norm = initial_residual_norm
         iteration = 0
+        self._trace_solve += 1
+        self._trace_mask = None
+        rel, ab, n_cycles = self._solve_loop(dt, start_level, start_level_, initial_residual_norm,
+                                             relative_residual_norm, absolute_residual_norm)
+        rel, ab = float(rel), float(ab)
+        converged = (rel <= float(self._fas_config.relative_tolerance)
+                     or ab <= float(self._fas_config.absolute_tolerance))
+        finite = bool(np.isfinite(ab))
+        self.last_solve = dict(converged=converged and finite, finite=finite, cycles=n_cycles,
+                               rel=rel, abs=ab, r0=float(initial_residual_norm))
+        if snap is not None and not (converged and finite):
+            from pathlib import Path
+            from .dump import save_solve_state
+            Path(dump_dir).mkdir(parents=True, exist_ok=True)
+            path = Path(dump_dir) / f'solve_{self._trace_solve:04d}.npz'
+            save_solve_state(path, start_level_, snap, dt, self, start_level,
+                             info=dict(self.last_solve, solve=self._trace_solve))
+            self._n_dumped += 1
+            print(f'  dumped unconverged solve {self._trace_solve} to {path}')
+
+    def _solve_loop(self, dt, start_level, start_level_, initial_residual_norm,
+                    relative_residual_norm, absolute_residual_norm):
+        iteration = 0
         while (relative_residual_norm > self._fas_config.relative_tolerance 
                 and absolute_residual_norm > self._fas_config.absolute_tolerance
                 and iteration < self._fas_config.maximum_vcycles):
-            self.vcycle(start_level,finest=True)
-            ru,rv,rud,rvd,rH = start_level_.forward_operators.compute_residual(dt,freeze_phi=True,return_norms=True)
+            self._trace_cycle = iteration
+            if self._fas_config.backtrack:
+                grid = start_level_
+                keep = ('u', 'v', 'ud', 'vd', 'H', 'mask', 'phi', 'psi', 'xi', 'dxi_dH')
+                saved = {n: getattr(grid.state, n).data.copy() for n in keep
+                         if getattr(grid.state, n, None) is not None}
+                scales = tuple(self._fas_config.backtrack_scales)
+                for k, sc in enumerate(scales):
+                    self._corr_scale = float(sc)
+                    self.vcycle(start_level,finest=True)
+                    ru,rv,rud,rvd,rH = start_level_.forward_operators.compute_residual(dt,freeze_phi=True,return_norms=True)
+                    new = cp.sqrt(ru**2 + rv**2 + rud**2 + rvd**2 + rH**2)
+                    if bool(cp.isfinite(new)) and new < absolute_residual_norm or k == len(scales) - 1:
+                        break
+                    for n, a in saved.items():
+                        getattr(grid.state, n).data[:] = a
+                self._corr_scale = 1.0
+                if self._fas_config.report_norms and sc != 1.0:
+                    print(f"  (coarse correction scaled by {sc:g})")
+            else:
+                self.vcycle(start_level,finest=True)
+                ru,rv,rud,rvd,rH = start_level_.forward_operators.compute_residual(dt,freeze_phi=True,return_norms=True)
 
             absolute_residual_norm = cp.sqrt(ru**2 + rv**2 + rud**2 + rvd**2 + rH**2)
             relative_residual_norm = absolute_residual_norm / initial_residual_norm
@@ -642,6 +745,7 @@ class FASCDSolver:
                       f"|r_vd| = {float(rvd):.2e}, "
                       f"|r_H| = {float(rH):.2e}")
             iteration += 1
+        return relative_residual_norm, absolute_residual_norm, iteration
 
         
     def vcycle(self, l, finest=False):
@@ -668,6 +772,7 @@ class FASCDSolver:
                 level.scratch.w_vd[:,:] = level.grid.state.vd.data[:,:]
             level.scratch.w_H[:,:] = level.grid.state.H.data[:,:]
             level.scratch.chi[:,:] = level.grid.geometry.thklim.value - level.grid.state.H.data
+            self.trace(l, 'start')
 
         if l == self.n_levels - 1:
             # Coarsest level: direct solve
@@ -695,6 +800,8 @@ class FASCDSolver:
                 freeze_calving=coarse and self._fas_config.freeze_coarse_calving,
                 freeze_phi=coarse and self._fas_config.freeze_coarse_phi)
         level.grid.forward_operators.gamma.fill(level.grid.geometry.thklim.value)
+        if finest:
+            self.trace(l, 'pre')
 
         # Compute coarse grid correction
         level.scratch.y_u[:,:] = level.grid.state.u.data - level.scratch.w_u
@@ -750,7 +857,16 @@ class FASCDSolver:
         if not ssa:
             mg.prolongate_vfacet(next_level.scratch.z_ud,level.scratch.z_ud,method='bilinear')
             mg.prolongate_hfacet(next_level.scratch.z_vd,level.scratch.z_vd,method='bilinear')
-        mg.prolongate_cell(next_level.scratch.z_H,level.scratch.z_H,method='injection')
+        mg.prolongate_cell(next_level.scratch.z_H,level.scratch.z_H,method=self.h_prolongation)
+        if self._corr_scale != 1.0:
+            # backtracking (FASCDConfig.backtrack): applied at every level
+            for z in (level.scratch.z_u, level.scratch.z_v, level.scratch.z_H):
+                z *= self._corr_scale
+            if not ssa:
+                level.scratch.z_ud *= self._corr_scale
+                level.scratch.z_vd *= self._corr_scale
+        if self.correction_hook is not None:
+            self.correction_hook(l, level)
 
         # Apply correction
         level.scratch.z_u[:,:] += level.scratch.y_u[:,:]
@@ -766,6 +882,8 @@ class FASCDSolver:
             level.grid.state.ud.data[:,:] = level.scratch.w_ud + level.scratch.z_ud
             level.grid.state.vd.data[:,:] = level.scratch.w_vd + level.scratch.z_vd
         level.grid.state.H.data[:,:] = level.scratch.w_H + level.scratch.z_H
+        if finest:
+            self.trace(l, 'coarse')
 
         # Post-smooth
         level.grid.forward_operators.gamma[:, :] = level.scratch.w_H + level.scratch.chi
@@ -775,10 +893,18 @@ class FASCDSolver:
         level.grid.forward_operators.gamma.fill(level.grid.geometry.thklim.value)
 
         if finest:
-            level.grid.forward_operators.vanka_sweep(self.dt,
-                self._fas_config.finest_steps,
-                freeze_phi=False,
-                freeze_calving=False)
+            self.trace(l, 'post')
+            n, chunk = self._fas_config.finest_steps, self._fas_config.trace_every
+            if not self._fas_config.trace_file:
+                chunk = n
+            done = 0
+            while done < n:
+                k = min(chunk, n - done)
+                level.grid.forward_operators.vanka_sweep(self.dt, k,
+                    freeze_phi=False,
+                    freeze_calving=False)
+                done += k
+                self.trace(l, f'fine{done}')
 
 class FASCDScratch:
     def __init__(self,grid):
@@ -814,6 +940,26 @@ class FASCDLevel:
 class FASCDConfig:
     freeze_coarse_calving: bool = True
     freeze_coarse_phi: bool = True
+    # Diagnostics (FASCDSolver.trace): CSV file receiving, at fixed points of
+    # every finest-level V-cycle, the residual split by cell class; None = off.
+    # trace_every = the chunk (sweeps) at which the finest sweeps are traced.
+    trace_file: str | None = None
+    trace_every: int = 25
+    # Save-and-replay (glide/dump.py): directory receiving the starting state
+    # of every solve that ends unconverged or non-finite, at most dump_max
+    # files per solver; None = off.
+    dump_dir: str | None = None
+    dump_max: int = 5
+    # Backtracking coarse correction: accept a V-cycle only if it lowers the
+    # finest-level residual norm; otherwise restore the state and repeat it
+    # with every prolongated coarse correction scaled by the next entry of
+    # backtrack_scales (the last, 0, is pure smoothing and is kept whatever
+    # it gives). Near the calving fronts the coarse grids cannot represent
+    # the thin, fast aprons (a boundary layer of length u tau), and their
+    # thickness correction there can be O(1) wrong -- the cause of the
+    # stalls / divergences that extra finest sweeps were absorbing.
+    backtrack: bool = False
+    backtrack_scales: tuple = (1.0, 0.5, 0.25, 0.0)
     coarsest_steps: int = 200
     pre_steps: int = 10
     post_steps: int = 20
@@ -845,6 +991,12 @@ class FASCDOptions:
 
         self.options = ['freeze_coarse_calving',
             'freeze_coarse_phi',
+            'trace_file',
+            'trace_every',
+            'dump_dir',
+            'dump_max',
+            'backtrack',
+            'backtrack_scales',
             'coarsest_steps',
             'pre_steps',
             'post_steps',
@@ -859,6 +1011,36 @@ class FASCDOptions:
             getter=lambda: self._config.freeze_coarse_phi,
             setter=lambda v: setattr(self._config, "freeze_coarse_phi", v),
             name="freeze_coarse_phi",
+        )
+        self.backtrack = LocalOption(
+            getter=lambda: self._config.backtrack,
+            setter=lambda v: setattr(self._config, "backtrack", v),
+            name="backtrack",
+        )
+        self.backtrack_scales = LocalOption(
+            getter=lambda: self._config.backtrack_scales,
+            setter=lambda v: setattr(self._config, "backtrack_scales", v),
+            name="backtrack_scales",
+        )
+        self.dump_dir = LocalOption(
+            getter=lambda: self._config.dump_dir,
+            setter=lambda v: setattr(self._config, "dump_dir", v),
+            name="dump_dir",
+        )
+        self.dump_max = LocalOption(
+            getter=lambda: self._config.dump_max,
+            setter=lambda v: setattr(self._config, "dump_max", v),
+            name="dump_max",
+        )
+        self.trace_file = LocalOption(
+            getter=lambda: self._config.trace_file,
+            setter=lambda v: setattr(self._config, "trace_file", v),
+            name="trace_file",
+        )
+        self.trace_every = LocalOption(
+            getter=lambda: self._config.trace_every,
+            setter=lambda v: setattr(self._config, "trace_every", v),
+            name="trace_every",
         )
         self.coarsest_steps = LocalOption(
             getter=lambda: self._config.coarsest_steps,
