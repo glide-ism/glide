@@ -26,6 +26,8 @@ void compute_flotation_fraction(
     float* __restrict__ dxi_dH,
     const float* __restrict__ H,
     const float* __restrict__ depth,
+    float N_floor_H,
+    float N_scale_H,
     float sigmoid_c,
     float relaxation_parameter,
     int ny, int nx,
@@ -41,7 +43,22 @@ void compute_flotation_fraction(
     float depth_c = get_cell(depth,i,j,ny,nx);
     float xi_old = xi[i * nx + j];
 
-    float xi_new = get_flotation_fraction(H_c, depth_c);
+    // xi_f = N / (rho_i g H): the flotation fraction (0 afloat, 1 on dry land)
+    float xi_f = get_flotation_fraction(H_c, depth_c);
+    float dxi_f = (xi_f > 0.0f && xi_f < 1.0f)
+        ? (1.0f - xi_f) / fmaxf(H_c, FLOTATION_H_MIN) : 0.0f;
+    // The drag's effective-pressure factor (sliding.N_scale_H, sliding.N_floor_H):
+    //   N_scale_H = 0  normalized, xi = N / (rho_i g H)   (thickness-insensitive on land)
+    //   N_scale_H > 0  dimensional with a floor, xi = N* / (rho_i g N_scale_H),
+    //                  N* = xi_f rho_i g (H + N_floor_H): N itself on thick ice, bounded
+    //                  below by rho_i g N_floor_H on thin grounded ice, 0 at flotation;
+    //                  N_scale_H is a pure unit scale (degenerate with beta).
+    float xi_new = xi_f, dxi_new = dxi_f;
+    if (N_scale_H > 0.0f) {
+        float s = (fmaxf(H_c, 0.0f) + N_floor_H) / N_scale_H;
+        xi_new = xi_f * s;
+        dxi_new = dxi_f * s + xi_f / N_scale_H;
+    }
 
     xi[i * nx + j] = (1.0f - relaxation_parameter) * xi_new + relaxation_parameter * xi_old;
 
@@ -52,8 +69,7 @@ void compute_flotation_fraction(
     // fractional xi near 0 for which (1 - xi)/H ~ 1/H is both wrong and
     // maximal, and with a large beta that makes the coarse adjoint smoother
     // unstable. The multigrid restricts this field alongside xi instead.
-    dxi_dH[i * nx + j] = (xi_new > 0.0f && xi_new < 1.0f)
-        ? (1.0f - xi_new) / fmaxf(H_c, FLOTATION_H_MIN) : 0.0f;
+    dxi_dH[i * nx + j] = dxi_new;
 }
 
 extern "C" __global__

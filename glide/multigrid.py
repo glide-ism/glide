@@ -116,6 +116,9 @@ class Multigrid:
         coarse_grid.sliding.u_reg.set(fine_grid.sliding.u_reg.value)
         coarse_grid.sliding.water_drag.set(fine_grid.sliding.water_drag.value)
         coarse_grid.sliding.p.set(fine_grid.sliding.p.value)
+        coarse_grid.sliding.u0.set(fine_grid.sliding.u0.value)
+        coarse_grid.sliding.N_scale_H.set(fine_grid.sliding.N_scale_H.value)
+        coarse_grid.sliding.N_floor_H.set(fine_grid.sliding.N_floor_H.value)
 
     def restrict_calving(self,fine_grid,coarse_grid):
         coarse_grid.calving.timescale.set(fine_grid.calving.timescale.value)
@@ -451,6 +454,7 @@ class MGGeometryManager:
             name="depth",
         )
 
+
         self.sigmoid_c = HierarchyFieldManager(
             mg.levels,
             getter=lambda g: g.geometry.sigmoid_c,
@@ -536,6 +540,27 @@ class MGSlidingManager:
             getter=lambda g: g.sliding.p,
             restrict=lambda f,c: c.set(f.value),
             name="p",
+        )
+
+        self.u0 = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.sliding.u0,
+            restrict=lambda f,c: c.set(f.value),
+            name="u0",
+        )
+
+        self.N_scale_H = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.sliding.N_scale_H,
+            restrict=lambda f,c: c.set(f.value),
+            name="N_scale_H",
+        )
+
+        self.N_floor_H = HierarchyFieldManager(
+            mg.levels,
+            getter=lambda g: g.sliding.N_floor_H,
+            restrict=lambda f,c: c.set(f.value),
+            name="N_floor_H",
         )
 
     def __repr__(self):

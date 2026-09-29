@@ -141,8 +141,39 @@ class Sliding:
         )
 
 
+    u0: Constant = field(
+        default_factory=lambda: Constant(
+            value=cp.float32(0.0),
+            name='u0',
+            units='m a^{-1}',
+            attrs={'long_name': ("regularized-Coulomb transition speed: the drag is \
+                                  beta xi^p |u|^m (u0 / (|u| + u0))^m, Weertman below u0 \
+                                  and capped at beta xi^p u0^m above it; 0 = Weertman")})
+        )
+
+    N_scale_H: Constant = field(
+        default_factory=lambda: Constant(
+            value=cp.float32(0.0),
+            name='N_scale_H',
+            units='m',
+            attrs={'long_name': ("> 0: dimensional effective pressure in the drag, \
+                                  xi = xi_f (H + N_floor_H) / N_scale_H with xi_f the \
+                                  flotation fraction (a pure unit scale, degenerate with \
+                                  beta); 0 = the normalized xi = N / (rho_i g H)")})
+        )
+
+    N_floor_H: Constant = field(
+        default_factory=lambda: Constant(
+            value=cp.float32(0.0),
+            name='N_floor_H',
+            units='m',
+            attrs={'long_name': ("thickness floor of the dimensional effective pressure: \
+                                  N* = xi_f rho_i g (H + N_floor_H) keeps drag on thin \
+                                  grounded ice (used when N_scale_H > 0)")})
+        )
+
     def __repr__(self):
-        return f'{self.beta.compact_string}\n{self.m}\n{self.u_reg}\n{self.water_drag}\n{self.p}'
+        return f'{self.beta.compact_string}\n{self.m}\n{self.u_reg}\n{self.water_drag}\n{self.p}\n{self.u0}\n{self.N_scale_H}\n{self.N_floor_H}'
 
 @dataclass
 class Calving:
@@ -489,6 +520,7 @@ class Grid:
             name='depth',
             units='m',
             attrs={'long_name':'water depth'})
+
         return Geometry(bed=bed,depth=depth)
 
     def _allocate_rheology(self):

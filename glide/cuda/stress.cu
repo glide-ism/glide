@@ -1,3 +1,25 @@
+// Basal drag speed dependence, S = |u_b|^2 + u_reg:
+//   u0 = 0  Weertman, K(S) = S^((m-1)/2), tau_b = beta xi^p |u|^m;
+//   u0 > 0  regularized Coulomb (m/yr), K(S) = S^((m-1)/2) (u0 / (sqrt(S) + u0))^m,
+//           tau_b = beta xi^p |u|^m (u0 / (|u| + u0))^m: Weertman for |u| << u0 and the
+//           Coulomb limit beta xi^p u0^m for |u| >> u0 (proportional to N through xi
+//           with the dimensional form, sliding.N_scale_H > 0).
+// Returns K and dK/dS; every drag evaluation (residual, Vanka, JVP, gradients)
+// goes through here.
+__device__ __forceinline__ void drag_speed_factor(const float S, const float m, const float u0, float* K, float* dK)
+{
+    float Kw = __powf(S, (m - 1.0f) / 2.0f);
+    if (u0 > 0.0f) {
+        float sq = sqrtf(S);
+        float R = __powf(u0 / (sq + u0), m);
+        *K = Kw * R;
+        *dK = (*K) * ((m - 1.0f) / (2.0f * S) - m / (2.0f * sq * (sq + u0)));
+    } else {
+        *K = Kw;
+        *dK = (m - 1.0f) / 2.0f * __powf(S, (m - 1.0f) / 2.0f - 1.0f);
+    }
+}
+
 struct SigmaVertXZStencil {
     float u_c;
     float eta_l, eta_r;
@@ -433,6 +455,7 @@ struct TauBxStencil {
     float u_reg;
     float water_drag;
     float p;
+    float u0;          // regularized-Coulomb transition speed (m/yr); 0 = Weertman
 };
 
 struct TauBxStencilDual {
@@ -446,15 +469,16 @@ struct TauBxStencilDual {
     float u_reg;
     float water_drag;
     float p;
+    float u0;          // regularized-Coulomb transition speed (m/yr); 0 = Weertman
 
     __device__ __forceinline__
     TauBxStencil get_primals() const {
-        return {u_c.v,u_l.v,u_r.v,v_tl.v,v_tr.v,v_bl.v,v_br.v,H_l.v,H_r.v,xi_l,xi_r,dxi_l,dxi_r,beta_l,beta_r,m,u_reg,water_drag,p};
+        return {u_c.v,u_l.v,u_r.v,v_tl.v,v_tr.v,v_bl.v,v_br.v,H_l.v,H_r.v,xi_l,xi_r,dxi_l,dxi_r,beta_l,beta_r,m,u_reg,water_drag,p,u0};
     }
 
     __device__ __forceinline__
     TauBxStencil get_diffs() const {
-        return {u_c.d,u_l.d,u_r.d,v_tl.d,v_tr.d,v_bl.d,v_br.d,H_l.d,H_r.d,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+        return {u_c.d,u_l.d,u_r.d,v_tl.d,v_tr.d,v_bl.d,v_br.d,H_l.d,H_r.d,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
     }
 
 };
@@ -498,11 +522,11 @@ TauBxJacobian get_tau_bx_jac(
     float unorm_sq_l = 0.5f * (s.u_l * s.u_l + s.u_c * s.u_c + s.v_tl * s.v_tl + s.v_bl * s.v_bl);
     float unorm_sq_r = 0.5f * (s.u_c * s.u_c + s.u_r * s.u_r + s.v_tr * s.v_tr + s.v_br * s.v_br);
 
-    float unorm_sq_pow_l = __powf(unorm_sq_l + s.u_reg, (s.m - 1.0f)/2.0f);
-    float unorm_sq_pow_r = __powf(unorm_sq_r + s.u_reg, (s.m - 1.0f)/2.0f);
+    float unorm_sq_pow_l, unorm_sq_deriv_l;
+    drag_speed_factor(unorm_sq_l + s.u_reg, s.m, s.u0, &unorm_sq_pow_l, &unorm_sq_deriv_l);
+    float unorm_sq_pow_r, unorm_sq_deriv_r;
+    drag_speed_factor(unorm_sq_r + s.u_reg, s.m, s.u0, &unorm_sq_pow_r, &unorm_sq_deriv_r);
 
-    float unorm_sq_deriv_l = (s.m - 1.0f)/2.0f * __powf(unorm_sq_l + s.u_reg, (s.m - 1.0f)/2.0f - 1.0f);
-    float unorm_sq_deriv_r = (s.m - 1.0f)/2.0f * __powf(unorm_sq_r + s.u_reg, (s.m - 1.0f)/2.0f - 1.0f);
     
     float coeff = 0.5f * (beta_eff_l * unorm_sq_pow_l + beta_eff_r * unorm_sq_pow_r) + s.water_drag;
 
@@ -555,6 +579,7 @@ struct TauByStencil {
     float u_reg;
     float water_drag;
     float p;
+    float u0;          // regularized-Coulomb transition speed (m/yr); 0 = Weertman
 };
 
 struct TauByStencilDual {
@@ -568,15 +593,16 @@ struct TauByStencilDual {
     float u_reg;
     float water_drag;
     float p;
+    float u0;          // regularized-Coulomb transition speed (m/yr); 0 = Weertman
 
     __device__ __forceinline__
     TauByStencil get_primals() const {
-        return {v_c.v, v_t.v, v_b.v ,u_tl.v,u_tr.v,u_bl.v,u_br.v,H_t.v,H_b.v,xi_t,xi_b,dxi_t,dxi_b,beta_t,beta_b,m,u_reg,water_drag,p};
+        return {v_c.v, v_t.v, v_b.v ,u_tl.v,u_tr.v,u_bl.v,u_br.v,H_t.v,H_b.v,xi_t,xi_b,dxi_t,dxi_b,beta_t,beta_b,m,u_reg,water_drag,p,u0};
     }
 
     __device__ __forceinline__
     TauByStencil get_diffs() const {
-        return {v_c.d, v_t.d, v_b.d, u_tl.d,u_tr.d,u_bl.d,u_br.d,H_t.d,H_b.d,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+        return {v_c.d, v_t.d, v_b.d, u_tl.d,u_tr.d,u_bl.d,u_br.d,H_t.d,H_b.d,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
     }
 
 };
@@ -620,11 +646,11 @@ TauByJacobian get_tau_by_jac(
     float unorm_sq_t = 0.5f * (s.v_t * s.v_t + s.v_c * s.v_c + s.u_tl * s.u_tl + s.u_tr * s.u_tr); 
     float unorm_sq_b = 0.5f * (s.v_c * s.v_c + s.v_b * s.v_b + s.u_bl * s.u_bl + s.u_br * s.u_br); 
 
-    float unorm_sq_pow_t = __powf(unorm_sq_t + s.u_reg,(s.m - 1.0f)/2.0f);
-    float unorm_sq_pow_b = __powf(unorm_sq_b + s.u_reg,(s.m - 1.0f)/2.0f);
+    float unorm_sq_pow_t, unorm_sq_deriv_t;
+    drag_speed_factor(unorm_sq_t + s.u_reg, s.m, s.u0, &unorm_sq_pow_t, &unorm_sq_deriv_t);
+    float unorm_sq_pow_b, unorm_sq_deriv_b;
+    drag_speed_factor(unorm_sq_b + s.u_reg, s.m, s.u0, &unorm_sq_pow_b, &unorm_sq_deriv_b);
 
-    float unorm_sq_deriv_t = (s.m - 1.0f)/2.0f * __powf(unorm_sq_t + s.u_reg,(s.m - 1.0f)/2.0f - 1.0f);
-    float unorm_sq_deriv_b = (s.m - 1.0f)/2.0f * __powf(unorm_sq_b + s.u_reg,(s.m - 1.0f)/2.0f - 1.0f);
 
     float coeff = 0.5f * (beta_eff_t * unorm_sq_pow_t + beta_eff_b * unorm_sq_pow_b) + s.water_drag;
 

@@ -129,7 +129,7 @@ __device__ void build_9x9_vanka(
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
     float n, float eps_reg, float H_reg, float sigmoid_c,
-    float m, float u_reg, float water_drag, float p,
+    float m, float u_reg, float water_drag, float p, float u0,
     float calving_rate,
     float dx, float dt,
     int ny, int nx,
@@ -628,7 +628,7 @@ __device__ void build_9x9_vanka(
     float xi_c = get_cell(xi,i,j,ny,nx);
     float dxi_c = get_cell(dxi_dH,i,j,ny,nx);
 
-    TauBxJacobian tau_bx_l = get_tau_bx_jac({ub_l,ub_ll,ub_r,vb_tl,vb_t,vb_bl,vb_b,H_l,H_c,xi_l,xi_c,dxi_l,dxi_c,beta_l,beta_c,m,u_reg,water_drag,p});
+    TauBxJacobian tau_bx_l = get_tau_bx_jac({ub_l,ub_ll,ub_r,vb_tl,vb_t,vb_bl,vb_b,H_l,H_c,xi_l,xi_c,dxi_l,dxi_c,beta_l,beta_c,m,u_reg,water_drag,p,u0});
 
     // Residual for averaged component
     r[4] += tau_bx_l.res;
@@ -700,7 +700,7 @@ __device__ void build_9x9_vanka(
     float xi_r = get_cell(xi,i,j+1,ny,nx);
     float dxi_r = get_cell(dxi_dH,i,j+1,ny,nx);
 
-    TauBxJacobian tau_bx_r = get_tau_bx_jac({ub_r,ub_l,ub_rr,vb_t,vb_tr,vb_b,vb_br,H_c,H_r,xi_c,xi_r,dxi_c,dxi_r,beta_c,beta_r,m,u_reg,water_drag,p});
+    TauBxJacobian tau_bx_r = get_tau_bx_jac({ub_r,ub_l,ub_rr,vb_t,vb_tr,vb_b,vb_br,H_c,H_r,xi_c,xi_r,dxi_c,dxi_r,beta_c,beta_r,m,u_reg,water_drag,p,u0});
     r[5] += tau_bx_r.res;
     
     J[45] -= tau_bx_r.d_u_l;
@@ -761,7 +761,7 @@ __device__ void build_9x9_vanka(
     float xi_c = get_cell(xi,i,j,ny,nx);
     float dxi_c = get_cell(dxi_dH,i,j,ny,nx);
 
-    TauByJacobian tau_by_t = get_tau_by_jac({vb_t,vb_tt,vb_b,ub_tl,ub_tr,ub_l,ub_r,H_t,H_c,xi_t,xi_c,dxi_t,dxi_c,beta_t,beta_c,m,u_reg,water_drag,p});
+    TauByJacobian tau_by_t = get_tau_by_jac({vb_t,vb_tt,vb_b,ub_tl,ub_tr,ub_l,ub_r,H_t,H_c,xi_t,xi_c,dxi_t,dxi_c,beta_t,beta_c,m,u_reg,water_drag,p,u0});
     r[6]  += tau_by_t.res;
     
     J[54] -= tau_by_t.d_u_bl;
@@ -824,7 +824,7 @@ __device__ void build_9x9_vanka(
     float xi_b = get_cell(xi,i+1,j,ny,nx);
     float dxi_b = get_cell(dxi_dH,i+1,j,ny,nx);
 
-    TauByJacobian tau_by_b = get_tau_by_jac({vb_b,vb_t,vb_bb,ub_l,ub_r,ub_bl,ub_br,H_c,H_b,xi_c,xi_b,dxi_c,dxi_b,beta_c,beta_b,m,u_reg,water_drag,p});
+    TauByJacobian tau_by_b = get_tau_by_jac({vb_b,vb_t,vb_bb,ub_l,ub_r,ub_bl,ub_br,H_c,H_b,xi_c,xi_b,dxi_c,dxi_b,beta_c,beta_b,m,u_reg,water_drag,p,u0});
     r[7]  += tau_by_b.res;
 
     J[63] -= tau_by_b.d_u_tl;
@@ -924,7 +924,7 @@ void vanka_smooth(
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
     float n, float eps_reg, float H_reg, float sigmoid_c,
-    float m, float u_reg, float water_drag, float p,
+    float m, float u_reg, float water_drag, float p, float u0,
     float calving_rate,
     float dx, float dt,
     int ny, int nx, int stride, int halo,
@@ -1004,7 +1004,7 @@ void vanka_smooth(
 		    u, v, ud, vd, H, eta_local, phi, psi, dpsi_dH, xi, dxi_dH,
                     bed, B, beta, gamma,
 		    n, eps_reg, H_reg, sigmoid_c,
-                    m, u_reg, water_drag, p,
+                    m, u_reg, water_drag, p, u0,
 		    calving_rate,
                     dx, dt, ny, nx, i, j, bi, bj);
             
@@ -1271,7 +1271,7 @@ void vanka_smooth_adjoint(
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
     float n, float eps_reg, float H_reg, float sigmoid_c,
-    float m, float u_reg, float water_drag, float p,
+    float m, float u_reg, float water_drag, float p, float u0,
     float calving_rate,
     float dx, float dt,
     int ny, int nx, int stride, int halo,
@@ -1323,7 +1323,7 @@ void vanka_smooth_adjoint(
 		u, v, ud, vd, H, eta_local, phi, psi, dpsi_dH, xi, dxi_dH,
 		bed, B, beta, gamma,
 		n, eps_reg, H_reg, sigmoid_c,
-		m, u_reg, water_drag, p,
+		m, u_reg, water_drag, p, u0,
 		calving_rate,
 		dx, dt, ny, nx, i, j, bi, bj);
 
@@ -1503,7 +1503,7 @@ void vanka_dump(
     const float* __restrict__ beta,
     const float* __restrict__ gamma,
     float n, float eps_reg, float H_reg, float sigmoid_c,
-    float m, float u_reg, float water_drag, float p,
+    float m, float u_reg, float water_drag, float p, float u0,
     float calving_rate,
     float dx, float dt,
     int ny, int nx, int stride, int halo, bool ssa)
@@ -1551,7 +1551,7 @@ void vanka_dump(
 	    u, v, ud, vd, H, eta_local, phi, psi, dpsi_dH, xi, dxi_dH,
 	    bed, B, beta, gamma,
 	    n, eps_reg, H_reg, sigmoid_c,
-	    m, u_reg, water_drag, p,
+	    m, u_reg, water_drag, p, u0,
 	    calving_rate,
 	    dx, dt, ny, nx, i, j, bi, bj);
 	

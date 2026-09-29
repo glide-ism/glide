@@ -20,6 +20,7 @@ def calving_rate(calving, freeze=False):
     return cp.float32(1.0/tau)   # 1/inf == 0: calving off
 
 
+
 class ForwardOperators:
     def __init__(self,grid,
             use_fast_math=True):
@@ -145,7 +146,7 @@ class ForwardOperators:
                 rheology.n.value, rheology.eps_reg.value, rheology.H_reg.value,
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value, 
-                sliding.water_drag.value, sliding.p.value,
+                sliding.water_drag.value, sliding.p.value, sliding.u0.value,
                 rate,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo)) 
@@ -191,7 +192,7 @@ class ForwardOperators:
                 rheology.n.value, rheology.eps_reg.value, rheology.H_reg.value,
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value,
-                sliding.water_drag.value, sliding.p.value,
+                sliding.water_drag.value, sliding.p.value, sliding.u0.value,
                 rate,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo))
@@ -222,7 +223,8 @@ class ForwardOperators:
         kernel(grid_size, block_size,
                    (grid.state.xi.data,
                     grid.state.dxi_dH.data,
-                    grid.state.H.data, grid.geometry.depth.data, 
+                    grid.state.H.data, grid.geometry.depth.data,
+                    grid.sliding.N_floor_H.value, grid.sliding.N_scale_H.value,
                     grid.geometry.sigmoid_c.value,
                     relaxation,
                     grid.ny, grid.nx, 
@@ -287,7 +289,7 @@ class ForwardOperators:
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value,
                 sliding.water_drag.value,
-                sliding.p.value,
+                sliding.p.value, sliding.u0.value,
                 rate,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
@@ -325,7 +327,7 @@ class ForwardOperators:
                 self.f_u, self.f_v, self.f_ud, self.f_vd, self.f_H,
                 grid.geometry.bed.data, grid.rheology.B.data, grid.sliding.beta.data, self.gamma,
                 grid.rheology.n.value, grid.rheology.eps_reg.value, grid.rheology.H_reg.value, grid.geometry.sigmoid_c.value,
-                grid.sliding.m.value, grid.sliding.u_reg.value, grid.sliding.water_drag.value, grid.sliding.p.value,
+                grid.sliding.m.value, grid.sliding.u_reg.value, grid.sliding.water_drag.value, grid.sliding.p.value, grid.sliding.u0.value,
                 calving_rate(grid.calving),
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
@@ -595,7 +597,7 @@ class AdjointOperators:
                 rheology.n.value, rheology.eps_reg.value, rheology.H_reg.value,
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value,
-                sliding.water_drag.value, sliding.p.value,
+                sliding.water_drag.value, sliding.p.value, sliding.u0.value,
                 rate,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo))
@@ -673,7 +675,7 @@ class AdjointOperators:
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value,
                 sliding.water_drag.value,
-                sliding.p.value,
+                sliding.p.value, sliding.u0.value,
                 rate,
                 grid.dx, dt,
                 grid.ny, grid.nx, stride, halo,
@@ -735,7 +737,7 @@ class AdjointOperators:
                 rheology.n.value, rheology.eps_reg.value, 
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value, 
-                sliding.water_drag.value, sliding.p.value,
+                sliding.water_drag.value, sliding.p.value, sliding.u0.value,
                 calving_rate(calving),
                 grid.dx, cp.float32(0.0),
                 grid.ny, grid.nx, stride, halo)) 
@@ -767,7 +769,7 @@ class AdjointOperators:
                 rheology.n.value, rheology.eps_reg.value, 
                 geometry.sigmoid_c.value,
                 sliding.m.value, sliding.u_reg.value, 
-                sliding.water_drag.value, sliding.p.value,
+                sliding.water_drag.value, sliding.p.value, sliding.u0.value,
                 calving_rate(calving),
                 grid.dx, cp.float32(0.0),
                 grid.ny, grid.nx, stride, halo)) 

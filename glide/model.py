@@ -98,6 +98,11 @@ class IceDynamics:
         return converged
 
 
+
+def _coulomb_factor(S, m, u0):
+    """(u0 / (sqrt(S) + u0))^m of stress.cu's drag_speed_factor (1 for Weertman, u0 = 0)."""
+    return 1.0 if u0 <= 0 else (u0 / (cp.sqrt(S) + u0)) ** m
+
 class ThermalModel:
     """
     Enthalpy solver for coupled momentum/thermal simulations (ported from the
@@ -297,7 +302,8 @@ class ThermalModel:
         u_reg = float(sliding.u_reg.value)
         scale = cp.float32(self.rho_i * self.g / self.SEC_PER_YR)  # head->Pa, /yr->/s
         self.ops.enthalpy_forcing.Q_fh[:] = (
-            scale * self._drag_coefficient() * (speed2 + u_reg) ** ((m - 1.0) / 2.0) * speed2)
+            scale * self._drag_coefficient() * (speed2 + u_reg) ** ((m - 1.0) / 2.0) * speed2
+            * _coulomb_factor(speed2 + u_reg, m, float(sliding.u0.value)))
 
     def _compute_strain_heating(self):
         """Fill phi_strain [W/m^3] with the deformational (shear) heating.
@@ -329,7 +335,8 @@ class ThermalModel:
         us = cp.hypot(0.5 * (usx[:, 1:] + usx[:, :-1]), 0.5 * (usy[1:] + usy[:-1]))
         H = cp.maximum(grid.state.H.data, 1.0)
         tau_b = (cp.float32(self.rho_i * self.g) * self._drag_coefficient()
-                 * (ub**2 + u_reg) ** ((m - 1.0) / 2.0) * ub)            # Pa
+                 * (ub**2 + u_reg) ** ((m - 1.0) / 2.0) * ub
+                 * _coulomb_factor(ub**2 + u_reg, m, float(sliding.u0.value)))                   # Pa
         dU = cp.maximum(us - ub, 0.0) / cp.float32(self.SEC_PER_YR)     # m/s
         pref = tau_b * dU * (n + 1.0) / H                              # W/m^3 at the bed
         for k in range(self.ops.nz):

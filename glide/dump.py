@@ -33,7 +33,7 @@ _FACET_FIELDS = ('u', 'v', 'ud', 'vd')
 _CONSTANTS = {
     'geometry': ('thklim', 'sigmoid_c'),
     'rheology': ('n', 'eps_reg', 'H_reg'),
-    'sliding': ('m', 'u_reg', 'water_drag', 'p'),
+    'sliding': ('m', 'u_reg', 'water_drag', 'p', 'u0', 'N_scale_H', 'N_floor_H'),
     'calving': ('timescale', 'H_c'),
 }
 
