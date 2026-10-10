@@ -14,6 +14,14 @@ void compute_grounded(
 
     if (i < 0 || i >= ny || j<0 || j >= nx) return;
 
+    // Tiles overlap by the halo, so halo threads must not write: with
+    // relaxation_parameter > 0 the update reads the old value in place and a
+    // cell written by two blocks would be relaxed once or twice in launch
+    // order (non-deterministic). Same interior test as vanka / residuals.
+    bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
+                     (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
+    if (!is_active) return;
+
     float H_c = get_cell(H,i,j,ny,nx);
     float depth_c = get_cell(depth,i,j,ny,nx);
     float grounded_old = grounded[i * nx + j];
@@ -38,6 +46,11 @@ void compute_flotation_fraction(
     int i = blockIdx.y * stride + (threadIdx.y - halo);    
 
     if (i < 0 || i >= ny || j<0 || j >= nx) return;
+
+    // interior threads only (see compute_grounded)
+    bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
+                     (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
+    if (!is_active) return;
 
     float H_c = get_cell(H,i,j,ny,nx);
     float depth_c = get_cell(depth,i,j,ny,nx);
@@ -92,6 +105,11 @@ void compute_calving_flag(
     int i = blockIdx.y * stride + (threadIdx.y - halo);
 
     if (i < 0 || i >= ny || j<0 || j >= nx) return;
+
+    // interior threads only (see compute_grounded)
+    bool is_active = (threadIdx.x >= halo && threadIdx.x < blockDim.x - halo) &&
+                     (threadIdx.y >= halo && threadIdx.y < blockDim.y - halo);
+    if (!is_active) return;
 
     float H_c = get_cell(H,i,j,ny,nx);
     float depth_c = get_cell(depth,i,j,ny,nx);
