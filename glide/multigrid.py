@@ -688,6 +688,9 @@ class FASCDSolver:
         # float as float64, silently misaligning every argument after dt
         dt = cp.float32(dt)
         self.dt = dt
+        theta = self._fas_config.coarse_thinning_fraction
+        if not 0.0 <= float(theta) <= 1.0:
+            raise ValueError(f'coarse_thinning_fraction must lie in [0, 1] (admissibility), got {theta}')
 
         start_level_ = self.multigrid.levels[start_level]
         cold_dt = self._fas_config.cold_start_dt
@@ -854,6 +857,9 @@ class FASCDSolver:
 
         # Restrict constraint defect
         mg.restrict_cell(level.scratch.chi, next_level.scratch.chi, method='max')
+        theta = self._fas_config.coarse_thinning_fraction
+        if theta != 1.0:
+            next_level.scratch.chi *= cp.float32(theta)
 
         # Prolongate and compute local constraint adjustment
         mg.prolongate_cell(-next_level.scratch.chi, level.scratch.phi, method='injection')
@@ -1043,6 +1049,19 @@ class FASCDConfig:
     # Greenland runs at dt 25). None = off.
     cold_start_dt: float | None = None
     backtrack_scales: tuple = (1.0, 0.5, 0.25, 0.0)
+    # Split of the thinning room between coarse correction and pre-smoother:
+    # the coarse obstacle is chi_c = coarse_thinning_fraction * max_block(chi)
+    # (chi = thklim - H <= 0). With injection the fine part
+    # phi = chi - P chi_c and the coarse part sum to chi exactly, and zero
+    # stays feasible in both for any value in [0, 1], so H >= thklim holds.
+    # 1 is standard FASCD: the coarse grid gets all of each block minimum's
+    # room above thklim, and the block's thinnest cell cannot thin at all in
+    # pre-smoothing (10-12 % of Greenland's thick ice pinned in thinning
+    # steps). Below 1 the pre-smoother keeps a share of it; blocks touching
+    # the bound (max_block chi = 0) are unaffected. 0.9 removed the pinning
+    # and the Scoresby Sund coarse burst on the 900 m example
+    # (talks/experiments/pinning.py); 0.5 starves the coarse grid.
+    coarse_thinning_fraction: float = 1.0
     coarsest_steps: int = 200
     pre_steps: int = 10
     post_steps: int = 20
@@ -1080,6 +1099,7 @@ class FASCDOptions:
             'dump_max',
             'backtrack',
             'backtrack_scales',
+            'coarse_thinning_fraction',
             'raise_on_nonfinite',
             'cold_start_dt',
             'coarsest_steps',
@@ -1116,6 +1136,11 @@ class FASCDOptions:
             getter=lambda: self._config.backtrack_scales,
             setter=lambda v: setattr(self._config, "backtrack_scales", v),
             name="backtrack_scales",
+        )
+        self.coarse_thinning_fraction = LocalOption(
+            getter=lambda: self._config.coarse_thinning_fraction,
+            setter=lambda v: setattr(self._config, "coarse_thinning_fraction", v),
+            name="coarse_thinning_fraction",
         )
         self.dump_dir = LocalOption(
             getter=lambda: self._config.dump_dir,
