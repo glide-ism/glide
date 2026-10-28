@@ -60,7 +60,7 @@ else:
     beta = cp.zeros((ny,nx), dtype=cp.float32)
     beta.fill(2.5)
 
-beta[beta>50] = 50.0
+beta[beta>20] = 20.0
 
 mg.sliding.beta.set(beta)
 mg.sliding.m.set(1./3.)
@@ -86,13 +86,14 @@ mg.forcing.smb.set(smb)
 
 ### Set multigrid solver parameters ###
 model.forward_solver.fas_options.set(
-        coarsest_steps=200, pre_steps=10, 
-        post_steps=50, finest_steps=0,
+        coarsest_steps=200, pre_steps=50, 
+        post_steps=150, finest_steps=0,
         relative_tolerance=1e-3, absolute_tolerance=10.0,
         report_norms=True)
 
 model.forward_solver.vanka_options.omega.set(cp.float32(0.5))
-model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.01))
+model.forward_solver.vanka_options.relax_phi.set(cp.float32(0.0))
+model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.1))
 model.forward_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
 
 # Derived surface velocity fields: with the MOLHO ansatz the surface

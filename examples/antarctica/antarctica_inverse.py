@@ -42,7 +42,7 @@ mg.state.H_prev.set(thk)
 bed = gaussian_filter(dataset.bed.values,1)
 mg.geometry.bed.set(bed)
 mg.geometry.depth.set(-bed)
-mg.geometry.sigmoid_c.set(0.1)
+mg.geometry.sigmoid_c.set(1.0)
 
 ### Initialize rheology
 B = cp.zeros((ny,nx), dtype=cp.float32)
@@ -86,13 +86,13 @@ for j in range(1,n_levels):
 
 ### Set multigrid solver parameters ###
 model.forward_solver.fas_options.set(
-        coarsest_steps=200, pre_steps=10, 
+        coarsest_steps=200, pre_steps=50, 
         post_steps=150, finest_steps=0,
         relative_tolerance=1e-2, absolute_tolerance=10.0,
         report_norms=True)
 
 model.forward_solver.vanka_options.omega.set(cp.float32(0.5))
-model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.01))
+model.forward_solver.vanka_options.newton_options.momentum_damping.set(cp.float32(0.1))
 model.forward_solver.vanka_options.newton_options.step_tolerance.set(cp.float32(1e-6))
 
 model.adjoint_solver.fas_options.set(
