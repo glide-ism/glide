@@ -61,27 +61,29 @@ beta[beta>20] = 20
 
 mg.sliding.beta.set(beta)
 mg.sliding.m.set(1./3)
-#mg.sliding.u0.set(300.0)
+# Regularized-Coulomb transition speed (m/yr); 0 (default) = Weertman beta xi^p |u|^m.
+# Must match the value beta_opt.nc was inverted with (greenland_inverse.py).
+mg.sliding.u0.set(0.0)
 mg.sliding.water_drag.set(1.0e-4)
 
 ### Initialize calving
 # Decay timescale (years) of the non-conservative calving sink on
 # cells below the height-above-buoyancy threshold; cp.inf disables it
-mg.calving.timescale.set(cp.inf)
-mg.calving.h0.set(0.0)
+mg.calving.timescale.set(1.0)
+mg.calving.h0.set(50.0)
 mg.calving.H_c.set(100.0)   # floating ice thinner than this calves
 
 ### Initialize forcing
 smb = dataset.smb.values
-#smb += 1.0
-smb[:] = 0.0
+#smb -= 1.0
+#smb[:] = 0.0
 mg.forcing.smb.set(smb)
 
 ### Set multigrid solver parameters ###
 model.forward_solver.fas_options.set(
         coarsest_steps=200, pre_steps=50, 
-        post_steps=50, finest_steps=0,
-        relative_tolerance=1e-3, absolute_tolerance=10.0,
+        post_steps=150, finest_steps=0,
+        relative_tolerance=1e-2, absolute_tolerance=10.0,
         report_norms=True, freeze_coarse_calving=True,
         coarse_thinning_fraction=0.9)
 

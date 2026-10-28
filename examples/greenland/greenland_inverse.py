@@ -56,10 +56,13 @@ n_glen = 3.0
 
 ### Initialize sliding
 beta = cp.zeros((ny,nx), dtype=cp.float32)
-beta.fill(2.5)
+beta.fill(3.0)
 
 mg.sliding.beta.set(beta)
 mg.sliding.m.set(1./3.)
+# Regularized-Coulomb transition speed (m/yr); 0 (default) = Weertman beta xi^p |u|^m.
+# greenland_forward.py must use the same value with the beta inverted here.
+#mg.sliding.u0.set(300.0)
 mg.sliding.water_drag.set(1e-4)
 
 ### Initialize calving
