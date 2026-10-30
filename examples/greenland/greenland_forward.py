@@ -63,7 +63,7 @@ mg.sliding.beta.set(beta)
 mg.sliding.m.set(1./3)
 # Regularized-Coulomb transition speed (m/yr); 0 (default) = Weertman beta xi^p |u|^m.
 # Must match the value beta_opt.nc was inverted with (greenland_inverse.py).
-mg.sliding.u0.set(0.0)
+#mg.sliding.u0.set(0.0)
 mg.sliding.water_drag.set(1.0e-4)
 
 ### Initialize calving
